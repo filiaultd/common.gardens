@@ -1,11 +1,11 @@
 ---
-title: "50.compare.scan.nonscan.subsets"
+title: "50.compare.scan.nonscan.subsets.functions"
 author: "Daniele Filiault"
 date: "4/20/2021"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
+```{r setup, include=FALSE, purl=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_knit$set(root.dir = '/Volumes/field_experiments/adaptation_sweden/common.gardens/')
 
@@ -24,7 +24,7 @@ library(egg)
 source("99.geo.helper.fxns.R") ### has my genome plot function.
 
 #setwd("/groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens")
-setwd("/Volumes/field_experiments/adaptation_sweden/common.gardens/")
+#setwd("/Volumes/field_experiments/adaptation_sweden/common.gardens/")
 ```
 
 ## Introduction
@@ -32,16 +32,17 @@ setwd("/Volumes/field_experiments/adaptation_sweden/common.gardens/")
 Script 48 looks at patterns of beta versus home allele, home allele frequency, and difference between home and away allele frequency for selection scan datasets.  
 
 Here I would like to coplot these distributions and test whether there are significant differences in between scan subsets and the rest of the genome.
+Developing functions here, will do analysis in 50.compare.scan.nonscan.subsets.analysis.Rmd
 
 ## 1. Load AFD data
 
-```{r load data}
+```{r load data, purl=FALSE}
 ### allele frequency data from script 46.allele.freq.differences.Kgroups
 load("./data/pop.af.dat.Rdat")
 load("./data/allele.freq.GWAS.snps.Rdata") #afg
 ```
 
-```{r prep AFD data}
+```{r prep AFD data, purl=FALSE}
 ### combine AFD datasets
 colnames(pop.af.dat)[1:2] <- c("chrom", "pos")
 pos <- do.call(rbind,strsplit(rownames(afg),"_"))
@@ -54,6 +55,11 @@ af.dat <- merge(pop.af.dat, afg, by=c("chrom", "pos"), all=TRUE)
 ## 2. Add GWAS data and polarize by most frequent local allele
 
 Data ready to go.  Now for each GWAS result, need to load and prep data, then make boxplots.  Write functions for these
+```{r set GWAS results files, purl=FALSE}
+gwas.res.files.n <- c("./res/gemma_marginal/gemma_lmm_blup_RAM_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAM_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ADA_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ADA_2012.rds")
+gwas.res.files.s <- c("./res/gemma_marginal/gemma_lmm_blup_RAT_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAT_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ULL_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ULL_2012.rds")
+```
+
 
 ```{r data prep fxns}
 
@@ -113,35 +119,36 @@ short.p.name <- function(p.name){
 ```
 
 
-```{r polarizebetas}
-gwas.res.files.n <- c("./res/gemma_marginal/gemma_lmm_blup_RAM_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAM_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ADA_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ADA_2012.rds")
-gwas.res.files.s <- c("./res/gemma_marginal/gemma_lmm_blup_RAT_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAT_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ULL_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ULL_2012.rds")
+```{r polarizebetas, purl=FALSE}
+polarize.beta <- function(af.dat, gwas.res.files.n, gwas.res.files.s){
+  home.beta.n <- af.dat[,1:2]
+  for(up.f in gwas.res.files.n){
+    print(up.f)    
+    up.dat <- add.gwas(up.gwa.file=up.f, home.allele="ANORTH", away.allele="ASOUTH")
+    up.pheno <- get.p.name(up.gwa.file=up.f)
+    colnames(up.dat)[colnames(up.dat)=="home.beta"] <- up.pheno
+    home.beta.n <- merge(home.beta.n, up.dat[,colnames(up.dat)%in%c("chrom", "pos",up.pheno)], all=TRUE)
+  }
 
-home.beta.n <- af.dat[,1:2]
-for(up.f in gwas.res.files.n){
-  print(up.f)    
-  up.dat <- add.gwas(up.gwa.file=up.f, home.allele="ANORTH", away.allele="ASOUTH")
-  up.pheno <- get.p.name(up.gwa.file=up.f)
-  colnames(up.dat)[colnames(up.dat)=="home.beta"] <- up.pheno
-  home.beta.n <- merge(home.beta.n, up.dat[,colnames(up.dat)%in%c("chrom", "pos",up.pheno)], all=TRUE)
+  home.beta.s <- af.dat[,1:2]
+  for(up.f in gwas.res.files.s){
+    print(up.f)    
+    up.dat <- add.gwas(up.gwa.file=up.f, home.allele="ASOUTH", away.allele="ANORTH")
+    up.pheno <- get.p.name(up.gwa.file=up.f)
+    colnames(up.dat)[colnames(up.dat)=="home.beta"] <- up.pheno
+    home.beta.s <- merge(home.beta.s, up.dat[,colnames(up.dat)%in%c("chrom", "pos",up.pheno)], all=TRUE)
+  }
+
+  home.beta <- merge(home.beta.n, home.beta.s)
+  home.beta <- merge(home.beta,af.dat[,c(1,2,15:16)])
+  return(home.beta)
 }
 
-home.beta.s <- af.dat[,1:2]
-for(up.f in gwas.res.files.s){
-  print(up.f)    
-  up.dat <- add.gwas(up.gwa.file=up.f, home.allele="ASOUTH", away.allele="ANORTH")
-  up.pheno <- get.p.name(up.gwa.file=up.f)
-  colnames(up.dat)[colnames(up.dat)=="home.beta"] <- up.pheno
-  home.beta.s <- merge(home.beta.s, up.dat[,colnames(up.dat)%in%c("chrom", "pos",up.pheno)], all=TRUE)
-}
-
-home.beta <- merge(home.beta.n, home.beta.s)
-home.beta <- merge(home.beta,af.dat[,c(1,2,15:16)])
 ```
 
 ## Define a test dataset
 
-```{r test dataset}
+```{r test dataset, purl=FALSE}
 # prep data
 up.scan.file <- "./data/003.selection.scans/Swedish.genomes.paper.sweeps.simple.csv"
 up.scan.name <- "swedish.genomes"
@@ -150,14 +157,12 @@ sg.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
 sg.dat <- sg.dat[,1:2]
 colnames(sg.dat) <- c("chr", "pos")
 ss.dat <- sg.dat
-
-
 ```
 
 ## 3. Subset by genome scan data
 ```{r filter by scan data function}
 
-scan.snps <- function(ss.dat, win.size){
+scan.snps <- function(ss.dat, win.size, home.beta){
   ## add column to home.beta that says whether a SNP is in the dataset or not
   ss.dat$start <- ss.dat$pos-win.size
   ss.dat$stop <- ss.dat$pos+win.size
@@ -175,25 +180,13 @@ scan.snps <- function(ss.dat, win.size){
   return(home.beta.ss)
 }
 ## there is now a column called "scan" that ==TRUE if overlapping genome scan
-
-scan.beta <- scan.snps(ss.dat=ss.dat, win.size=10000)
 ```
 
 ## 4. Compare effect of home allele in scan vs nonscan data
 
 ```{r home allele difference scan/nonscan function}
-test.home.allele <- function(scan.beta){
-  #one-sided t-test mean beta >0
-  scan.pval <- apply(scan.beta[,3:10],2,function(x){
-    up.p <- summary(lm(x~scan.beta$scan))$coefficients[2,4]
-    return(up.p)
-    })
-  print(scan.pval) 
-  scan.pval <- scan.pval[match(c("ADA_2011", "ADA_2012", "RAM_2011", "RAM_2012", "ULL_2011", "ULL_2012", "RAT_2011", "RAT_2012"),names(scan.pval))]
-  #scan.pval <- format(scan.pval, digits=2)
-  return(scan.pval)
-}
 
+#turns pvalue to symbols
 pval.to.symbol <- function(ss.pvals){
   psym <- rep("ns",length(ss.pvals))
   psym[is.na(ss.pvals)] <- NA
@@ -204,14 +197,22 @@ pval.to.symbol <- function(ss.pvals){
   return(psym)
 }
 
-ss.pval <- test.home.allele(scan.beta=scan.beta)
-ss.pval.symb <- pval.to.symbol(ss.pval)
+test.home.allele <- function(scan.beta){
+  #one-sided t-test mean beta >0
+  scan.pval <- apply(scan.beta[,3:10],2,function(x){
+    up.p <- summary(lm(x~scan.beta$scan))$coefficients[2,4]
+    return(up.p)
+    })
+  print(scan.pval) 
+  scan.pval <- scan.pval[match(c("ADA_2011", "ADA_2012", "RAM_2011", "RAM_2012", "ULL_2011", "ULL_2012", "RAT_2011", "RAT_2012"),names(scan.pval))]
+  ss.pval.symb <- pval.to.symbol(scan.pval)
+  return(ss.pval.symb)
+}
 ```
 
 
 ```{r boxplot beta home allele scan function}
 ## boxplot of beta of home allele values
-scan.pval <- ss.pval.symb
 
 home.allele.diff.boxplot <- function(scan.beta, scan.pval, up.scan.name, win.size){
   #reshape data
@@ -236,8 +237,6 @@ home.allele.diff.boxplot <- function(scan.beta, scan.pval, up.scan.name, win.siz
   plot.name <- paste("./figures/50.figures/beta.home.allele.scan.nonscan",up.scan.name,win.size,"jpg",sep=".")
   ggsave(plot.name, plot=home.beta.plot, width=8, height=6, units="in")
 }
-
-#home.allele.diff.boxplot(scan.beta=scan.beta, scan.pval=ss.pval.symb, up.scan.name="swedishgenomes", win.size=10000)
 ```
 
 ## 5. Compare effect of home allele by frequency in scan vs nonscan data
@@ -270,6 +269,7 @@ test.af.boxplot <- function(home.allele, away.allele, gwas.files, scan.beta){
       return(ttx$p.value)
     })
     t.pvals <- do.call(rbind,t.pvals)
+    print(t.pvals)
     t.pvals <- pval.to.symbol(ss.pvals=t.pvals[,1])
     
     haf.boxplot <- ggplot(data = up.dat, mapping = aes(x=scan,y=home.beta, fill=scan)) + 
@@ -301,28 +301,12 @@ scan.nonscan.af.plot.output <- function(n.comp.af.boxplots, s.comp.af.boxplots, 
   comp.plot <- plot_grid(n.comp.af.boxplots[[3]], n.comp.af.boxplots[[1]], s.comp.af.boxplots[[3]], s.comp.af.boxplots[[1]], n.comp.af.boxplots[[4]], n.comp.af.boxplots[[2]], s.comp.af.boxplots[[4]], s.comp.af.boxplots[[2]], ncol = 4, align="v", axis="rl")
   ggsave(file=plot.file, comp.plot, width=24, height=10, units="in")
 }
-
-### test these
-
-home.allele <- "ANORTH"
-away.allele <- "ASOUTH"
-gwas.files=gwas.res.files.n
-scan.beta=scan.beta
-n.comp.af.boxplots <- test.af.boxplot(home.allele=home.allele, away.allele=away.allele, gwas.files=gwas.files, scan.beta=scan.beta)
-
-home.allele <- "ASOUTH"
-away.allele <- "ANORTH"
-gwas.files=gwas.res.files.s
-scan.beta=scan.beta
-s.comp.af.boxplots <- test.af.boxplot(home.allele=home.allele, away.allele=away.allele, gwas.files=gwas.files, scan.beta=scan.beta)
-
-scan.nonscan.af.plot.output(n.comp.af.boxplots=n.comp.af.boxplots, s.comp.af.boxplots=s.comp.af.boxplots, up.scan.name="swedishgenomes", win.size=10000)
 ```
 
 
 ## 6. Compare effect of home allele by frequency difference (AFD) in scan vs nonscan data
 
-```{r scan and nonscan AF plot and test}
+```{r scan and nonscan AFD plot and test}
 ## coplot scan and non-scan data and test for differences within each AF group
 
 test.afd.boxplot <- function(home.allele, away.allele, gwas.files, scan.beta){
@@ -350,6 +334,7 @@ test.afd.boxplot <- function(home.allele, away.allele, gwas.files, scan.beta){
       return(p.out)
     })
     t.pvals <- do.call(rbind,t.pvals)
+    print(t.pvals)
     t.pvals <- pval.to.symbol(ss.pvals=t.pvals[,1])
     
     haf.boxplot <- ggplot(data = up.dat, mapping = aes(x=scan,y=home.beta, fill=scan)) + 
@@ -381,22 +366,61 @@ scan.nonscan.afd.plot.output <- function(n.comp.afd.boxplots, s.comp.afd.boxplot
   comp.plot <- plot_grid(n.comp.afd.boxplots[[3]], n.comp.afd.boxplots[[1]], s.comp.afd.boxplots[[3]], s.comp.afd.boxplots[[1]], n.comp.afd.boxplots[[4]], n.comp.afd.boxplots[[2]], s.comp.afd.boxplots[[4]], s.comp.afd.boxplots[[2]], ncol = 4, align="v", axis="rl")
   ggsave(file=plot.file, comp.plot, width=24, height=10, units="in")
 }
-
-### test these
-
-home.allele <- "ANORTH"
-away.allele <- "ASOUTH"
-gwas.files=gwas.res.files.n
-scan.beta=scan.beta
-n.comp.afd.boxplots <- test.afd.boxplot(home.allele=home.allele, away.allele=away.allele, gwas.files=gwas.files, scan.beta=scan.beta)
-
-home.allele <- "ASOUTH"
-away.allele <- "ANORTH"
-gwas.files=gwas.res.files.s
-scan.beta=scan.beta
-s.comp.afd.boxplots <- test.afd.boxplot(home.allele=home.allele, away.allele=away.allele, gwas.files=gwas.files, scan.beta=scan.beta)
-
-scan.nonscan.afd.plot.output(n.comp.afd.boxplots=n.comp.afd.boxplots, s.comp.afd.boxplots=s.comp.afd.boxplots, up.scan.name="swedishgenomes", win.size=10000)
 ```
 
 ## 6. Assemble these three into one mega-function so can easily run for multiple genome scans
+```{r assemble into function}
+
+#general input variables for testing
+af.dat <- af.dat
+ss.dat <- ss.dat # ss.dat is selection scan data matrix with 2 columns: chr and pos
+up.scan.name <- "swedishgenomes"
+win.size <- 10000
+gwas.res.files.n <- gwas.res.files.n #path to GWAS results files of N experiments
+gwas.res.files.s <- gwas.res.files.s #path to GWAS results files of S experiments
+
+compare.by.scan.nonscan <- function(af.dat, ss.dat, up.scan.name, win.size, gwas.res.files.n, gwas.res.files.s){
+  ## test effect of home allele
+  # read in and polarize betas per site
+  home.beta <- polarize.beta(af.dat=af.dat, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+  #determine whether SNP is in scan
+  scan.beta <- scan.snps(ss.dat=ss.dat, win.size=win.size, home.beta=home.beta)
+  # perform test
+  ss.pval <- test.home.allele(scan.beta=scan.beta)
+  ss.pval.symb <- pval.to.symbol(ss.pval)
+  home.allele.diff.boxplot(scan.beta=scan.beta, scan.pval=ss.pval.symb, up.scan.name=up.scan.name, win.size=10000)
+
+  ## test effect of home allele by allele frequency
+  #North plots
+  home.allele <- "ANORTH"
+  away.allele <- "ASOUTH"
+  gwas.files=gwas.res.files.n
+  n.comp.af.boxplots <- test.af.boxplot(home.allele=home.allele, away.allele=away.allele, gwas.files=gwas.files, scan.beta=scan.beta)
+  #South plots
+  home.allele <- "ASOUTH"
+  away.allele <- "ANORTH"
+  gwas.files=gwas.res.files.s
+  s.comp.af.boxplots <- test.af.boxplot(home.allele=home.allele, away.allele=away.allele, gwas.files=gwas.files, scan.beta=scan.beta)
+  #plot together
+  scan.nonscan.af.plot.output(n.comp.af.boxplots=n.comp.af.boxplots, s.comp.af.boxplots=s.comp.af.boxplots, up.scan.name=up.scan.name, win.size=win.size)
+
+  ## test effect of home allele by allele frequency difference
+  #North plots
+  home.allele <- "ANORTH"
+  away.allele <- "ASOUTH"
+  gwas.files=gwas.res.files.n
+  n.comp.afd.boxplots <- test.afd.boxplot(home.allele=home.allele, away.allele=away.allele, gwas.files=gwas.files, scan.beta=scan.beta)
+  #South plots
+  home.allele <- "ASOUTH"
+  away.allele <- "ANORTH"
+  gwas.files=gwas.res.files.s
+  s.comp.afd.boxplots <- test.afd.boxplot(home.allele=home.allele, away.allele=away.allele, gwas.files=gwas.files, scan.beta=scan.beta)
+  #plot together
+  scan.nonscan.afd.plot.output(n.comp.afd.boxplots=n.comp.afd.boxplots, s.comp.afd.boxplots=s.comp.afd.boxplots, up.scan.name=up.scan.name, win.size=win.size)
+}
+
+#test this
+#compare.by.scan.nonscan(af.dat=af.dat, ss.dat=ss.dat, up.scan.name="swedishgenomes", win.size=10000, gwas.res.files.n, gwas.res.files.s)
+```
+
+## knitr::purl("50.compare.scan.nonscan.subsets.functions.Rmd")

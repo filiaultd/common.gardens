@@ -1,12 +1,12 @@
 ---
-title: "48.AFD.genome.scan.subsets.Rmd"
+title: "48.AFD.genome.scan.subsets.functions.Rmd"
 author: "Daniele Filiault"
 date: "15MAR2021"
 output: html_document
 ---
 
 
-```{r setup, include=FALSE}
+```{r setup, include=FALSE, purl=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_knit$set(root.dir = '/Volumes/field_experiments/adaptation_sweden/common.gardens/')
 
@@ -25,22 +25,23 @@ library(egg)
 source("99.geo.helper.fxns.R") ### has my genome plot function.
 
 #setwd("/groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens")
-setwd("/Volumes/field_experiments/adaptation_sweden/common.gardens/")
+#setwd("/Volumes/field_experiments/adaptation_sweden/common.gardens/")
 ```
 
 ## Introduction
 
-Look at patterns of allele frequency vs beta for subsets of SNPs identified in genome scans to see if relationships are same or different from genome-wide. 
+Look at patterns of allele frequency vs beta for subsets of SNPs identified in genome scans to see if relationships are same or different from genome-wide.
+Develop functions here and run analysis in 48.AFD.genome.scan.subsets.analysis.Rmd
 
 ## 1. Load AFD data
 
-```{r load data}
+```{r load data, purl=FALSE}
 ### allele frequency data from script 46.allele.freq.differences.Kgroups
 load("./data/pop.af.dat.Rdat")
 load("./data/allele.freq.GWAS.snps.Rdata") #afg
 ```
 
-```{r prep AFD data}
+```{r prep AFD data, purl=FALSE}
 ### combine AFD datasets
 colnames(pop.af.dat)[1:2] <- c("chrom", "pos")
 pos <- do.call(rbind,strsplit(rownames(afg),"_"))
@@ -53,6 +54,10 @@ af.dat <- merge(pop.af.dat, afg, by=c("chrom", "pos"), all=TRUE)
 ## 2. Add GWAS data and polarize by most frequent local allele
 
 Data ready to go.  Now for each GWAS result, need to load and prep data, then make boxplots.  Write functions for these
+```{r set GWAS results files, purl=FALSE}
+gwas.res.files.n <- c("./res/gemma_marginal/gemma_lmm_blup_RAM_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAM_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ADA_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ADA_2012.rds")
+gwas.res.files.s <- c("./res/gemma_marginal/gemma_lmm_blup_RAT_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAT_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ULL_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ULL_2012.rds")
+```
 
 ```{r data prep fxns}
 
@@ -113,47 +118,38 @@ short.p.name <- function(p.name){
 
 
 ```{r polarizebetas}
-gwas.res.files.n <- c("./res/gemma_marginal/gemma_lmm_blup_RAM_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAM_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ADA_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ADA_2012.rds")
-gwas.res.files.s <- c("./res/gemma_marginal/gemma_lmm_blup_RAT_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAT_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ULL_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ULL_2012.rds")
 
-home.beta.n <- af.dat[,1:2]
-for(up.f in gwas.res.files.n){
-  print(up.f)    
-  up.dat <- add.gwas(up.gwa.file=up.f, home.allele="ANORTH", away.allele="ASOUTH")
-  up.pheno <- get.p.name(up.gwa.file=up.f)
-  colnames(up.dat)[colnames(up.dat)=="home.beta"] <- up.pheno
-  home.beta.n <- merge(home.beta.n, up.dat[,colnames(up.dat)%in%c("chrom", "pos",up.pheno)], all=TRUE)
+polarize.beta <- function(af.dat, gwas.res.files.n, gwas.res.files.s, gwas.res.files.n, gwas.res.files.s){
+  home.beta.n <- af.dat[,1:2]
+  for(up.f in gwas.res.files.n){
+    print(up.f)    
+    up.dat <- add.gwas(up.gwa.file=up.f, home.allele="ANORTH", away.allele="ASOUTH")
+    up.pheno <- get.p.name(up.gwa.file=up.f)
+    colnames(up.dat)[colnames(up.dat)=="home.beta"] <- up.pheno
+    home.beta.n <- merge(home.beta.n, up.dat[,colnames(up.dat)%in%c("chrom", "pos",up.pheno)], all=TRUE)
+  }
+
+  home.beta.s <- af.dat[,1:2]
+  for(up.f in gwas.res.files.s){
+    print(up.f)    
+    up.dat <- add.gwas(up.gwa.file=up.f, home.allele="ASOUTH", away.allele="ANORTH")
+    up.pheno <- get.p.name(up.gwa.file=up.f)
+    colnames(up.dat)[colnames(up.dat)=="home.beta"] <- up.pheno
+    home.beta.s <- merge(home.beta.s, up.dat[,colnames(up.dat)%in%c("chrom", "pos",up.pheno)], all=TRUE)
+  }
+
+  home.beta <- merge(home.beta.n, home.beta.s)
+  home.beta <- merge(home.beta,af.dat[,c(1,2,15:16)])
+  return(home.beta)
 }
-
-home.beta.s <- af.dat[,1:2]
-for(up.f in gwas.res.files.s){
-  print(up.f)    
-  up.dat <- add.gwas(up.gwa.file=up.f, home.allele="ASOUTH", away.allele="ANORTH")
-  up.pheno <- get.p.name(up.gwa.file=up.f)
-  colnames(up.dat)[colnames(up.dat)=="home.beta"] <- up.pheno
-  home.beta.s <- merge(home.beta.s, up.dat[,colnames(up.dat)%in%c("chrom", "pos",up.pheno)], all=TRUE)
-}
-
-home.beta <- merge(home.beta.n, home.beta.s)
-home.beta <- merge(home.beta,af.dat[,c(1,2,15:16)])
-
 ```
 
 # Developing functions 
 
 ## 3. Subset by genome scan data
 ```{r filter by scan data function}
-#up.scan.file <- "./data/003.selection.scans/Fournier_Level_GWAs_Clim_Data.csv"
-#up.scan.name <- "fournierlevel"
-#win.size <- 10000
 
-#fl.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
-#ss.dat <- fl.dat[,1:2]
-#colnames(ss.dat) <- c("chr", "pos")
-## data frame of 2 columns, chr and pos
-## might need to do different manipulations for different scans to get here.
-
-snp.in.scan <- function(ss.dat, win.size){
+snp.in.scan <- function(home.beta,ss.dat, win.size){
   ## add column to home.beta that says whether a SNP is in the dataset or not
   ss.dat$start <- ss.dat$pos-win.size
   ss.dat$stop <- ss.dat$pos+win.size
@@ -171,7 +167,6 @@ snp.in.scan <- function(ss.dat, win.size){
 }
 ## there is now a column called "scan" that ==TRUE if overlapping genome scan
 
-#scan.beta <- snp.in.scan(ss.dat=ss.dat, win.size=10000)
 ```
 
 
@@ -460,9 +455,12 @@ colnames(fl.dat) <- c("chr", "pos")
 #### all this should run automatically
 #### make it one function?
 
-select.scan.plots <- function(ss.dat, up.scan.name, win.size){
+select.scan.plots <- function(af.dat, ss.dat, up.scan.name, win.size, gwas.res.files.n, gwas.res.files.s){
   ## test effect of most common allele
-  scan.beta <- snp.in.scan(ss.dat=ss.dat, win.size=win.size)
+  # read in and polarize betas per site
+  home.beta <- polarize.beta(af.dat=af.dat, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+  #determine whether SNP is in scan
+  scan.beta <- snp.in.scan(home.beta=home.beta, ss.dat=ss.dat, win.size=win.size)
   fl.pvals <- test.home.allele.positive(scan.beta=scan.beta)
   fl.nonzero.pvals <- test.home.allele.zero(scan.beta=scan.beta)
   home.allele.boxplot(scan.beta=scan.beta, scan.pval=fl.pvals, up.scan.name=up.scan.name, win.size=10000)

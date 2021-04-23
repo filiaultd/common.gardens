@@ -1,0 +1,314 @@
+## ----data prep fxns------------------------------------------------------
+
+### function to combine GWAS and AFD data and polarize by "home" and "away" alleles
+
+add.gwas <- function(up.gwa.file, home.allele, away.allele){
+  load(up.gwa.file) ##variable is named p
+  colnames(p)[1:3] <- c("chrom","marker","pos")
+  up.dat <- merge(af.dat, p, by=c("chrom", "pos"),all=TRUE)
+  
+  # get subset where alt allele freq < 0.5 in home population
+  home.c <- which(colnames(up.dat)==home.allele)
+  away.c <- which(colnames(up.dat)==away.allele)
+  maf.dat <- up.dat[up.dat[,home.c]<0.5,]
+  #these are SNPs where the ref allele is more frequent locally
+  #need to calculate AFD and switch beta appropriately
+  maf.dat$ahome <- 1-maf.dat[,home.c]
+  maf.dat$aaway <- 1-maf.dat[,away.c]
+  maf.dat$home.beta <- -(maf.dat$beta)
+  
+  # do same to subset where alt allele is major allele in home pop
+  home.dat <- up.dat[up.dat[,home.c]>=0.5,]
+  home.dat$ahome <- home.dat[,home.c]
+  home.dat$aaway <- home.dat[,away.c]
+  home.dat$home.beta <- home.dat$beta 
+  
+  # put back together and finish AFD calculations
+  out.dat <- rbind(maf.dat, home.dat)
+  out.dat$ha.afd <- out.dat$ahome-out.dat$aaway
+  # get AFD bins
+  breaks <- seq(-0.5,1,0.15)
+  # specify interval/bin labels
+  tags <- c("-[.5-.35)","-[.35-.2)", "-[.2-.05)", "-[.05-.1)", "[-.1-.25)","[.25-.4)", "[.4-.55)","[.55-.7)", "[.7-85)","[.85-1)")
+  # bucketing values into bins north/south
+  out.dat$ha.bins <- cut(out.dat$ha.afd, breaks=breaks, include.lowest=TRUE, right=FALSE, labels=tags)
+  out.dat$ha.bins <- factor(out.dat$ha.bins, levels = tags,ordered = TRUE)
+  return(out.dat)
+}
+
+### extract pheno name from filename
+get.p.name <- function(up.gwa.file){
+  up.pheno <- unlist(strsplit(up.gwa.file, "/"))
+  up.pheno <- up.pheno[grep("rds", up.pheno)]
+  up.pheno <- gsub("gemma_lmm_blup_","" ,up.pheno)
+  up.pheno <- gsub(".rds","" ,up.pheno)
+  return(up.pheno)
+}
+
+### make pheno names to short names
+short.p.name <- function(p.name){
+  p.name <- gsub("ADA","NA",p.name)
+  p.name <- gsub("RAM","NM",p.name)
+  p.name <- gsub("RAT","SR",p.name)
+  p.name <- gsub("ULL","SU",p.name)
+  return(p.name)
+}
+
+
+
+
+
+
+## ----filter by scan data function----------------------------------------
+
+scan.snps <- function(ss.dat, win.size, home.beta){
+  ## add column to home.beta that says whether a SNP is in the dataset or not
+  ss.dat$start <- ss.dat$pos-win.size
+  ss.dat$stop <- ss.dat$pos+win.size
+
+  ss.pos <- apply(ss.dat,1, function(x){
+    out.dat <- home.beta[home.beta$chrom==x[1] & home.beta$pos>=x[3] & home.beta$pos<=x[4],1:2]
+  })
+  ss.pos <- do.call(rbind, ss.pos)
+  ss.pos <- unique(ss.pos) #68750 positions
+  ss.pos$scan <- TRUE
+
+  home.beta.ss <- merge(home.beta, ss.pos, all.x=TRUE)
+  home.beta.ss[is.na(home.beta.ss$scan),"scan"] <- FALSE
+  home.beta.ss$scan <- factor(home.beta.ss$scan, levels=c("TRUE", "FALSE"))
+  return(home.beta.ss)
+}
+## there is now a column called "scan" that ==TRUE if overlapping genome scan
+
+
+## ----home allele difference scan/nonscan function------------------------
+
+#turns pvalue to symbols
+pval.to.symbol <- function(ss.pvals){
+  psym <- rep("ns",length(ss.pvals))
+  psym[is.na(ss.pvals)] <- NA
+  psym[ss.pvals<0.05] <- "*"
+  psym[ss.pvals<0.01] <- "**"
+  psym[ss.pvals<0.001] <- "***"
+  names(psym) <- names(ss.pvals)
+  return(psym)
+}
+
+test.home.allele <- function(scan.beta){
+  #one-sided t-test mean beta >0
+  scan.pval <- apply(scan.beta[,3:10],2,function(x){
+    up.p <- summary(lm(x~scan.beta$scan))$coefficients[2,4]
+    return(up.p)
+    })
+  print(scan.pval) 
+  scan.pval <- scan.pval[match(c("ADA_2011", "ADA_2012", "RAM_2011", "RAM_2012", "ULL_2011", "ULL_2012", "RAT_2011", "RAT_2012"),names(scan.pval))]
+  ss.pval.symb <- pval.to.symbol(scan.pval)
+  return(ss.pval.symb)
+}
+
+
+## ----boxplot beta home allele scan function------------------------------
+## boxplot of beta of home allele values
+
+home.allele.diff.boxplot <- function(scan.beta, scan.pval, up.scan.name, win.size){
+  #reshape data
+  scan.beta.l <- reshape(scan.beta,varying=c(3:10), direction="long", timevar="exp",times=colnames(scan.beta)[3:10],v.name="beta")
+  scan.beta.l$exp <- gsub("RAM","NM", scan.beta.l$exp)
+  scan.beta.l$exp <- gsub("ADA","NA", scan.beta.l$exp)
+  scan.beta.l$exp <- gsub("RAT","SR", scan.beta.l$exp)
+  scan.beta.l$exp <- gsub("ULL","SU", scan.beta.l$exp)
+  scan.beta.l$exp <- factor(scan.beta.l$exp,levels=c("NA_2011","NA_2012","NM_2011","NM_2012","SU_2011","SU_2012","SR_2011","SR_2012"))
+  scan.beta.l$region <- substr(scan.beta.l$exp,1,1)
+
+  home.beta.plot <- ggplot(data = scan.beta.l, mapping = aes(x=exp,y=beta,fill=scan)) + 
+      geom_boxplot() +
+      #geom_violin(draw_quantiles=c(0.5)) +
+      scale_fill_manual(values=c("springgreen3","dodgerblue1")) +
+      labs(x='experiment', y="fitness effect of most common allele in home population", fill="selection\nscan") +
+      guides(color=FALSE) +
+      geom_hline(yintercept=0, linetype="dashed", color = "red", size=0.5) +
+      theme_minimal()+ 
+      annotate("text", x = c(1:8), y = rep(max(scan.beta.l$beta, na.rm=TRUE),8), label = scan.pval, vjust=0)
+
+  plot.name <- paste("./figures/50.figures/beta.home.allele.scan.nonscan",up.scan.name,win.size,"jpg",sep=".")
+  ggsave(plot.name, plot=home.beta.plot, width=8, height=6, units="in")
+}
+
+
+## ----scan and nonscan AF plot and test-----------------------------------
+## coplot scan and non-scan data and test for differences within each AF group
+
+test.af.boxplot <- function(home.allele, away.allele, gwas.files, scan.beta){
+  ahome.plots <- as.list(1:4)
+  for(up.fn in 1:4){
+    up.f <- gwas.files[up.fn]
+    print(up.f)    
+    up.dat <- add.gwas(up.gwa.file=up.f, home.allele=home.allele, away.allele=away.allele)
+    #add selection scan positions
+    up.dat <- merge(up.dat, scan.beta[,c(1:2,13)], all.x=TRUE)
+    up.dat$scan <- factor(up.dat$scan, levels=c("TRUE", "FALSE"))
+    up.pheno <- get.p.name(up.gwa.file=up.f)
+    up.short.name <- short.p.name(p.name=up.pheno)
+    # get AF bins
+    breaks <- seq(0.5,1,0.1)
+    # specify interval/bin labels
+    tags <- c("[.5-.6)","[.6-.7)","[.7-.8)","[.8-.9)","[.9-1)" )  # bucketing values into bins north/south
+    up.dat$ahome.bins <- cut(up.dat$ahome, breaks=breaks, include.lowest=TRUE, right=FALSE, labels=tags)
+    up.dat$ahome.bins <- factor(up.dat$ahome.bins, levels = tags,ordered = TRUE)
+    
+    ## pairwise t-test between scan and non-scan data per AFD bin
+    t.dat <- split(up.dat, up.dat$ahome.bins)
+    t.pvals <- lapply(t.dat, function(x.dat){
+      ttx <- t.test(home.beta~scan, data=x.dat)
+      return(ttx$p.value)
+    })
+    t.pvals <- do.call(rbind,t.pvals)
+    print(t.pvals)
+    t.pvals <- pval.to.symbol(ss.pvals=t.pvals[,1])
+    
+    haf.boxplot <- ggplot(data = up.dat, mapping = aes(x=scan,y=home.beta, fill=scan)) + 
+    geom_jitter(aes(color='blueviolet'),alpha=0.2) +
+    scale_color_manual(values=c("blueviolet")) +
+    scale_fill_manual(values=c("springgreen3","dodgerblue1"),name="selection\nscan") +
+    geom_boxplot(color="black", alpha=1) + 
+    labs(x='home allele frequency', y="home allele effect") +
+    facet_wrap(.~ahome.bins, nrow=1,strip.position = "bottom") +
+    guides(color=FALSE) +
+    geom_hline(yintercept=0, linetype="dashed", color = "red", size=1) +
+    theme_minimal() +
+    theme(axis.text.x=element_blank())+
+    ggtitle(up.short.name) 
+    
+    ymax <- ggplot_build(haf.boxplot)$layout$panel_scales_y[[1]]$range$range[2]
+    xpos <- mean(ggplot_build(haf.boxplot)$layout$panel_scales_x[[1]]$range_c$range)
+    haf.boxplot <- tag_facet(haf.boxplot, x=xpos, y=ymax, open = "", close = "",tag_pool = t.pvals, fontface=1, size=4, hjust=0.5,vjust=-0.5) +
+      theme(strip.text = element_text(),strip.background = element_rect())
+  
+    ahome.plots[[up.fn]] <- haf.boxplot
+    }
+  return(ahome.plots)
+  }
+
+## plot all in one file
+scan.nonscan.af.plot.output <- function(n.comp.af.boxplots, s.comp.af.boxplots, up.scan.name, win.size){
+  plot.file <- paste("./figures/50.figures/AF.scan.nonscan.all.experiments",up.scan.name, win.size,"jpg",sep=".")
+  comp.plot <- plot_grid(n.comp.af.boxplots[[3]], n.comp.af.boxplots[[1]], s.comp.af.boxplots[[3]], s.comp.af.boxplots[[1]], n.comp.af.boxplots[[4]], n.comp.af.boxplots[[2]], s.comp.af.boxplots[[4]], s.comp.af.boxplots[[2]], ncol = 4, align="v", axis="rl")
+  ggsave(file=plot.file, comp.plot, width=24, height=10, units="in")
+}
+
+
+## ----scan and nonscan AFD plot and test----------------------------------
+## coplot scan and non-scan data and test for differences within each AF group
+
+test.afd.boxplot <- function(home.allele, away.allele, gwas.files, scan.beta){
+  ahome.plots <- as.list(1:4)
+  for(up.fn in 1:4){
+    up.f <- gwas.files[up.fn]
+    print(up.f)    
+    up.dat <- add.gwas(up.gwa.file=up.f, home.allele=home.allele, away.allele=away.allele)
+    #add selection scan positions
+    up.dat <- merge(up.dat, scan.beta[,c(1:2,13)], all.x=TRUE)
+    up.dat$scan <- factor(up.dat$scan, levels=c("TRUE", "FALSE"))
+    up.pheno <- get.p.name(up.gwa.file=up.f)
+    up.short.name <- short.p.name(p.name=up.pheno)
+    
+    ## pairwise t-test between scan and non-scan data per AFD bin
+    t.dat <- split(up.dat, up.dat$ha.bins)
+    t.pvals <- lapply(t.dat, function(x.dat){
+      ## require at least 20 observations to do test
+      if(min(table(x.dat$scan), na.rm=TRUE)<20){
+        p.out <- NA
+      }else{
+        ttx <- t.test(home.beta~scan, data=x.dat)
+        p.out <- ttx$p.value
+      }
+      return(p.out)
+    })
+    t.pvals <- do.call(rbind,t.pvals)
+    print(t.pvals)
+    t.pvals <- pval.to.symbol(ss.pvals=t.pvals[,1])
+    
+    haf.boxplot <- ggplot(data = up.dat, mapping = aes(x=scan,y=home.beta, fill=scan)) + 
+    geom_jitter(aes(color='blueviolet'),alpha=0.2) +
+    scale_color_manual(values=c("blueviolet")) +
+    scale_fill_manual(values=c("springgreen3","dodgerblue1"),name="selection\nscan") +
+    geom_boxplot(color="black", alpha=1) + 
+    labs(x='home allele frequency', y="home allele effect") +
+    facet_wrap(.~ha.bins, nrow=1,strip.position = "bottom") +
+    guides(color=FALSE) +
+    geom_hline(yintercept=0, linetype="dashed", color = "red", size=1) +
+    theme_minimal() +
+    theme(axis.text.x=element_blank())+
+    ggtitle(up.short.name) 
+    
+    ymax <- ggplot_build(haf.boxplot)$layout$panel_scales_y[[1]]$range$range[2]
+    xpos <- mean(ggplot_build(haf.boxplot)$layout$panel_scales_x[[1]]$range_c$range)
+    haf.boxplot <- tag_facet(haf.boxplot, x=xpos, y=ymax, open = "", close = "",tag_pool = t.pvals, fontface=1, size=4, hjust=0.5,vjust=-0.5) +
+      theme(strip.text = element_text(),strip.background = element_rect())
+  
+    ahome.plots[[up.fn]] <- haf.boxplot
+    }
+  return(ahome.plots)
+  }
+
+## plot all in one file
+scan.nonscan.afd.plot.output <- function(n.comp.afd.boxplots, s.comp.afd.boxplots, up.scan.name, win.size){
+  plot.file <- paste("./figures/50.figures/AFD.scan.nonscan.all.experiments",up.scan.name, win.size,"jpg",sep=".")
+  comp.plot <- plot_grid(n.comp.afd.boxplots[[3]], n.comp.afd.boxplots[[1]], s.comp.afd.boxplots[[3]], s.comp.afd.boxplots[[1]], n.comp.afd.boxplots[[4]], n.comp.afd.boxplots[[2]], s.comp.afd.boxplots[[4]], s.comp.afd.boxplots[[2]], ncol = 4, align="v", axis="rl")
+  ggsave(file=plot.file, comp.plot, width=24, height=10, units="in")
+}
+
+
+## ----assemble into function----------------------------------------------
+
+#general input variables for testing
+af.dat <- af.dat
+ss.dat <- ss.dat # ss.dat is selection scan data matrix with 2 columns: chr and pos
+up.scan.name <- "swedishgenomes"
+win.size <- 10000
+gwas.res.files.n <- gwas.res.files.n #path to GWAS results files of N experiments
+gwas.res.files.s <- gwas.res.files.s #path to GWAS results files of S experiments
+
+compare.by.scan.nonscan <- function(af.dat, ss.dat, up.scan.name, win.size, gwas.res.files.n, gwas.res.files.s){
+  ## test effect of home allele
+  # read in and polarize betas per site
+  home.beta <- polarize.beta(af.dat=af.dat, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+  #determine whether SNP is in scan
+  scan.beta <- scan.snps(ss.dat=ss.dat, win.size=win.size, home.beta=home.beta)
+  # perform test
+  ss.pval <- test.home.allele(scan.beta=scan.beta)
+  ss.pval.symb <- pval.to.symbol(ss.pval)
+  home.allele.diff.boxplot(scan.beta=scan.beta, scan.pval=ss.pval.symb, up.scan.name=up.scan.name, win.size=10000)
+
+  ## test effect of home allele by allele frequency
+  #North plots
+  home.allele <- "ANORTH"
+  away.allele <- "ASOUTH"
+  gwas.files=gwas.res.files.n
+  n.comp.af.boxplots <- test.af.boxplot(home.allele=home.allele, away.allele=away.allele, gwas.files=gwas.files, scan.beta=scan.beta)
+  #South plots
+  home.allele <- "ASOUTH"
+  away.allele <- "ANORTH"
+  gwas.files=gwas.res.files.s
+  s.comp.af.boxplots <- test.af.boxplot(home.allele=home.allele, away.allele=away.allele, gwas.files=gwas.files, scan.beta=scan.beta)
+  #plot together
+  scan.nonscan.af.plot.output(n.comp.af.boxplots=n.comp.af.boxplots, s.comp.af.boxplots=s.comp.af.boxplots, up.scan.name=up.scan.name, win.size=win.size)
+
+  ## test effect of home allele by allele frequency difference
+  #North plots
+  home.allele <- "ANORTH"
+  away.allele <- "ASOUTH"
+  gwas.files=gwas.res.files.n
+  n.comp.afd.boxplots <- test.afd.boxplot(home.allele=home.allele, away.allele=away.allele, gwas.files=gwas.files, scan.beta=scan.beta)
+  #South plots
+  home.allele <- "ASOUTH"
+  away.allele <- "ANORTH"
+  gwas.files=gwas.res.files.s
+  s.comp.afd.boxplots <- test.afd.boxplot(home.allele=home.allele, away.allele=away.allele, gwas.files=gwas.files, scan.beta=scan.beta)
+  #plot together
+  scan.nonscan.afd.plot.output(n.comp.afd.boxplots=n.comp.afd.boxplots, s.comp.afd.boxplots=s.comp.afd.boxplots, up.scan.name=up.scan.name, win.size=win.size)
+}
+
+#test this
+#compare.by.scan.nonscan(af.dat=af.dat, ss.dat=ss.dat, up.scan.name="swedishgenomes", win.size=10000, gwas.res.files.n, gwas.res.files.s)
+

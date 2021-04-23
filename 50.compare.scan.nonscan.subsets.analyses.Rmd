@@ -1,0 +1,148 @@
+---
+title: "50.compare.scan.nonscan.subsets.analyses.Rmd"
+author: "Daniele Filiault"
+date: "4/23/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE, purl=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = '/Volumes/field_experiments/adaptation_sweden/common.gardens/')
+
+library(ggpmisc)
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+library(tidyr)
+library(ggpubr)
+library(cowplot)
+library(viridis)
+library(rcompanion)
+library(multcompView)
+library(egg)
+source("./50.compare.scan.nonscan.subsets.functions.R") ### functions for analysis
+```
+
+
+## Introduction
+
+Script 48 looks at patterns of beta versus home allele, home allele frequency, and difference between home and away allele frequency for selection scan datasets.  
+
+Here I would like to coplot these distributions and test whether there are significant differences in between scan subsets and the rest of the genome.
+Running analyses here, functions developed in 50.compare.scan.nonscan.subsets.functions.Rmd
+
+## 1. Load data
+
+```{r load data, purl=FALSE}
+### allele frequency data from script 46.allele.freq.differences.Kgroups
+load("./data/pop.af.dat.Rdat")
+load("./data/allele.freq.GWAS.snps.Rdata") #afg
+```
+
+```{r prep AFD data, purl=FALSE}
+### combine AFD datasets
+colnames(pop.af.dat)[1:2] <- c("chrom", "pos")
+pos <- do.call(rbind,strsplit(rownames(afg),"_"))
+colnames(pos) <- c("chrom", "pos")
+pos <- as.data.frame(pos)
+afg <- cbind(afg, pos)
+af.dat <- merge(pop.af.dat, afg, by=c("chrom", "pos"), all=TRUE)
+```
+
+```{r set GWAS results files, purl=FALSE}
+gwas.res.files.n <- c("./res/gemma_marginal/gemma_lmm_blup_RAM_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAM_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ADA_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ADA_2012.rds")
+gwas.res.files.s <- c("./res/gemma_marginal/gemma_lmm_blup_RAT_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAT_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ULL_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ULL_2012.rds")
+```
+
+## 2. Swedish genomes paper sweep scan
+
+```{r swedishgenomes}
+# prep data
+up.scan.file <- "./data/003.selection.scans/Swedish.genomes.paper.sweeps.simple.csv"
+up.scan.name <- "swedishgenomes"
+win.size <- 10000
+sg.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
+sg.dat <- sg.dat[,1:2]
+colnames(sg.dat) <- c("chr", "pos")
+ss.dat <- sg.dat
+
+# run analysis
+compare.by.scan.nonscan(af.dat=af.dat, ss.dat=ss.dat, up.scan.name="swedishgenomes", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+```
+
+## 3. Fournier-Level - all experiments
+```{r fournierlevelall data}
+# prep data
+up.scan.file <- "./data/003.selection.scans/Fournier_Level_GWAs_Clim_Data.csv"
+up.scan.name <- "fournier.level"
+win.size <- 10000
+
+fl.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
+fl.dat <- fl.dat[,1:2]
+colnames(fl.dat) <- c("chr", "pos")
+
+compare.by.scan.nonscan(af.dat=af.dat, ss.dat=fl.dat, up.scan.name="fournierlevel", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+```
+
+
+## 4. Fournier-Level - Oulu (FIN) experiments only
+```{r fournierlevelFIN data}
+fl.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
+FIN.dat <- fl.dat[fl.dat$Location=="FIN",]
+FIN.dat <- FIN.dat[,1:2]
+colnames(FIN.dat) <- c("chr", "pos")
+# subset for FIN experiment
+
+compare.by.scan.nonscan(af.dat=af.dat, ss.dat=FIN.dat, up.scan.name="fournierlevelFIN", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+```
+
+## 5. Hancock GEA 
+```{r hancock data}
+# prep data
+up.scan.file <- "./data/003.selection.scans/Hancock.tophits.txt"
+ha.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+ha.dat <- ha.dat[,2:3]
+colnames(ha.dat) <- c("chr", "pos")
+
+compare.by.scan.nonscan(af.dat=ha.dat, ss.dat=fl.dat, up.scan.name="hancock", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+```
+
+## 6. Huber sweeps
+```{r christian huber sweeps N/S}
+# prep data
+up.scan.file <- "./data/003.selection.scans/christian.intervals.csv"
+ns.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
+ns.dat <- ns.dat[,1:2]
+colnames(ns.dat) <- c("chr", "pos")
+## input is 2 columns giving chr and pos
+
+compare.by.scan.nonscan(af.dat=ns.dat, ss.dat=fl.dat, up.scan.name="huber", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+```
+
+## 7. Horton sweeps
+```{r horton1}
+
+
+
+```
+
+```{r horton2}
+
+
+
+```
+
+
+```{r horton3}
+
+
+
+
+```
+
+## 8. Assman lab GEA data?
+
+## 9. Lasky data
+
+## 10. Agren cross data
+
