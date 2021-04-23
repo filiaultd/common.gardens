@@ -1,0 +1,164 @@
+---
+title: "26.parse.redone.admixture"
+author: "Daniele Filiault"
+date: "2/4/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(maps)
+library(mapdata)
+library("sf")
+library("RColorBrewer")
+library("rnaturalearth")
+library("rnaturalearthdata")
+library("rgeos")
+```
+
+## Introduction
+
+Since 14 of our experimental accessions were not included in the 1001g admixture analysis, I redid admixture with Fernando's recall of the 1001g data (including all our 200 accessions).  I did this in /Volumes/field_experiments/001.common.reference.files/011.admixture.field.samples.
+
+```{r load data}
+admix.file <- "/Volumes/field_experiments/001.common.reference.files/011.admixture.field.samples/prunedData.9.Q"
+ad.n.file <- "/Volumes/field_experiments/001.common.reference.files/011.admixture.field.samples/prunedData.fam"
+geo.file <- "./data/accs_2029_ids_lat_long.modified_MN_SH.csv"
+genomes.paper.file <- "./data/1001g.accessions.csv"
+```
+
+
+### Prepare data
+
+```{r assemble admixture results}
+
+admix <- read.table(admix.file, stringsAsFactors=FALSE)
+colnames(admix) <- paste("g",c(1:9),sep="")
+ad.n <- read.table(ad.n.file, stringsAsFactors=FALSE)
+admix$id <- ad.n[,2]
+
+admix.m <- admix
+rownames(admix.m) <- admix$id
+#admix.m$id <- rownames(admix.m)
+
+max.a <- apply(admix.m[,1:9],1, function(x)(max(x, na.rm=TRUE)))
+a.group <- rep(NA, nrow(admix.m))
+for(up in 1:nrow(admix.m)){
+  up.dat <- admix.m[up,]
+  a.group[up] <- which(up.dat==max.a[up])
+}
+names(a.group)<- rownames(admix.m)
+a.group <- cbind(max.a,a.group, admix.m)
+
+geo <- read.csv(geo.file,stringsAsFactors=FALSE)
+a.group <- merge(a.group,geo[,2:6], by.x="id", by.y="tg_ecotypeid",all.x=TRUE)
+
+with(a.group, table(a.group,country))
+ag.names <- c("N.Sweden","Germany","S.Sweden","Iberia","Italy/E.Europe","Russia/Asia","C.Europe","USA","W.Europe")  ### these are my admixture group names based on the table
+a.group$group.names <- ag.names[a.group$a.group]
+# identify admixed
+a.group$group.names[which(a.group$max<0.65)] <- "admixed"
+
+### output this data to use in next scripts
+#write.csv(a.group, file="./data/complete.admixture.groups.csv", quote=FALSE, row.names=FALSE)
+```
+
+Data is assembled.  Let's check these groups out against the ones in the 1001g paper.  Especially concerned about all the Italians in the S. Sweden admixture group?
+
+```{r versus.1001g}
+paper.dat <- read.csv(genomes.paper.file, stringsAsFactors=FALSE,header=FALSE)
+colnames(paper.dat) <- c("id","seq.by","name","country","col.loc","latitude","longitude","collector", "date","CS.no", "old.ad.group","who.knows", "ad.group.color")
+
+tog.dat <- merge(a.group,paper.dat[,c(1:2,11)], all.x=TRUE)
+
+with(tog.dat, table(group.names, old.ad.group))
+```
+
+There are some pretty big differences in grouping here.  For the most part, I can still group Swedish accessions into N.Sweden, S.Sweden, others, but there are some results that are quite strange.
+1. The Italians in the N. Swedish admixture group.
+2. The old "german" group is split up very differently
+3. Spanish accessions are split up quite differently, and relicts are within one of the Spanish admixture groups.
+
+But geographically-speaking, both groupings make sense (except for the Italians in N. Sweden - dunno what that's about.  MN said that the sequencing of those guys was strange, somehow?  Badly done, low coverage, etc.)
+Let's just look at them a bit more closely:
+
+```{R check italians in N.Swedish group}
+ugh <- a.group[a.group$a.group==1 & a.group$country=="ITA",]
+ital.old.dat <- tog.dat[tog.dat$id%in%ugh$id,]
+```
+Just mysterious.  Lots of these are the same accessions, though (sequenced at Monsanto and MPI).
+
+
+
+
+
+### Still, I would like to make some plots of these admixture groups for the paper.
+Subset data for experimental accessions
+```{r experiment admixture groups}
+## get info about N/C/S accession
+acc.list <- read.table("./data/acc_list.txt", sep="\t", header=TRUE)
+acc.list <- acc.list[grep("Sweden",acc.list$region),] ## removes caroline accessions
+colnames(acc.list)[1] <- "id"
+a.exp <- merge(tog.dat, acc.list[,c(1,3)], all.y=TRUE)
+a.exp$region <- droplevels(a.exp$region)
+with(a.exp, table(old.ad.group, group.names))
+table(a.exp$group.names)
+```
+
+```{r barplot admixture results,  fig.height = 6, fig.width =9}
+group.colors <- brewer.pal(9, "Paired")[c(4,7,3,2,6,5,8,1,9)]
+
+hist(a.exp$max.a)
+a.exp$region <- factor(a.exp$region, levels=c("S Sweden", "C Sweden", "N Sweden"))
+a.exp <- a.exp[order(a.exp$region, a.exp$a.group, a.exp$max.a),]
+
+c.lim <- (which(a.exp$region=="C Sweden"))
+s.lim <- (which(a.exp$region=="S Sweden"))
+n.lim <- (which(a.exp$region=="N Sweden"))
+
+pdf("./figures/admixture.groups.all.experimental.lines.pdf", width=14, height=7)
+par(xpd=TRUE)
+barplot(t(as.matrix(a.exp[,4:12])), col=group.colors, main="All experimental lines", legend.text=ag.names, xaxt="n",space=0, args.legend=list(title="admixture group",bg="white",x="bottomright"), ylab="genome proportion", xlab="collection location in Sweden")
+rect(min(c.lim)-1,-0.04,max(c.lim),-0.01, col="purple")
+rect(min(s.lim)-1,-0.04,max(s.lim),-0.01, col="green")
+rect(min(n.lim)-1,-0.04,max(n.lim),-0.01, col="blue")
+mtext("Central",1,line=1,at=mean(c.lim)-0.5)
+mtext("Southern",1,line=1,at=mean(s.lim)-0.5)
+mtext("Northern",1,line=1,at=mean(n.lim)-0.5)
+dev.off()
+
+### also output in Rmd
+par(xpd=TRUE)
+barplot(t(as.matrix(a.exp[,4:12])), col=group.colors, main="All experimental lines", legend.text=ag.names, xaxt="n",space=0, args.legend=list(title="admixture group",bg="white",x="bottomright"), ylab="genome proportion", xlab="collection location in Sweden")
+rect(min(c.lim)-1,-0.04,max(c.lim),-0.01, col="purple")
+rect(min(s.lim)-1,-0.04,max(s.lim),-0.01, col="green")
+rect(min(n.lim)-1,-0.04,max(n.lim),-0.01, col="blue")
+mtext("Central",1,line=1,at=mean(c.lim)-0.5)
+mtext("Southern",1,line=1,at=mean(s.lim)-0.5)
+mtext("Northern",1,line=1,at=mean(n.lim)-0.5)
+```
+
+
+```{r map admixture results}
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+europe.map <- ggplot(data = world) +geom_sf() + coord_sf(xlim = c(-14, 35), ylim = c(35, 65), expand = FALSE) +   scale_x_continuous(breaks=c(0,10,20))
+e.map <- europe.map + 
+  geom_point(dat=tog.dat,mapping = aes(x = longitude, y = latitude, color = as.factor(a.group))) +
+  theme_bw() +
+  scale_color_manual(values=group.colors, name="admixture \ngroup",labels=ag.names)
+
+
+pdf(file="./figures/expanded.admixture.groups.europe.map.pdf", width=5, height=6)
+print(e.map)
+dev.off()
+
+print(e.map)
+```
+
+
+
+
+
+

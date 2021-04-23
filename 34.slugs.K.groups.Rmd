@@ -1,0 +1,200 @@
+---
+title: "34.slugs.K.groups"
+author: "Daniele Filiault"
+date: "3/2/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library("RColorBrewer")
+library("ggplot2")
+library(gridExtra)
+library(multcompView)
+library(corrplot)
+library(ggpubr)
+
+```
+
+## Introduction
+More investigation of slug damage phenotype
+Built off 11.slug.analysis.Rmd, but using new fitness BLUPs and K-matrix groups
+
+### 1.load data
+```{r load data}
+# slug damage proportions from 01.CG.DLF.intial (mean of fitted values, glm, binomial with log link fxn)
+load("./data/slug.phenos.fitted.Rdat")
+
+#K matrix groups
+k.groups <- read.table(file="./data/Kmatrix.6cluster.membership.txt")
+slug.phenos <- merge(slug.phenos,k.groups, by.x="id", by.y="row.names", all=TRUE)
+
+#fitness blups
+fitness <- read.csv("./data/marginal.blups.csv", header=TRUE, stringsAsFactors=FALSE)
+fitness <- fitness[fitness$exp=="RAT" & fitness$year=="2011",]
+slug.phenos <- merge(slug.phenos, fitness[,c(1,4)], all=TRUE)
+
+#overwinter survival blups
+ows <- read.csv("./data/marginal.ows.blups.csv", header=TRUE,stringsAsFactors=FALSE)
+ows <- ows[ows$exp=="RAT" & ows$year=="2011",]
+slug.phenos <- merge(slug.phenos, ows[,c(1,4)], all=TRUE)
+
+# fecundity
+fecund <- read.csv("./data/marginal.fecundity.blups.csv", header=TRUE,stringsAsFactors=FALSE)
+fecund <- fecund[fecund$exp=="RAT" & fecund$year=="2011",]
+colnames(fecund)[1] <- "fecund"
+slug.phenos <- merge(slug.phenos, fecund[,c(1,4)],all=TRUE)
+
+#add descriptive k.group names
+ki <- data.frame(matrix(c("K1","S1","K2","S2","K3","C","K4","N1","K5","N2","K6","B"),ncol=2,byrow=TRUE))
+colnames(ki) <- c("K.group","K.name")
+slug.phenos <- merge(slug.phenos, ki, all.x=TRUE, by="K.group")
+slug.phenos$K.name <- factor(slug.phenos$K.name, levels=c("B","S1","S2","C","N1","N2"))
+
+```
+
+### 2. relationships between phenos
+```{r pheno relationships}
+
+lm.slug <- lm(ows.b ~ X2011_RAT_severeslug, data=slug.phenos)
+summary(lm.slug) #R2=0.431
+with(slug.phenos, plot(X2011_RAT_severeslug, ows.b , xlab="proportion of severe slug damage", ylab="overwinter survival"))
+abline(lm.slug, col="blue")
+
+lm.fit <- lm(fb ~ X2011_RAT_severeslug, data=slug.phenos)
+summary(lm.fit) #r2=0.1807
+with(slug.phenos, plot(X2011_RAT_severeslug, fb , xlab="proportion of severe slug damage", ylab="fitness BLUPs RAT 2011"))
+abline(lm.fit, col="blue")
+
+lm.fec <- lm(fecund ~ X2011_RAT_severeslug, data=slug.phenos)
+summary(lm.fec) #r2=0.06339
+with(slug.phenos, plot(X2011_RAT_severeslug, fecund , xlab="proportion of severe slug damage", ylab="fecundity BLUPs RAT 2011"))
+abline(lm.fec, col="blue")
+```
+
+Proportion severe slug damage can predict ows, fitness, fecundity (R2 in that order)
+
+
+### 3.  Slug damage by K group
+```{r slug by K}
+kcol <- brewer.pal(6, "Paired")[c(6,1,2,5,3,4)]
+
+slk <- ggplot(data=slug.phenos, aes(x=K.name, y=X2011_RAT_severeslug,fill=K.name)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  theme_bw() +
+  labs(y="proportion severe slug damage",x="K group") +
+  scale_fill_manual(values = kcol) +
+  theme(legend.position = "none")
+  
+print(slk)
+
+
+```
+```{r anova slug by group}
+
+aov1 <- aov(X2011_RAT_severeslug~K.name, data=slug.phenos)
+summary(aov1)
+tt1 <- TukeyHSD(aov1)
+plot(tt1)
+
+Tukey.levels <- tt1[[1]][, 4]
+Tukey.labels <- data.frame(multcompLetters(Tukey.levels)['Letters'])
+Tukey.labels <- Tukey.labels[match(levels(slug.phenos$K.name),row.names(Tukey.labels)),]
+
+max.vals <- aggregate(slug.phenos$X2011_RAT_severeslug,by=list(slug.phenos$K.name), max)
+max.buffer <- data.frame(max.vals[,2] + (0.05*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,Tukey.labels, max.vals[,1])
+colnames(Tukey_test)[1] <- "X2011_RAT_severeslug"
+colnames(Tukey_test)[3] <- "K.name"
+
+slk.anova <- slk +geom_text(data=Tukey_test, aes(label=Tukey.labels))
+
+print(slk.anova)
+
+pdf(file="./figures/severe.slug.by.K.pdf", width=5, height=3.5) 
+print(slk.anova)
+dev.off()
+
+```
+
+
+### 4.  Fitness component vs slug damage relationships
+
+```{R slug damage vs fitness metrics by admix group}
+
+##overwinter survival
+slug.ows <- ggplot(slug.phenos, aes(x=X2011_RAT_severeslug, y=ows.b, colour=K.name)) + 
+  geom_point() + 
+  scale_color_manual(values = kcol, name="K group") +
+  #scale_color_brewer(palette="Paired") +
+  theme_bw() + 
+  labs(x="proportion severe slug damage", y="overwinter survival BLUPs") + 
+  geom_smooth(method='lm',se=FALSE)
+print(slug.ows)
+
+lm.slug.ows <- lm(ows.b~X2011_RAT_severeslug, data=slug.phenos)
+summary(lm.slug.ows)
+
+
+##fecundity
+slug.fec <- ggplot(slug.phenos, aes(x=X2011_RAT_severeslug, y=fecund, colour=K.name)) + 
+  geom_point() + 
+  scale_color_manual(values = kcol, name="K group") +
+  theme_bw() + 
+  labs(x="proportion severe slug damage", y="fecundity BLUPs") + 
+  geom_smooth(method='lm',se=FALSE)
+
+print(slug.fec)
+
+lm.slug.fec <- lm(fecund~X2011_RAT_severeslug, data=slug.phenos)
+summary(lm.slug.fec)
+
+
+##fitness
+slug.fit <- ggplot(slug.phenos, aes(x=X2011_RAT_severeslug, y=fb, colour=K.name)) + 
+  geom_point() + 
+  scale_color_manual(values = kcol, name="K group") +
+  theme_bw() + 
+  labs(x="proportion severe slug damage", y="fitness BLUPs") + 
+  geom_smooth(method='lm',se=FALSE)
+
+print(slug.fit)
+
+lm.slug.fit <- lm(fb~X2011_RAT_severeslug, data=slug.phenos)
+summary(lm.slug.fit)
+
+
+### output these 3 figures
+pdf("./figures/slug.fitness.components.pdf", width=10, height=8)
+ggarrange(slug.ows, slug.fec, slug.fit, 
+          labels = c("A", "B", "C"),
+          ncol = 2, nrow = 2)
+dev.off()
+
+## output fitness specifically
+pdf("./figures/slug.fitness.vs.damage.pdf", width=5, height=3.5)
+print(slug.fit)
+dev.off()
+
+```
+### 5. Fitness component vs slug damage relationships - interaction models
+```{R fit vs slug interactions}
+
+### ows
+lm.slug.ows.i <- lm(ows.b~X2011_RAT_severeslug*K.group, data=slug.phenos)
+summary(lm.slug.ows.i) ## groups 2 and 3 interaction.
+anova(lm.slug.ows.i)
+
+### fecundity
+lm.slug.fec.i <- lm(fecund~X2011_RAT_severeslug*K.group, data=slug.phenos)
+summary(lm.slug.fec.i) ## no interactions, but 4 and 5 (the N Swedish groups) are sig different
+anova(lm.slug.fec.i)
+
+### fitness
+lm.slug.fit.i <- lm(fb~X2011_RAT_severeslug*K.group, data=slug.phenos)
+summary(lm.slug.fit.i) ## no interactions, but 4 and 5 (the N Swedish groups) are sig different
+anova(lm.slug.fit.i)
+
+```

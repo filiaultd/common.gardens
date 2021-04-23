@@ -1,0 +1,287 @@
+---
+title: "12.climate.niche.bioclim.v2"
+author: "Daniele Filiault"
+date: "8/5/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library("RColorBrewer")
+```
+
+## 1. Rationale.
+
+So it looks like N/S selection pressure is significant, but not 100% of differences in local adaptation
+Can we identify others with climate parameters?  This is a redo/continuation of script 10, but using the newer v2.0 bioclim data
+which was extracted in /Volumes/field_experiments/001.common.reference.files/008.climate.data/extract.climate.data.Rmd
+
+```{r data prep}
+# experimental accession data
+c.acc <- read.table('./data/bioclim.v2.200.experimental.lines.txt',stringsAsFactors=FALSE, header=TRUE)  ### all accessions now have data
+# experiment data
+c.exp <- read.table('./data/bioclim.v2.200.experimental.sites.txt', stringsAsFactors=FALSE, header=TRUE)
+# 1001g data
+all.acc <- read.table("./data/bioclim.v2.200.1001g.lines.txt", stringsAsFactors=FALSE, header=TRUE)
+
+
+### need to merge these so can use together
+### columns: name, region, type, lat, long, climate.params....
+
+### accession data first
+# get region data
+reg.dat <- read.table("./data/worldclim_swedish_acc.txt", stringsAsFactors=FALSE, header=TRUE, sep="\t")
+c.acc <- merge(c.acc, reg.dat[,c(1,3)])
+c.acc$type <- "exp.acc"
+c.acc <- c.acc[, c(1,23,24,2:22)]
+colnames(c.acc)[1] <- "name"
+rownames(c.acc) <- c.acc$name
+
+### experimental data
+c.exp$region <- c("N Sweden", "N Sweden", "N Sweden","N Sweden", "N Sweden", "S Sweden","S Sweden", "N Sweden", "N Sweden", "S Sweden","S Sweden","S Sweden","S Sweden","S Sweden","S Sweden")
+### only use experiments in this analysis
+c.exp <- c.exp[c(1,2,4,9,10,11,12,15),]
+c.exp$type <- substr(rownames(c.exp),1,1)
+c.exp$type <- gsub("C", "common_garden", c.exp$type)
+c.exp$type <- gsub("s", "snr", c.exp$type)
+c.exp <- c.exp[,c(1,23,24,2:22)]
+
+colnames(c.exp)[1] <- "name"
+colnames(c.exp)==colnames(c.acc)
+
+### OK, these look safe to rbind.
+
+c.dat <- rbind(c.exp, c.acc)
+
+## also do 1001g
+all.acc$type <- "1001g"
+all.acc$region <- "hap.filler"   ## put haplogroup here
+all.acc <- all.acc[,c(1,23,24,2:22)]
+colnames(all.acc)[1] <- "name"
+all.acc <- all.acc[all.acc$name%in%c.dat$name == FALSE,]
+all.dat <- rbind(all.acc, c.dat)
+
+```
+
+
+## 2. PCA analysis of accession data
+
+can we define the localness of accessions by "climate space"?
+
+```{r acc climate space PCA}
+library(corrplot)
+corrplot(cor(c.dat[,4:24]), method="color", type="upper", diag=FALSE)
+
+pdf("./figures/PCA.bioclimv2.vars.pdf", width=10, height=10)
+corrplot(cor(c.dat[,4:24]), method="ellipse", type="upper", diag=FALSE)
+dev.off()
+
+
+## clearly a LOT of correlation here.  Good data for PCA
+
+
+library(ggfortify)
+
+### only use 19 climate variables
+
+up.dat <- c.dat[,6:24]
+rownames(up.dat) <- rownames(c.dat)
+mini.pca <- prcomp(up.dat, center=TRUE)
+mini.pca
+summary(mini.pca)
+
+library(ggfortify)
+
+autoplot(prcomp(up.dat, center=TRUE), data = c.dat, loadings = TRUE, colour="region",size="type")
+
+### I like this analysis using only the 19 climate variables
+### let's look if locally adaptive
+
+pcs <- as.data.frame(mini.pca$x)
+pcs$id <- rownames(pcs)
+
+write.table(pcs, file="./data/experimental.pcas.txt",quote=FALSE)
+```
+
+
+As before first two PCs explain almost all the variation:
+PC1 0.6711 BIO12 Annual Precipitation
+PC2 0.3143 BIO4 Temperature Seasonality (standard deviation *100)
+
+
+```{R mini PCA plot by hand for annotation}
+pdf("./figures/PCA.accessions.19climvars.bioclimv2.pdf", width=8, height=6)
+plot(pcs$PC1, pcs$PC2, xlab="PC1 (67.11%)", ylab="PC2 (31.43%)", type="n")
+n.accs <- pcs[rownames(pcs)%in%rownames(c.dat[c.dat$region=="N Sweden",]),]
+s.accs <- pcs[rownames(pcs)%in%rownames(c.dat[c.dat$region=="S Sweden",]),]
+c.accs <- pcs[rownames(pcs)%in%rownames(c.dat[c.dat$region=="C Sweden",]),]
+points(n.accs$PC1, n.accs$PC2, pch=19, col="dodgerblue")
+points(c.accs$PC1, c.accs$PC2, pch=19, col="purple")
+points(s.accs$PC1, s.accs$PC2, pch=19, col="green")
+exp.sites <- pcs[rownames(pcs)%in%rownames(c.dat[c.dat$type%in%c("common_garden", "snr"),]),]
+points(exp.sites$PC1, exp.sites$PC2, pch=23, cex=2.5, lwd=2)
+legend("bottomleft", col=c("green", "purple","blue","black"),pch=c(19,19,19,23), legend=c("Southern lines", "Central lines", "Northern lines", "Experiment sites"))
+text(exp.sites[,1], exp.sites[,2], labels=c("N2-C","N2-S","N3-S","N1-C","S2-S","S2-C","S3-S","S1-C"), pos=c(1,3,1,3), offset=1)
+dev.off()
+
+### technically, I have also plotted the experiment locations as accessions.  Fix this if using this plot for something real.
+
+
+```
+
+```{R PCA distribution in sweden data}
+### look at distribution of BIO12 and BIO4
+library(ggplot2)
+library(ggmap)
+library(maps)
+library(mapdata)
+library("sf")
+library("rnaturalearth")
+library("rnaturalearthdata")
+library("rgeos")
+
+theme_set(theme_bw())
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+class(world)
+
+#sweden <- map_data("sweden")
+sweden <- map('worldHires','Sweden')
+sweden.map <- ggplot(data = world) +geom_sf() + coord_sf(xlim = c(sweden$range[1], sweden$range[2]), ylim = c(sweden$range[3], sweden$range[4]), expand = FALSE)
+bio12.map <- sweden.map + geom_point(data=c.dat, mapping = aes(x = lon, y = lat, colour = BIO12))
+bio4.map <- sweden.map + geom_point(data=c.dat, mapping = aes(x = lon, y = lat, colour = BIO4))
+bio12.map
+bio4.map
+pdf("./figures/bioclim.maps.pdf")
+print(bio12.map)
+print(bio4.map)
+dev.off()
+```
+
+
+
+
+## 3. PCA analysis of accession data within 1001g data
+
+```{r 1001g climate space PCA}
+
+
+library(corrplot)
+corrplot(cor(all.dat[,4:24]), method="color", type="upper", diag=FALSE)
+
+pdf("./figures/PCA.bioclimv2.1001g.pdf", width=10, height=10)
+corrplot(cor(c.dat[,4:24]), method="ellipse", type="upper", diag=FALSE)
+dev.off()
+
+
+## clearly a LOT of correlation here.  Good data for PCA
+## use 19 climate variables
+
+up.dat <- all.dat[,6:24]
+rownames(up.dat) <- rownames(all.dat)
+all.pca <- prcomp(up.dat, center=TRUE)
+all.pca
+summary(all.pca)
+
+library(ggfortify)
+
+autoplot(prcomp(up.dat, center=TRUE), data = all.dat, loadings = TRUE, colour="region",size="type")
+
+### I like this analysis using only the 19 climate variables
+### let's look if locally adaptive
+
+all.pcs <- as.data.frame(all.pca$x)
+all.pcs$id <- rownames(all.pcs)
+```
+
+
+
+```{R all PCA plot by hand for annotation}
+pdf("./figures/PCA.1001g.19climvars.bioclimv2.pdf", width=8, height=6)
+plot(all.pcs$PC1, all.pcs$PC2, xlab="PC1 (67.11%)", ylab="PC2 (31.43%)", col="grey90", pch=19)
+n.accs <- all.pcs[rownames(all.pcs)%in%rownames(c.dat[c.dat$region=="N Sweden",]),]
+s.accs <- all.pcs[rownames(all.pcs)%in%rownames(c.dat[c.dat$region=="S Sweden",]),]
+c.accs <- all.pcs[rownames(all.pcs)%in%rownames(c.dat[c.dat$region=="C Sweden",]),]
+points(n.accs$PC1, n.accs$PC2, pch=19, col="dodgerblue")
+points(c.accs$PC1, c.accs$PC2, pch=19, col="purple")
+points(s.accs$PC1, s.accs$PC2, pch=19, col="green")
+exp.sites <- all.pcs[rownames(all.pcs)%in%rownames(c.dat[c.dat$type%in%c("common_garden", "snr"),]),]
+points(exp.sites$PC1, exp.sites$PC2, pch=23, cex=2.5, lwd=2)
+legend("bottomleft", col=c("green", "purple","blue","black"),pch=c(19,19,19,23), legend=c("Southern lines", "Central lines", "Northern lines", "Experiment sites"))
+text(exp.sites[,1], exp.sites[,2], labels=c("N2-C","N2-S","N3-S","N1-C","S2-S","S2-C","S3-S","S1-C"), pos=c(1,3,1,3), offset=1)
+dev.off()
+
+### technically, I have also plotted the experiment locations as accessions.  Fix this if using this plot for something real.
+
+
+```
+
+### repeat these plots with the K groups from 29.BLUP.heatmap.by.K.Rmd
+
+```{r pca plots with kgroups}
+## load K groups
+kcl <- read.table("./data/K.groups.txt")
+colnames(kcl) <- c("K.group")
+c.dat$name <- rownames(c.dat)
+c.dat <- merge(c.dat,kcl, by.x="name", by.y="row.names", all.x=TRUE)
+rownames(c.dat) <- c.dat$name
+ann.colors <- c("#A6CEE3","#1F78B4","#B2DF8A", "#33A02C", "#FB9A99", "#E31A1C")
+
+
+pdf("./figures/PCA.accessions.19climvars.bioclimv2.K.groups.pdf", width=8, height=6)
+plot(pcs$PC1, pcs$PC2, xlab="PC1 (67.11%)", ylab="PC2 (31.43%)", type="n")
+
+k1 <- pcs[rownames(pcs)%in%rownames(c.dat[c.dat$K.group==1,]),]
+points(k1$PC1, k1$PC2, pch=19, col=ann.colors[1])
+k2 <- pcs[rownames(pcs)%in%rownames(c.dat[c.dat$K.group==2,]),]
+points(k2$PC1, k2$PC2, pch=19, col=ann.colors[2])
+k3 <- pcs[rownames(pcs)%in%rownames(c.dat[c.dat$K.group==3,]),]
+points(k3$PC1, k3$PC2, pch=19, col=ann.colors[3])
+k4 <- pcs[rownames(pcs)%in%rownames(c.dat[c.dat$K.group==4,]),]
+points(k4$PC1, k4$PC2, pch=19, col=ann.colors[4])
+k5 <- pcs[rownames(pcs)%in%rownames(c.dat[c.dat$K.group==5,]),]
+points(k5$PC1, k5$PC2, pch=19, col=ann.colors[5])
+k6 <- pcs[rownames(pcs)%in%rownames(c.dat[c.dat$K.group==6,]),]
+points(k6$PC1, k6$PC2, pch=19, col=ann.colors[6])
+
+exp.sites <- pcs[rownames(pcs)%in%rownames(c.dat[c.dat$type%in%c("common_garden", "snr"),]),]
+points(exp.sites$PC1, exp.sites$PC2, pch=23, cex=2.5, lwd=2)
+legend("bottomleft", col=c(ann.colors,"black"),pch=c(rep(19,6),23), legend=c("K1", "K2", "K3","K4","K5","K6", "Experiments"))
+text(exp.sites[,1], exp.sites[,2], labels=c("N2-C","N2-S","N3-S","N1-C","S2-S","S2-C","S3-S","S1-C"), pos=c(1,3,1,3), offset=1)
+dev.off()
+
+```
+
+### repeat these plots yet again with the K groups from 29.BLUP.heatmap.by.K.Rmd and the most up to date nomenclature 04Aug20
+
+```{r pca plots with kgroups new annotation}
+## get new K group names
+
+kcol <- brewer.pal(6, "Paired")[c(6,1,2,5,3,4)]
+ki <- data.frame(matrix(c("1","S1","2","S2","3","C","4","N1","5","N2","6","B"),ncol=2,byrow=TRUE))
+colnames(ki) <- c("K.group","K.name")
+c.dat <- merge(c.dat, ki, by="K.group", all.x=TRUE)
+c.dat$K.name <- factor(c.dat$K.name, levels=c("B","S1","S2","C","N1","N2"))
+rownames(c.dat) <- c.dat$name
+
+pdf("./figures/PCA.accessions.19climvars.bioclimv2.K.groups.annotationAug2020.pdf", width=8, height=6)
+plot(pcs$PC1, pcs$PC2, xlab="PC1 (67.11%)", ylab="PC2 (31.43%)", type="n")
+
+for(up in 1:6){
+  up.f <- levels(c.dat$K.name)[up]
+  print(up.f)
+  up.dat <- pcs[rownames(pcs)%in%rownames(c.dat[c.dat$K.name==up.f,]),]
+  points(up.dat$PC1, up.dat$PC2, pch=19, col=kcol[up])
+}
+
+exp.sites <- pcs[rownames(pcs)%in%rownames(c.dat[c.dat$type%in%c("common_garden"),]),]
+points(exp.sites$PC1, exp.sites$PC2, pch=23, cex=2.5, lwd=2)
+legend("bottomleft", col=c(kcol,"black"),pch=c(rep(19,6),23), legend=c(levels(c.dat$K.name), "Experiments"), title="K groups")
+text(exp.sites[,1], exp.sites[,2], labels=c("NA","NM","SR","SU"), pos=c(1,3,1,3), offset=1)
+dev.off()
+
+```
+
+
+

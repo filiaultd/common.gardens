@@ -1,0 +1,448 @@
+---
+title: "49.allele.freq.vs.beta.swedish.genomes.scan"
+author: "Daniele Filiault"
+date: "3/29/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = '/Volumes/field_experiments/adaptation_sweden/common.gardens/')
+
+library(ggpmisc)
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+library(tidyr)
+library(ggpubr)
+library(cowplot)
+library(viridis)
+library(rcompanion)
+library(multcompView)
+library(genio)
+library(ggalt)
+
+#library(spdep)
+source("99.geo.helper.fxns.R") ### has my genome plot function.
+
+#setwd("/groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens")
+#setwd("/Volumes/field_experiments/adaptation_sweden/common.gardens/")
+```
+
+## Introduction
+
+From previous analysis (48.AFD.genome.scan.subsets.Rmd), it seems like the subset of the genome identified in selection scans in the Swedish genomes paper showed a pattern of (1) more high AF and AFD snps, which would be expected and (2) a higher mean fitness for these putative selected regions in Northern experiments, which is expected since these are mainly swept in N populations.
+
+Goal here is to explore how robust this result is by looking at relationships between betas and allele frequencies (and differences).  Best case, would also like to develop permutation/rotation strategy for assessing significance of these patterns.
+
+## 1. Load AFD data
+```{r load data}
+### allele frequency data from script 46.allele.freq.differences.Kgroups
+load("./data/pop.af.dat.Rdat")
+load("./data/allele.freq.GWAS.snps.Rdata") #afg
+
+### set GWA results
+### originally tried to do this with limix results, but limix outputs the beta of the minor allele (with a random sign given to alleles that are at 50%).  This was just too tough to try to "correct" and Ben already set gemma to output the beta of the alt allele, which works much better.  I double checked that this is the case 28Sept20.
+### GWAS run in gemma in /groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens/28.BLUP.GWAS.Rmd
+#up.gwa.file <- "./res/gemma_marginal/gemma_lmm_blup_ULL_2011.rds"
+```
+
+```{r prep AFD data}
+### combine AFD datasets
+colnames(pop.af.dat)[1:2] <- c("chrom", "pos")
+pos <- do.call(rbind,strsplit(rownames(afg),"_"))
+colnames(pos) <- c("chrom", "pos")
+pos <- as.data.frame(pos)
+afg <- cbind(afg, pos)
+af.dat <- merge(pop.af.dat, afg, by=c("chrom", "pos"), all=TRUE)
+```
+
+## 2. Add GWAS data and polarize by most frequent local allele
+
+Now for each GWAS result, need to load and prep data.
+```{r data prep fxns}
+
+### function to combine GWAS and AFD data and polarize by "home" and "away" alleles
+
+add.gwas <- function(up.gwa.file, home.allele, away.allele){
+  load(up.gwa.file) ##variable is named p
+  colnames(p)[1:3] <- c("chrom","marker","pos")
+  up.dat <- merge(af.dat, p, by=c("chrom", "pos"),all=TRUE)
+  
+  # get subset where alt allele freq < 0.5 in home population
+  home.c <- which(colnames(up.dat)==home.allele)
+  away.c <- which(colnames(up.dat)==away.allele)
+  maf.dat <- up.dat[up.dat[,home.c]<0.5,]
+  #these are SNPs where the ref allele is more frequent locally
+  #need to calculate AFD and switch beta appropriately
+  maf.dat$ahome <- 1-maf.dat[,home.c]
+  maf.dat$aaway <- 1-maf.dat[,away.c]
+  maf.dat$home.beta <- -(maf.dat$beta)
+  
+  # do same to subset where alt allele is major allele in home pop
+  home.dat <- up.dat[up.dat[,home.c]>=0.5,]
+  home.dat$ahome <- home.dat[,home.c]
+  home.dat$aaway <- home.dat[,away.c]
+  home.dat$home.beta <- home.dat$beta 
+  
+  # put back together and finish AFD calculations
+  out.dat <- rbind(maf.dat, home.dat)
+  out.dat$ha.afd <- out.dat$ahome-out.dat$aaway
+  # get AFD bins
+  breaks <- seq(-0.5,1,0.15)
+  # specify interval/bin labels
+  tags <- c("-[.5-.35)","-[.35-.2)", "-[.2-.05)", "-[.05-.1)", "[-.1-.25)","[.25-.4)", "[.4-.55)","[.55-.7)", "[.7-85)","[.85-1)")
+  # bucketing values into bins north/south
+  out.dat$ha.bins <- cut(out.dat$ha.afd, breaks=breaks, include.lowest=TRUE, right=FALSE, labels=tags)
+  out.dat$ha.bins <- factor(out.dat$ha.bins, levels = tags,ordered = TRUE)
+  return(out.dat)
+}
+
+### extract pheno name from filename
+get.p.name <- function(up.gwa.file){
+  up.pheno <- unlist(strsplit(up.gwa.file, "/"))
+  up.pheno <- up.pheno[grep("rds", up.pheno)]
+  up.pheno <- gsub("gemma_lmm_blup_","" ,up.pheno)
+  up.pheno <- gsub(".rds","" ,up.pheno)
+  return(up.pheno)
+}
+
+### make pheno names to short names
+short.p.name <- function(p.name){
+  p.name <- gsub("ADA","NA",p.name)
+  p.name <- gsub("RAM","NM",p.name)
+  p.name <- gsub("RAT","SR",p.name)
+  p.name <- gsub("ULL","SU",p.name)
+  return(p.name)
+}
+```
+
+
+```{r polarizebetas}
+gwas.res.files.n <- c("./res/gemma_marginal/gemma_lmm_blup_RAM_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAM_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ADA_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ADA_2012.rds")
+gwas.res.files.s <- c("./res/gemma_marginal/gemma_lmm_blup_RAT_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAT_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ULL_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ULL_2012.rds")
+
+home.beta.n <- af.dat[,1:2]
+for(up.f in gwas.res.files.n){
+  print(up.f)    
+  up.dat <- add.gwas(up.gwa.file=up.f, home.allele="ANORTH", away.allele="ASOUTH")
+  up.pheno <- get.p.name(up.gwa.file=up.f)
+  colnames(up.dat)[colnames(up.dat)=="home.beta"] <- up.pheno
+  home.beta.n <- merge(home.beta.n, up.dat[,colnames(up.dat)%in%c("chrom", "pos",up.pheno)], all=TRUE)
+}
+
+home.beta.s <- af.dat[,1:2]
+for(up.f in gwas.res.files.s){
+  print(up.f)    
+  up.dat <- add.gwas(up.gwa.file=up.f, home.allele="ASOUTH", away.allele="ANORTH")
+  up.pheno <- get.p.name(up.gwa.file=up.f)
+  colnames(up.dat)[colnames(up.dat)=="home.beta"] <- up.pheno
+  home.beta.s <- merge(home.beta.s, up.dat[,colnames(up.dat)%in%c("chrom", "pos",up.pheno)], all=TRUE)
+}
+
+home.beta <- merge(home.beta.n, home.beta.s)
+home.beta <- merge(home.beta,af.dat[,c(1,2,15:16)])
+
+```
+
+## 3. Get frequency of alt allele
+This is a reflection of the power in the GWAS
+```{r get alt AF}
+ac.file <- "./data/K.group.allele.count.Rdat"
+load(ac.file)
+
+rc <- allele.count[,1:6]
+ac <- allele.count[,7:12]
+tc <- rc + ac
+
+alt.total <- apply(ac, 1, sum)
+total <- apply(tc, 1, sum)
+alt.freq <- alt.total/total
+
+af.pos <- do.call(rbind,strsplit(names(alt.freq), "_"))
+af.pos <- as.data.frame(af.pos,stringsAsFactors=FALSE)
+colnames(af.pos) <- c("chrom", "pos")
+
+af.pos$alt.freq <- alt.freq
+af.pos$total <- total
+af.dat <- merge(af.dat, af.pos)
+```
+
+## 4. Relationship between beta and overall AF
+```{r beta vs AF}
+all.dat <- merge(af.dat, home.beta)
+short.p.name <- function(p.name){
+  p.name <- gsub("ADA","NA",p.name)
+  p.name <- gsub("RAM","NM",p.name)
+  p.name <- gsub("RAT","SR",p.name)
+  p.name <- gsub("ULL","SU",p.name)
+  return(p.name)
+}
+colnames(all.dat) <- short.p.name(colnames(all.dat))
+up.exp <- "NM_2011"
+
+get.maf <- function(all.dat){
+  maj.dat <- all.dat[all.dat$alt.freq>=0.5,]
+  maj.dat$minor.freq <- 1-maj.dat$alt.freq
+  min.dat <- all.dat[all.dat$alt.freq<0.5,]
+  min.dat$minor.freq <- min.dat$alt.freq
+  out.dat <- rbind(min.dat, maj.dat)
+  return(out.dat)
+}
+
+maf.dat <- get.maf(all.dat=all.dat) ## there are about 4k SNPs that have a MAF < 0.1 according to these calculations.  But SNPS were filtered for MAF>0.1 in plink before GWAS.  I think the problem is that my MAF is calculated from all samples with a call, and plink MAF may be calculated from the total number of samples.
+ugh <- maf.dat[maf.dat$minor.freq < 0.1,]
+plot(ugh$minor.freq, ugh$total)
+
+## there are some with a total of 200 - these are all at a MAF of 0.1 (probably some floating point error issue)
+## The rest have less than 200 total calls and are arranged in nice arcs, suggesting that I am right about the differences in MAF calculations between me and plink.
+## So I'm not gonna freak out about this too much.
+```
+
+Plot relationship between beta and the minor allele frequency.
+
+```{r beta vs MAF}
+beta.maf.lm <- matrix(NA, ncol=2, nrow=8)
+
+pdf("./figures/49.figures/MAF.vs.beta.pdf", width=10, height=6)
+par(mfrow=c(2,4))
+for(up in 19:26){
+  up.exp <- colnames(maf.dat)[up]
+  smoothScatter(maf.dat$minor.freq, maf.dat[,up], ylab=paste(up.exp, " beta", sep=""), xlab="MAF")
+  up.lm <- lm(maf.dat[,up]~maf.dat$minor.freq)
+  print(up.exp)
+  #print(summary(up.lm))
+  out.lm <- c(summary(up.lm)$coefficients[2,4], summary(up.lm)$adj.r.squared)
+  beta.maf.lm[up-18,] <- out.lm
+  abline(up.lm, col="orange", lty=2, lwd=2)
+}
+dev.off()
+
+colnames(beta.maf.lm) <- c("pval", "adjR2")
+rownames(beta.maf.lm) <- colnames(maf.dat)[19:26]
+
+print(beta.maf.lm)
+```
+
+So there is definitely some heteroschedasticy with higher spread at lower minor allele frequencies (especially in the 0.1-0.15 range).  This is, however, noticably symmetric - i.e. mean around zero and distributed pretty evenly to negative and positive values.  Is there a difference between ref and alt alleles? 
+
+Plot relationship between beta and the alt allele frequency.
+
+```{R beta vs alt AF}
+beta.aaf.lm <- matrix(NA, ncol=2, nrow=8)
+
+pdf("./figures/49.figures/altAF.vs.beta.pdf", width=10, height=6)
+par(mfrow=c(2,4))
+for(up in 19:26){
+  up.exp <- colnames(maf.dat)[up]
+  smoothScatter(maf.dat$alt.freq, maf.dat[,up], ylab=paste(up.exp, " beta", sep=""), xlab="altAF")
+  up.lm <- lm(maf.dat[,up]~maf.dat$alt.freq)
+  print(up.exp)
+  #print(summary(up.lm))
+  out.lm <- c(summary(up.lm)$coefficients[2,4], summary(up.lm)$adj.r.squared)
+  beta.aaf.lm[up-18,] <- out.lm
+  abline(up.lm, col="orange", lty=2, lwd=2)
+}
+
+colnames(beta.aaf.lm) <- c("pval", "adjR2")
+rownames(beta.aaf.lm) <- colnames(maf.dat)[19:26]
+
+print(beta.aaf.lm)
+```
+
+Yes, alt alleles at high frequency tend to have increased betas.  This makes sense if alt alleles at high freq are preferrentially the home allele, otherwise, there could be some reference bias (although it's not clear to me how that would happen, but let's check the possibility). 
+
+Goal is to boxplot betas in cases where alt allele is home and alt allele is away, broken down by bins of AFD home-away on the xaxis. 
+Eventually add whether a SNP is in a genome scan window or not.
+
+```{r local altAF vs total altAF}
+# easiest answer is to plot altAF North vs MAF all
+pdf("./figures/49.figures/AAF.North.vs.all.pdf", width=5, height=5)
+smoothScatter(maf.dat$ANORTH, maf.dat$alt.freq, xlab="altAF northern groups", ylab="altAF all accessions")
+abline(v=0.5, col="orange", lty=2, lwd=2)
+dev.off()
+
+smoothScatter(maf.dat$ANORTH, maf.dat$alt.freq, xlab="altAF northern groups", ylab="altAF all accessions")
+abline(v=0.5, col="orange", lty=2, lwd=2)
+
+pdf("./figures/49.figures/AAF.South.vs.all.pdf", width=5, height=5)
+smoothScatter(maf.dat$ASOUTH, maf.dat$alt.freq, xlab="altAF southern groups", ylab="altAF all accessions")
+abline(v=0.5, col="orange", lty=2, lwd=2)
+dev.off()
+
+smoothScatter(maf.dat$ASOUTH, maf.dat$alt.freq, xlab="altAF southern groups", ylab="altAF all accessions")
+abline(v=0.5, col="orange", lty=2, lwd=2)
+```
+So yes, in both cases, high frequency alt alleles are the predominant home allele, so the asymmetric pattern makes some sense. 
+But could this effect explain the higher betas with higher AFDs home-away?
+
+```{r betas by AFD by home/away allele functions}
+
+# modify scripts from 48
+### function to combine GWAS and AFD data and polarize by "home" and "away" alleles
+
+add.gwas <- function(up.gwa.file, home.allele, away.allele){
+  load(up.gwa.file) ##variable is named p
+  colnames(p)[1:3] <- c("chrom","marker","pos")
+  up.dat <- merge(maf.dat[,c(1:18,27)], p, by=c("chrom", "pos"),all=TRUE)
+  
+  # get subset where alt allele freq < 0.5 in home population
+  home.c <- which(colnames(up.dat)==home.allele)
+  away.c <- which(colnames(up.dat)==away.allele)
+  maf.dat <- up.dat[up.dat[,home.c]<0.5,]
+  #these are SNPs where the ref allele is more frequent locally
+  #need to calculate AFD and switch beta appropriately
+  maf.dat$ahome <- 1-maf.dat[,home.c]
+  maf.dat$aaway <- 1-maf.dat[,away.c]
+  maf.dat$home.beta <- -(maf.dat$beta)
+  maf.dat$home.allele <- "ref"
+  
+  # do same to subset where alt allele is major allele in home pop
+  home.dat <- up.dat[up.dat[,home.c]>=0.5,]
+  home.dat$ahome <- home.dat[,home.c]
+  home.dat$aaway <- home.dat[,away.c]
+  home.dat$home.beta <- home.dat$beta 
+  home.dat$home.allele <- "alt"
+  
+  # put back together and finish AFD calculations
+  out.dat <- rbind(maf.dat, home.dat)
+  out.dat$ha.afd <- out.dat$ahome-out.dat$aaway
+  # get AFD bins
+  breaks <- seq(-0.5,1,0.15)
+  # specify interval/bin labels
+  tags <- c("-[.5-.35)","-[.35-.2)", "-[.2-.05)", "-[.05-.1)", "[-.1-.25)","[.25-.4)", "[.4-.55)","[.55-.7)", "[.7-85)","[.85-1)")
+  # bucketing values into bins north/south
+  out.dat$ha.bins <- cut(out.dat$ha.afd, breaks=breaks, include.lowest=TRUE, right=FALSE, labels=tags)
+  out.dat$ha.bins <- factor(out.dat$ha.bins, levels = tags,ordered = TRUE)
+  # get AF bins
+  breaks <- seq(0.5,1,0.1)
+  # specify interval/bin labels
+  tags <- c("[.5-.6)","[.6-.7)","[.7-.8)","[.8-.9)","[.9-1)" )  # bucketing values into bins north/south
+  out.dat$ahome.bins <- cut(out.dat$ahome, breaks=breaks, include.lowest=TRUE, right=FALSE, labels=tags)
+  out.dat$ahome.bins <- factor(out.dat$ahome.bins, levels = tags,ordered = TRUE)
+  return(out.dat)
+}
+
+### extract pheno name from filename
+get.p.name <- function(up.gwa.file){
+  up.pheno <- unlist(strsplit(up.gwa.file, "/"))
+  up.pheno <- up.pheno[grep("rds", up.pheno)]
+  up.pheno <- gsub("gemma_lmm_blup_","" ,up.pheno)
+  up.pheno <- gsub(".rds","" ,up.pheno)
+  return(up.pheno)
+}
+
+barplot.afd.bin <- function(up.dat, up.pheno, home.allele, away.allele){
+  nsa.plot <- ggplot(data = up.dat, aes(x=home.allele, y=home.beta, fill=home.allele)) + 
+    geom_jitter(aes(color='blueviolet'),alpha=0.2) +
+    scale_color_manual(values=c("blueviolet")) +
+    geom_boxplot(color="black", alpha=0.7) +
+    facet_wrap(.~ha.bins, nrow=1) +
+    labs(x='difference between home and away allele frequency', y="home allele effect") +
+    guides(color=FALSE, fill=FALSE) +
+    geom_hline(yintercept=0, linetype="dashed", color = "red", size=1) +
+    theme_minimal() 
+ nsa.plot <- nsa.plot + ggtitle(up.pheno,subtitle = paste("home allele=",home.allele,", away allele=", away.allele, sep=""))
+}
+
+barplot.af.bin <- function(up.dat, up.pheno, home.allele, away.allele){
+  nsa.plot <- ggplot(data = up.dat, aes(x=home.allele, y=home.beta, fill=home.allele)) + 
+    geom_jitter(aes(color='blueviolet'),alpha=0.2) +
+    scale_color_manual(values=c("blueviolet")) +
+    geom_boxplot(color="black", alpha=0.7) +
+    facet_wrap(.~ahome.bins, nrow=1) +
+    labs(x='home allele frequency', y="home allele effect") +
+    guides(color=FALSE, fill=FALSE) +
+    geom_hline(yintercept=0, linetype="dashed", color = "red", size=1) +
+    theme_minimal() 
+ nsa.plot <- nsa.plot + ggtitle(up.pheno,subtitle = paste("home allele=",home.allele,", away allele=", away.allele, sep=""))
+}
+```
+
+
+```{r  betas by AFD by home/away allele north experiments}
+n.af.tab <- as.list(1:4)
+n.afd.tab <- as.list(1:4)
+n.afd.plots <- as.list(1:4)
+n.af.plots <- as.list(1:4)
+
+for(up in 1:4){
+  up.gwa.file <- gwas.res.files.n[up]
+  home.allele="ANORTH"
+  away.allele="ASOUTH"
+
+  up.pheno <- get.p.name(up.gwa.file=up.gwa.file)
+  print(up.pheno)
+  
+  up.dat <- add.gwas(up.gwa.file=up.gwa.file, home.allele=home.allele, away.allele=away.allele)
+  haf.tab <- with(up.dat, table(ahome.bins, home.allele))
+  n.af.tab[[up]] <- haf.tab
+  afd.tab <- with(up.dat, table(ha.bins, home.allele))
+  n.afd.tab[[up]] <- afd.tab
+
+  afd.plot <- barplot.afd.bin(up.dat=up.dat, up.pheno=up.pheno, home.allele=home.allele, away.allele=away.allele)
+  n.afd.plots[[up]] <- afd.plot
+  af.plot <- barplot.af.bin(up.dat=up.dat, up.pheno=up.pheno, home.allele=home.allele, away.allele=away.allele)
+  n.af.plots[[up]] <- af.plot
+} 
+```
+
+```{r  betas by AFD by home/away allele south experiments}
+s.af.tab <- as.list(1:4)
+s.afd.tab <- as.list(1:4)
+s.afd.plots <- as.list(1:4)
+s.af.plots <- as.list(1:4)
+
+for(up in 1:4){
+  up.gwa.file <- gwas.res.files.s[up]
+  home.allele="ASOUTH"
+  away.allele="ANORTH"
+
+  up.pheno <- get.p.name(up.gwa.file=up.gwa.file)
+  print(up.pheno)
+  
+  up.dat <- add.gwas(up.gwa.file=up.gwa.file, home.allele=home.allele, away.allele=away.allele)
+  haf.tab <- with(up.dat, table(ahome.bins, home.allele))
+  s.af.tab[[up]] <- haf.tab
+  afd.tab <- with(up.dat, table(ha.bins, home.allele))
+  s.afd.tab[[up]] <- afd.tab
+
+  afd.plot <- barplot.afd.bin(up.dat=up.dat, up.pheno=up.pheno, home.allele=home.allele, away.allele=away.allele)
+  s.afd.plots[[up]] <- afd.plot
+  af.plot <- barplot.af.bin(up.dat=up.dat, up.pheno=up.pheno, home.allele=home.allele, away.allele=away.allele)
+  s.af.plots[[up]] <- af.plot
+} 
+```
+
+```{r plot af and afd by home allele tables}
+pdf("./figures/49.figures/af.tables.pdf", width=8, height=5)
+par(mfrow=c(1,2))
+plot(n.af.tab[[1]], main="North experiments")
+plot(s.af.tab[[1]], main="South experiments")
+dev.off()
+
+pdf("./figures/49.figures/afd.tables.pdf", width=12, height=5)
+par(mfrow=c(1,2))
+plot(n.afd.tab[[1]], main="North experiments", las=3)
+plot(s.afd.tab[[1]], main="South experiments", las=3)
+dev.off()
+
+```
+
+```{r plot homeAF by beta, by alt/ref of home allele}
+plot.file <- "./figures/49.figures/homeAF.beta.altref.jpg"
+comp.plot <- plot_grid(n.af.plots[[1]], n.af.plots[[2]], n.af.plots[[3]], n.af.plots[[4]], s.af.plots[[1]], s.af.plots[[2]], s.af.plots[[3]], s.af.plots[[4]] , ncol = 4, align="v", axis="rl")
+ggsave(file=plot.file, comp.plot, width=20, height=12, units="in")
+
+```
+
+```{r plot AFD by beta, by alt/ref of home allele}
+plot.file <- "./figures/49.figures/AFD.beta.altref.jpg"
+comp.plot <- plot_grid(n.afd.plots[[1]], n.afd.plots[[2]], n.afd.plots[[3]], n.afd.plots[[4]], s.afd.plots[[1]], s.afd.plots[[2]], s.afd.plots[[3]], s.afd.plots[[4]] , ncol = 4, align="v", axis="rl")
+ggsave(file=plot.file, comp.plot, width=20, height=12, units="in")
+
+```
+
+
+
+  

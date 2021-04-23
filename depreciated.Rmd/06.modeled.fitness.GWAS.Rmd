@@ -1,0 +1,816 @@
+---
+title: "06.modeled.fitness.GWAS"
+author: "Daniele Filiault"
+date: "3/5/2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE)
+read_chunk("./scripts/GWA_functions.R")
+
+library(captioner)
+table_nums <- captioner(prefix = "Table")
+fig_nums <- captioner(prefix = "Fig.")
+
+library(gplots)
+library(corrplot)
+```
+
+## Description and Motivation
+Running GWAS for fitness and associated traits using modeled trait values from markdowns 02-05.
+Using gemma (and therefore Ben's setup thereof), as begun in markdown 01.
+
+## Begin with fitness phenotype
+### 1a. Load phenotypes and make phenotype file for GWAS
+
+```{r initial data}
+fit <- read.table("./data/fitness.fitted.values.txt", stringsAsFactors=FALSE)
+
+## correlation between sites and years
+
+up.fit <- fit[,c(1,8:11,14:17)]
+corrplot(cor(up.fit[,2:9], use="na.or.complete"), order="hclust", method="ellipse", type="full", diag=FALSE)
+
+pdf("./figures/correlation.fitness.acc.values.pdf", width=8, height=8)
+corrplot(cor(up.fit[,2:9], use="na.or.complete"), method="ellipse", type="upper", diag=FALSE)
+dev.off()
+
+## cluster by pairwise correlations
+
+library(heatmaply)
+my_cor <- cor(up.fit[,2:9], use="na.or.complete")
+colfunc<-colorRampPalette(c("red","white","royalblue"))
+heatmaply_cor(my_cor, colors= colfunc(100),cellnote=my_cor,cellnote_textposition="middle center")
+### since these are interactive plots in plotly, they are hard to save statically, so I saved this one manually from the window
+#heatmaply_cor(my_cor, colors= viridis(n=256, alpha = 1, begin = 0, end = 1, direction=1, option = "viridis"),cellnote=my_cor,cellnote_textposition="middle center", file="./figures/correlation.dendrogram.fitness.acc.values.jpg")
+
+
+## modeling to get PVE for line, year, site, 
+
+library(reshape)
+
+fit.lm <- melt(up.fit, id=c("id"))
+fit.lm$variable <- as.character(fit.lm$variable)
+e.dat <- sapply(fit.lm$variable, function(x) {strsplit(x, "_")})
+e.dat <- do.call(rbind, e.dat)
+rownames(e.dat) <- rownames(fit.lm)
+fit.lm <- cbind(fit.lm, e.dat)
+colnames(fit.lm) <- c("id","exp","fitness","site","year")
+fit.lm$id <- as.factor(fit.lm$id)
+
+
+hist(fit.lm$fitness)
+
+lm1 <- lm(fitness~id, data=fit.lm)
+lm2 <- lm(fitness ~ id + site + year, data=fit.lm) 
+lm3 <- lm(fitness~ id + site + year + site*year, data=fit.lm)
+lm4 <- lm (fitness ~ id + site + year + id*site + id*year + site*year, data=fit.lm)
+lm5 <- lm(fitness ~ year + site + id, data=fit.lm)
+lm7 <- lm (fitness ~ id + site + year  + id*year + site*year, data=fit.lm)
+lm8 <- lm(fitness~year, data=fit.lm)
+lm9 <- lm(fitness ~ site*year, data=fit.lm)
+anova(lm9)
+
+## differences in fitness between sites and years.
+
+
+```
+
+
+anova and summary(lm9)
+           Df    Sum Sq    Mean Sq F value    Pr(>F)    
+site         3 0.0015855 0.00052851  88.268 < 2.2e-16 ***
+year         1 0.0000826 0.00008263  13.800 0.0002104 ***
+site:year    3 0.0055981 0.00186603 311.652 < 2.2e-16 ***
+Residuals 1584 0.0094843 0.00000599                      
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 0.002447 on 1584 degrees of freedom
+  (8 observations deleted due to missingness)
+Multiple R-squared:  0.4338,	Adjusted R-squared:  0.4313 
+F-statistic: 173.4 on 7 and 1584 DF,  p-value: < 2.2e-16
+
+anova and summary(lm4)
+Analysis of Variance Table
+
+Response: fitness
+           Df    Sum Sq    Mean Sq  F value    Pr(>F)    
+id        199 0.0030816 0.00001549   3.8639 < 2.2e-16 ***
+site        3 0.0015855 0.00052851 131.8735 < 2.2e-16 ***
+year        1 0.0000831 0.00008309  20.7333 6.413e-06 ***
+id:site   597 0.0025832 0.00000433   1.0797    0.1753    
+id:year   197 0.0014852 0.00000754   1.8811 5.747e-09 ***
+site:year   3 0.0055634 0.00185446 462.7271 < 2.2e-16 ***
+Residuals 591 0.0023685 0.00000401                       
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Multiple R-squared:  0.8586,	Adjusted R-squared:  0.6193 
+F-statistic: 3.589 on 1000 and 591 DF,  p-value: < 2.2e-16
+
+
+
+```{r make pheno files for GWAS}
+##make a phenotype file
+pref="./GWA/snps/sweden_200_MAF10.bimbam"
+dat <- fit
+row.names(dat)=paste(dat$id)
+dat=dat[,-1]
+acclist=scan(paste(pref, ".acclist", sep=""), sep=",")
+
+##make a table of phenos in the same order as the genotype
+phen=dat[paste(acclist), ]
+colnames(phen) <- paste("fitness", colnames(phen), sep="_")
+phenfile=paste(pref, ".all.marginal.phen.txt", sep="")
+
+#write.table(phen, phenfile, sep="\t", row.names=F, col.names=F)
+
+```
+
+### 1b. Run marginal GWAS with gemma
+```{r eval=FALSE, results='hide'}
+
+##run gemma using gemma-wrapper
+## to get system() to work in .Rstudio, you need to open .RStudio in the commmand line to inhert setup.  
+## command is:
+## open -a RStudio
+
+system("mkdir ./GWA/output_gemma_marginal/")
+system(paste("/Users/daniele.filiault/.gem/ruby/2.0.0/bio-gemma-wrapper-0.98.1/bin/gemma-wrapper --loco --json --cache-dir ./GWA/.gemma-cache -- -gk -g ", pref, ".geno.gz -a ", pref, ".map -p ", phenfile, " > ./GWA/output_gemma_marginal/K.json", sep=""))
+#Show in New WindowClear OutputExpand/Collapse Output
+#Read 200 items
+##Show in New WindowClear OutputExpand/Collapse Output
+#Read 10 items
+#Show in New WindowClear OutputExpand/Collapse Output
+#Read 10 items
+
+for(n in 1:ncol(phen)){
+    pheno=colnames(phen)[n]
+    print(pheno)
+    system(paste("/Users/daniele.filiault/.gem/ruby/2.0.0/bio-gemma-wrapper-0.98.1/bin/gemma-wrapper --loco --json --cache-dir ./GWA/.gemma-cache --input ./GWA/output_gemma_marginal/K.json -- -lmm 4 -g ", pref, ".geno.gz -a ", pref, ".map -p ", phenfile, " -n ", n , " > ./GWA/output_gemma_marginal/out_marginal_", pheno, sep=""))
+}
+```
+
+
+### 1c. Make manhattan plots and output 
+
+```{r eval=FALSE, include=TRUE}
+source("./scripts/GWA_functions.R")
+ph2=data.frame(phen=colnames(phen), ph2=NA)
+gwsignif=list()
+for(n in 1:ncol(phen)){
+    pheno=colnames(phen)[n]
+    print(pheno)
+    x=unlist(strsplit(scan(paste("./GWA/output_gemma_marginal/out_marginal_", pheno,sep=""), what="character")[10], ","))[7]  ### had to play with this a bit to deal with a warning message that made my output different from Ben's
+    f=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+    f2=gsub("assoc", "log", f)
+    ph2$ph2[n]=ph2gemma(f2)
+    p=read.delim(f, header=T, sep="\t")
+    saveRDS(p, paste("./res/gemma_marginal/gemma_lmm_", pheno,".rds", sep=""))
+    ##make a manhattan plot
+    colnames(p)[3]="pos"
+    colnames(p)=gsub("p_lrt", "pval", colnames(p))
+    p$score=-log10(p$pval)
+    p=p[p$af>=0.1,]
+    p$fdr_pval=p.adjust(p$pval, "fdr")
+    gwsignif[[pheno]]=p[p$fdr_pval<=0.05,]
+    jpeg(paste("./GWA/manhattans_marginal/lmm_gwa_", pheno, ".jpeg", sep=""),res=600, unit="in", width=8, height=4, pointsize=12)
+    manhattan(p)
+    dev.off()
+    if(n==1){
+        beta=p[, c("rs","beta")]
+        se=p[, c("rs", "se")]
+    }else{
+        beta=merge(p[, c("rs","beta")], beta, by="rs", all=T)
+        se=merge(p[, c("rs","se")], se, by="rs", all=T)
+    }
+}
+```
+## 2.  Mvlmm for combined years for all 4 sites (4 phenos total)
+
+Run GWAS
+```{r, eval=FALSE}
+n=1:4
+sel=paste(n, collapse=" ")
+pheno=paste(colnames(phen)[n], collapse="_")
+system(paste("/Users/daniele.filiault/.gem/ruby/2.0.0/bio-gemma-wrapper-0.98.1/bin/gemma-wrapper --loco --json --cache-dir ./GWA/.gemma-cache --input ./GWA/output_gemma_loco/K.json -- -lmm 4 -g ", pref, ".geno.gz -a ", pref, ".map -p ", phenfile, " -n ", sel , " > ./GWA/output_gemma_mvlmm/out_mvlmm_", pheno, sep=""))
+
+```
+
+Make manhattan plot and extract pvals and betas
+```{r extract pval betas, eval= FALSE}
+##make a manhattan plot
+n=1:4
+pheno=paste(colnames(phen)[n], collapse="_")
+x=unlist(strsplit(scan(paste("./GWA/output_gemma_mvlmm/out_mvlmm_", pheno,sep=""), what="character")[10], ","))[7]
+### had to play with this a bit to deal with a warning message that made my output different from Ben'sf=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+### ulimate output is the corresponding assoc.txt file in the gemma-cache
+f=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+p=read.delim(f, header=T, sep="\t")
+##make a manhattan plot
+colnames(p)[3]="pos"
+colnames(p)=gsub("p_wald", "pval", colnames(p))
+p$score=-log10(p$pval)
+p=p[p$af>=0.1,]
+p$fdr_pval=p.adjust(p$pval, "fdr")
+mlmmsignif=p[p$fdr_pval<=0.1,]
+```
+
+```{r man plot, eval=FALSE}
+source("./scripts/GWA_functions.R")
+jpeg(paste("./GWA/manhattans/mvlmm_gwa_", pheno, ".jpeg", sep=""),res=600, unit="in", width=8, height=4, pointsize=12)
+manhattan(p)
+dev.off()
+```
+
+
+Explore patterns in betas
+```{r}
+bnames <- gsub("fitness_","",colnames(phen)[1:4])
+bnames <- gsub("both", "beta", bnames)
+colnames(p)[8:11] <- bnames
+
+## take an arbitrary p-val cutoff for now
+p.cutoff <- 0.1
+p.sig <- p[p$fdr_pval < p.cutoff,]
+#pairs(p.sig[,8:11])
+
+zerolines <- function(x,y) {
+    points(x,y,pch=1)
+    abline(v=0,col="red", lwd=2)
+    abline(h=0, col="red", lwd=2)
+}
+
+quad.numbers <- function(x,y){
+  abline(v=0,col="red", lwd=2)
+  abline(h=0, col="red", lwd=2)
+  qn <- table(x>0, y>0)
+  text((max(x)/2), max(y)/2, qn[2,2], cex=2)
+  text((min(x)/2), min(y)/2, qn[1,1], cex=2)
+  text((max(x)/2), min(y)/2, qn[1,2], cex=2)
+  text((min(x)/2), max(y)/2, qn[2,1], cex=2)
+
+}
+
+pdf(file="./figures/both.year.betas.pdf", width=10, height=10)
+pairs(p.sig[,8:11], upper.panel=zerolines, lower.panel=quad.numbers)
+dev.off()
+```
+
+
+```{r test print}
+
+fig_nums("manhattan3", caption="Manhattan plot for fitness in the North and South mapped in a multivariate mixed model")
+include_graphics("./figures/both.year.betas.jpg")
+```
+
+
+cluster SNPs by beta patterns
+```{r cluster betas again}
+
+## try kmeans clustering
+
+## how many clusters?
+ks <- c(1:10)
+ss.out <- rep(NA,10)
+
+for(up in ks){
+  ko <- kmeans(p.sig[,8:11],up)
+  so <- as.numeric(ko[6])/as.numeric(ko[3])
+  ss.out[up] <- so
+}
+plot(x=1:10, y=ss.out, xlab="k",ylab="between_ss/total_ss")
+
+### let's try k=7
+
+k <- 7
+ko <- kmeans(p.sig[,8:11],k)
+
+p.sig$cluster <- ko$cluster
+p.sig <- p.sig[order(p.sig$cluster),]
+
+### plot betas by cluster (and cluster mean)
+
+ylims <- c(min(p.sig[,8:11]), max(p.sig[,8:11]))
+n.betas <- 4
+
+par(mfcol=c(3,3))
+for (up in 1:k){
+  up.dat <- p.sig[p.sig$cluster==up,]
+  plot(c(1:n.betas), up.dat[1,8:11],ylim=ylims, ylab="beta fitness", xaxt="n", type="n",xlab="phenotype")
+  axis(1,1:4, labels=colnames(up.dat[,8:11]))
+  for(up.r in 1:nrow(up.dat)){
+    #print(up.r)
+    points(c(1:n.betas), up.dat[up.r,8:11],type="l", col="grey80")
+  }
+  clust.means <- apply(up.dat[,8:11],2,mean)
+  points(c(1:n.betas), clust.means, type="l", col="blue", lwd=3)
+  abline(h=0, lty=4,col="red")
+  text(x=1, y=ylims[2],paste("n=",nrow(up.dat),sep=""))
+}
+
+
+### try some naive heatmap stuff
+
+p.hm <- as.matrix(p.sig[,8:11])
+rownames(p.hm) <- p.sig$rs
+
+pdf("./figures/together.betas.heatmap.pdf", width=18, height=8)
+heatmap.2(t(p.hm),col = cm.colors(256), trace = "none",density.info = "none", margins = c(5,9), lwid=c(1,6), lhei=c(1,4), Rowv=NULL, dendrogram="column")
+dev.off()
+```
+
+
+## 3.  Mvlmm for 2011 for all 4 sites (4 phenos total)
+
+Run GWAS
+```{r, eval=FALSE}
+n=7:10  ## column numbers of phen file to include
+sel=paste(n, collapse=" ")
+pheno=paste(colnames(phen)[n], collapse="_")
+system(paste("/Users/daniele.filiault/.gem/ruby/2.0.0/bio-gemma-wrapper-0.98.1/bin/gemma-wrapper --loco --json --cache-dir ./GWA/.gemma-cache --input ./GWA/output_gemma_loco/K.json -- -lmm 4 -g ", pref, ".geno.gz -a ", pref, ".map -p ", phenfile, " -n ", sel , " > ./GWA/output_gemma_mvlmm/out_mvlmm_", pheno, sep=""))
+
+```
+
+Make manhattan plot and extract pvals and betas
+```{r}
+##make a manhattan plot
+n=7:10
+pheno=paste(colnames(phen)[n], collapse="_")
+x=unlist(strsplit(scan(paste("./GWA/output_gemma_mvlmm/out_mvlmm_", pheno,sep=""), what="character")[10], ","))[7]
+### had to play with this a bit to deal with a warning message that made my output different from Ben'sf=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+### ulimate output is the corresponding assoc.txt file in the gemma-cache
+f=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+p=read.delim(f, header=T, sep="\t")
+##make a manhattan plot
+colnames(p)[3]="pos"
+colnames(p)=gsub("p_wald", "pval", colnames(p))
+p$score=-log10(p$pval)
+p=p[p$af>=0.1,]
+p$fdr_pval=p.adjust(p$pval, "fdr")
+mlmmsignif=p[p$fdr_pval<=0.1,]
+source("./scripts/GWA_functions.R")
+jpeg(paste("./GWA/manhattans/mvlmm_gwa_", pheno, ".jpeg", sep=""),res=600, unit="in", width=8, height=4, pointsize=12)
+manhattan(p)
+dev.off()
+
+fig_nums("manhattan1", caption="Manhattan plot - all sites fitness 2011")
+include_graphics(paste("./GWA/manhattans/mvlmm_gwa_", pheno, ".jpeg", sep=""))
+```
+
+Output betas for use elsewhere
+```{r output betas 2011, eval=FALSE}
+betas2011 <- p
+save(betas2011, file="./data/betas2011.Rdat")
+rm(betas2011)
+```
+
+Explore patterns in betas
+```{r}
+bnames <- gsub("fitness_","",colnames(phen)[7:10])
+bnames <- gsub("both", "beta", bnames)
+colnames(p)[8:11] <- bnames
+
+## take an arbitrary p-val cutoff for now
+p.cutoff <- 0.1
+p.sig <- p[p$fdr_pval < p.cutoff,]
+#pairs(p.sig[,8:11])
+
+zerolines <- function(x,y) {
+    points(x,y,pch=1)
+    abline(v=0,col="red", lwd=2)
+    abline(h=0, col="red", lwd=2)
+}
+
+quad.numbers <- function(x,y){
+  abline(v=0,col="red", lwd=2)
+  abline(h=0, col="red", lwd=2)
+  qn <- table(x>0, y>0)
+  text((max(x)/2), max(y)/2, qn[2,2], cex=2)
+  text((min(x)/2), min(y)/2, qn[1,1], cex=2)
+  text((max(x)/2), min(y)/2, qn[1,2], cex=2)
+  text((min(x)/2), max(y)/2, qn[2,1], cex=2)
+
+}
+
+pdf(file="./figures/2011.fitness.betas.pdf", width=10, height=10)
+pairs(p.sig[,8:11], upper.panel=zerolines, lower.panel=quad.numbers)
+dev.off()
+```
+
+
+```{r test.print.2011, eval=FALSE}
+
+fig_nums("manhattan3", caption="Betas by quadrant - all sites fitness 2011")
+include_graphics("./figures/2011.fitness.betas.pdf")
+```
+
+
+cluster SNPs by beta patterns
+```{r cluster betas 2011}
+
+## try kmeans clustering
+
+## how many clusters?
+ks <- c(1:10)
+ss.out <- rep(NA,10)
+
+for(up in ks){
+  ko <- kmeans(p.sig[,8:11],up)
+  so <- as.numeric(ko[6])/as.numeric(ko[3])
+  ss.out[up] <- so
+}
+plot(x=1:10, y=ss.out, xlab="k",ylab="between_ss/total_ss")
+
+### let's try k=9
+
+k <- 9
+ko <- kmeans(p.sig[,8:11],k)
+
+p.sig$cluster <- ko$cluster
+p.sig <- p.sig[order(p.sig$cluster),]
+
+### plot betas by cluster (and cluster mean)
+
+ylims <- c(min(p.sig[,8:11]), max(p.sig[,8:11]))
+n.betas <- 4
+
+par(mfcol=c(3,3))
+for (up in 1:k){
+  up.dat <- p.sig[p.sig$cluster==up,]
+  plot(c(1:n.betas), up.dat[1,8:11],ylim=ylims, ylab="beta fitness", xaxt="n", type="n",xlab="phenotype")
+  axis(1,1:4, labels=colnames(up.dat[,8:11]))
+  for(up.r in 1:nrow(up.dat)){
+    #print(up.r)
+    points(c(1:n.betas), up.dat[up.r,8:11],type="l", col="grey80")
+  }
+  clust.means <- apply(up.dat[,8:11],2,mean)
+  points(c(1:n.betas), clust.means, type="l", col="blue", lwd=3)
+  abline(h=0, lty=4,col="red")
+  text(x=1, y=ylims[2],paste("n=",nrow(up.dat),sep=""))
+}
+
+
+### try some naive heatmap stuff
+
+p.hm <- as.matrix(p.sig[,8:11])
+rownames(p.hm) <- p.sig$rs
+
+pdf("./figures/2011.fitness.betas.heatmap.pdf", width=18, height=8)
+heatmap.2(t(p.hm),col = cm.colors(256), trace = "none",density.info = "none", margins = c(5,9), lwid=c(1,6), lhei=c(1,4), Rowv=NULL, dendrogram="column")
+dev.off()
+```
+
+## 3.  Mvlmm for 2012 for all 4 sites (4 phenos total)
+
+Run GWAS
+```{r, eval=FALSE}
+n=13:16  ## column numbers of phen file to include
+sel=paste(n, collapse=" ")
+pheno=paste(colnames(phen)[n], collapse="_")
+system(paste("/Users/daniele.filiault/.gem/ruby/2.0.0/bio-gemma-wrapper-0.98.1/bin/gemma-wrapper --loco --json --cache-dir ./GWA/.gemma-cache --input ./GWA/output_gemma_loco/K.json -- -lmm 4 -g ", pref, ".geno.gz -a ", pref, ".map -p ", phenfile, " -n ", sel , " > ./GWA/output_gemma_mvlmm/out_mvlmm_", pheno, sep=""))
+
+```
+
+
+Make manhattan plot and extract pvals and betas
+```{r}
+##make a manhattan plot
+n=13:16
+pheno=paste(colnames(phen)[n], collapse="_")
+x=unlist(strsplit(scan(paste("./GWA/output_gemma_mvlmm/out_mvlmm_", pheno,sep=""), what="character")[10], ","))[7]
+### had to play with this a bit to deal with a warning message that made my output different from Ben'sf=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+### ulimate output is the corresponding assoc.txt file in the gemma-cache
+f=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+p=read.delim(f, header=T, sep="\t")
+##make a manhattan plot
+colnames(p)[3]="pos"
+colnames(p)=gsub("p_wald", "pval", colnames(p))
+p$score=-log10(p$pval)
+p=p[p$af>=0.1,]
+p$fdr_pval=p.adjust(p$pval, "fdr")
+mlmmsignif=p[p$fdr_pval<=0.1,]
+source("./scripts/GWA_functions.R")
+jpeg(paste("./GWA/manhattans/mvlmm_gwa_", pheno, ".jpeg", sep=""),res=600, unit="in", width=8, height=4, pointsize=12)
+manhattan(p)
+dev.off()
+
+fig_nums("manhattan2", caption="Manhattan plot - all sites fitness 2012")
+include_graphics(paste("./GWA/manhattans/mvlmm_gwa_", pheno, ".jpeg", sep=""))
+```
+
+Output betas for use elsewhere
+```{r output betas 2012, eval=FALSE}
+betas2012 <- p
+save(betas2012, file="./data/betas2012.Rdat")
+rm(betas2012)
+```
+
+
+Explore patterns in betas
+
+```{r}
+bnames <- gsub("fitness_","",colnames(phen)[13:16])
+bnames <- gsub("both", "beta", bnames)
+colnames(p)[8:11] <- bnames
+
+## take an arbitrary p-val cutoff for now
+p.cutoff <- 0.1
+p.sig <- p[p$fdr_pval < p.cutoff,]
+#pairs(p.sig[,8:11])
+
+zerolines <- function(x,y) {
+    points(x,y,pch=1)
+    abline(v=0,col="red", lwd=2)
+    abline(h=0, col="red", lwd=2)
+}
+
+quad.numbers <- function(x,y){
+  abline(v=0,col="red", lwd=2)
+  abline(h=0, col="red", lwd=2)
+  qn <- table(x>0, y>0)
+  text((max(x)/2), max(y)/2, qn[2,2], cex=2)
+  text((min(x)/2), min(y)/2, qn[1,1], cex=2)
+  text((max(x)/2), min(y)/2, qn[1,2], cex=2)
+  text((min(x)/2), max(y)/2, qn[2,1], cex=2)
+
+}
+
+jpeg(file="./figures/2012.fitness.betas.jpg", width=10, height=10)
+pairs(p.sig[,8:11], upper.panel=zerolines, lower.panel=quad.numbers)
+
+fig_nums("manhattan3", caption="Betas by quadrant - all sites fitness 2012")
+include_graphics("./figures/2012.fitness.betas.jpg")
+
+dev.off()
+```
+
+
+cluster SNPs by beta patterns
+```{r cluster betas 2012}
+
+## try kmeans clustering
+
+## how many clusters?
+ks <- c(1:10)
+ss.out <- rep(NA,10)
+
+for(up in ks){
+  ko <- kmeans(p.sig[,8:11],up)
+  so <- as.numeric(ko[6])/as.numeric(ko[3])
+  ss.out[up] <- so
+}
+plot(x=1:10, y=ss.out, xlab="k",ylab="between_ss/total_ss")
+
+
+```
+
+```{r}
+### let's try k=9
+
+k <- 5
+ko <- kmeans(p.sig[,8:11],k)
+
+p.sig$cluster <- ko$cluster
+p.sig <- p.sig[order(p.sig$cluster),]
+
+### plot betas by cluster (and cluster mean)
+
+ylims <- c(min(p.sig[,8:11]), max(p.sig[,8:11]))
+n.betas <- 4
+
+par(mfcol=c(3,3))
+for (up in 1:k){
+  up.dat <- p.sig[p.sig$cluster==up,]
+  plot(c(1:n.betas), up.dat[1,8:11],ylim=ylims, ylab="beta fitness", xaxt="n", type="n",xlab="phenotype")
+  axis(1,1:4, labels=colnames(up.dat[,8:11]))
+  for(up.r in 1:nrow(up.dat)){
+    #print(up.r)
+    points(c(1:n.betas), up.dat[up.r,8:11],type="l", col="grey80")
+  }
+  clust.means <- apply(up.dat[,8:11],2,mean)
+  points(c(1:n.betas), clust.means, type="l", col="blue", lwd=3)
+  abline(h=0, lty=4,col="red")
+  text(x=1, y=ylims[2],paste("n=",nrow(up.dat),sep=""))
+}
+
+
+### try some naive heatmap stuff
+
+p.hm <- as.matrix(p.sig[,8:11])
+rownames(p.hm) <- p.sig$rs
+
+pdf("./figures/2012.fitness.betas.heatmap.pdf", width=18, height=8)
+heatmap.2(t(p.hm),col = cm.colors(256), trace = "none",density.info = "none", margins = c(5,9), lwid=c(1,6), lhei=c(1,4), Rowv=NULL, dendrogram="column")
+dev.off()
+```
+
+
+## 4.  Mvlmm for 2012 for all 4 sites for both years (8 phenos total)
+## This did NOT work!
+
+Run GWAS
+```{r, eval=FALSE, include=FALSE}
+n=c(7:10,13:16)  ## column numbers of phen file to include
+sel=paste(n, collapse=" ")
+pheno=paste(colnames(phen)[n], collapse="_")
+system(paste("/Users/daniele.filiault/.gem/ruby/2.0.0/bio-gemma-wrapper-0.98.1/bin/gemma-wrapper --loco --json --cache-dir ./GWA/.gemma-cache --input ./GWA/output_gemma_loco/K.json -- -lmm 4 -g ", pref, ".geno.gz -a ", pref, ".map -p ", phenfile, " -n ", sel , " > ./GWA/output_gemma_mvlmm/out_mvlmm_", pheno, sep=""))
+
+```
+
+Make manhattan plot and extract pvals and betas
+```{r, eval=FALSE, include=FALSE}
+##make a manhattan plot
+n=c(7:10,13:16)
+pheno=paste(colnames(phen)[n], collapse="_")
+x=unlist(strsplit(scan(paste("./GWA/output_gemma_mvlmm/out_mvlmm_", pheno,sep=""), what="character")[10], ","))[7]
+### had to play with this a bit to deal with a warning message that made my output different from Ben'sf=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+### ulimate output is the corresponding assoc.txt file in the gemma-cache
+f=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+p=read.delim(f, header=T, sep="\t")
+##make a manhattan plot
+colnames(p)[3]="pos"
+colnames(p)=gsub("p_wald", "pval", colnames(p))
+p$score=-log10(p$pval)
+p=p[p$af>=0.1,]
+p$fdr_pval=p.adjust(p$pval, "fdr")
+mlmmsignif=p[p$fdr_pval<=0.1,]
+source("./scripts/GWA_functions.R")
+jpeg(paste("./GWA/manhattans/mvlmm_gwa_", pheno, ".jpeg", sep=""),res=600, unit="in", width=8, height=4, pointsize=12)
+manhattan(p)
+dev.off()
+```
+
+
+## 5.  Mvlmm for composite fitness - both years' values multiplied. - run all 4 sites together
+
+```{r cumul fitness data prep}
+### need other component fitness traits
+ows.dat <- read.table("./data/ows.fitted.values.txt", stringsAsFactors=FALSE)
+sss.dat <- read.table("./data/sss.fitted.values.txt", stringsAsFactors=FALSE)
+fec.dat <- read.table("./data/fecund.fitted.values.txt", stringsAsFactors=FALSE)
+if(sum(ows.dat$id==sss.dat$id)==nrow(ows.dat)){print("ows.sss.OK")}
+if(sum(ows.dat$id==sss.dat$id)==nrow(fec.dat)){print("fec.sss.OK")}
+### these are all OK
+
+cfit.a <- sss.dat$ADA_2011 * fec.dat$ADA_2011 * sss.dat$ADA_2012 * fec.dat$ADA_2012
+cfit.r <- sss.dat$RAM_2011 * fec.dat$RAM_2011 * sss.dat$RAM_2012 * fec.dat$RAM_2012
+cfit.u <- sss.dat$ULL_2011 * fec.dat$ULL_2011 * sss.dat$ULL_2012 * fec.dat$ULL_2012
+cfit.t <- sss.dat$RAT_2011 * fec.dat$RAT_2011 * sss.dat$RAT_2012 * fec.dat$RAT_2012
+cfit.dat <- cbind(ows.dat$id, cfit.a, cfit.r, cfit.u, cfit.t)
+colnames(cfit.dat) <- c("id", "ADA", "RAM", "ULL", "RAT")
+
+rownames(cfit.dat) <- cfit.dat[,1]
+cfit.dat <- cfit.dat[,-1]
+
+### also do snr-relevant composite fitness
+srfit.a <- sss.dat$ADA_2011 * fec.dat$ADA_2011 * ows.dat$ADA_2012 
+srfit.r <- sss.dat$RAM_2011 * fec.dat$RAM_2011 * ows.dat$RAM_2012 
+srfit.u <- sss.dat$ULL_2011 * fec.dat$ULL_2011 * ows.dat$ULL_2012
+srfit.t <- sss.dat$RAT_2011 * fec.dat$RAT_2011 * ows.dat$RAT_2012
+srfit.dat <- cbind(ows.dat$id, srfit.a, srfit.r, srfit.u, srfit.t)
+colnames(srfit.dat) <- c("id", "ADA", "RAM", "ULL", "RAT")
+
+rownames(srfit.dat) <- srfit.dat[,1]
+srfit.dat <- srfit.dat[,-1]
+
+colnames(cfit.dat) <- paste("c.", colnames(cfit.dat),sep="")
+colnames(srfit.dat) <- paste("sr.", colnames(srfit.dat),sep="")
+comp.fit <- cbind(cfit.dat, srfit.dat)
+```
+
+
+```{r make another pheno file for GWAS}
+##make a phenotype file
+pref="./GWA/snps/sweden_200_MAF10.bimbam"
+dat <- comp.fit
+acclist=scan(paste(pref, ".acclist", sep=""), sep=",")
+
+##make a table of phenos in the same order as the genotype
+cphen=dat[paste(acclist), ]
+colnames(cphen) <- paste("fitness", colnames(cphen), sep="_")
+cphenfile=paste(pref, ".comp.fitness.phen.txt", sep="")
+
+#write.table(cphen, cphenfile, sep="\t", row.names=F, col.names=F)
+
+```
+
+Run GWAS
+```{r comp.fit gwas, eval=FALSE}
+n=1:4  ## column numbers of phen file to include
+sel=paste(n, collapse=" ")
+pheno=paste(colnames(cphen)[n], collapse="_")
+system(paste("/Users/daniele.filiault/.gem/ruby/2.0.0/bio-gemma-wrapper-0.98.1/bin/gemma-wrapper --loco --json --cache-dir ./GWA/.gemma-cache --input ./GWA/output_gemma_loco/K.json -- -lmm 4 -g ", pref, ".geno.gz -a ", pref, ".map -p ", cphenfile, " -n ", sel , " > ./GWA/output_gemma_mvlmm/out_mvlmm_", pheno, sep=""))
+
+comp.fit.gwas.file <- "./GWA/.gemma-cache/9513fa2ab685fb518d8fd3b0ce22f09b064aa1df.assoc.txt"
+```
+
+```{r sr.fit gwas, eval=FALSE}
+n=5:8  ## column numbers of phen file to include
+sel=paste(n, collapse=" ")
+pheno=paste(colnames(cphen)[n], collapse="_")
+system(paste("/Users/daniele.filiault/.gem/ruby/2.0.0/bio-gemma-wrapper-0.98.1/bin/gemma-wrapper --loco --json --cache-dir ./GWA/.gemma-cache --input ./GWA/output_gemma_loco/K.json -- -lmm 4 -g ", pref, ".geno.gz -a ", pref, ".map -p ", cphenfile, " -n ", sel , " > ./GWA/output_gemma_mvlmm/out_mvlmm_", pheno, sep=""))
+
+snr.fit.gwas.file <- "./GWA/.gemma-cache/d1537d8cc3b5ecdffe492f523a1ff56efc373711.assoc.txt"
+```
+
+
+```{r comp fit manhattan plots, eval=FALSE}
+n=c(1:4)
+pheno=paste(colnames(cphen)[n], collapse="_")
+
+p=read.delim(comp.fit.gwas.file, header=T, sep="\t")
+##make a manhattan plot
+colnames(p)[3]="pos"
+colnames(p)=gsub("p_wald", "pval", colnames(p))
+p$score=-log10(p$pval)
+p=p[p$af>=0.1,]
+p$fdr_pval=p.adjust(p$pval, "fdr")
+mlmmsignif=p[p$fdr_pval<=0.1,]
+source("./scripts/GWA_functions.R")
+jpeg(paste("./GWA/manhattans/mvlmm_gwa_", pheno, ".jpeg", sep=""),res=600, unit="in", width=8, height=4, pointsize=12)
+manhattan(p)
+dev.off()
+
+comp.p <- p
+
+n=c(5:8)
+pheno=paste(colnames(cphen)[n], collapse="_")
+p=read.delim(snr.fit.gwas.file, header=T, sep="\t")
+##make a manhattan plot
+colnames(p)[3]="pos"
+colnames(p)=gsub("p_wald", "pval", colnames(p))
+p$score=-log10(p$pval)
+p=p[p$af>=0.1,]
+p$fdr_pval=p.adjust(p$pval, "fdr")
+mlmmsignif=p[p$fdr_pval<=0.1,]
+source("./scripts/GWA_functions.R")
+jpeg(paste("./GWA/manhattans/mvlmm_gwa_", pheno, ".jpeg", sep=""),res=600, unit="in", width=8, height=4, pointsize=12)
+manhattan(p)
+dev.off()
+
+snr.p <- p
+```
+
+```{r output composite betas}
+cp <- comp.p[,c(1:3,8:11)]
+colnames(cp)[4:7] <- paste(colnames(cp[4:7]),"comp",sep="_")
+sp <- snr.p[,c(1:3,8:11)]
+colnames(sp)[4:7] <- paste(colnames(sp[4:7]),"snr",sep="_")
+composite.betas <- merge(cp, sp)
+save(composite.betas, file="./data/composite.betas.Rdat")
+
+
+```
+## 6. QQplots
+
+```{r qq plots}
+
+#### make QQ plots of pvalues
+### this should get moved to original GWAS script eventually, but I was thinking of it now
+
+## fitness 2011 and 2012
+load(file="./data/geo.beta.2011.2012.Rdat")
+
+library(lattice)
+
+
+jpeg("./figures/qqplot.fitness2012.jpg",res=600, unit="in", width=5, height=5, pointsize=12)
+qqmath(-log10(geo.beta.2011.2012$pval_2012), distribution=function(x){-log10(qunif(1-x))}, main="QQ plot fitness 2012",panel = function(x, ...) { 
+    panel.qqmathline(x, ...) 
+    panel.qqmath(x, ...) 
+  })
+dev.off()
+
+jpeg("./figures/qqplot.fitness2011.jpg",res=600, unit="in", width=5, height=5, pointsize=12)
+qqmath(-log10(geo.beta.2011.2012$pval_2011), distribution=function(x){-log10(qunif(1-x))},  main="QQ plot fitness 2011", panel = function(x, ...) { 
+    panel.qqmathline(x, ...) 
+    panel.qqmath(x, ...) 
+  })
+dev.off()
+
+# composite fitness
+jpeg("./figures/qqplot.composite.fitness.jpg",res=600, unit="in", width=5, height=5, pointsize=12)
+qqmath(-log10(comp.p$pval), distribution=function(x){-log10(qunif(1-x))},  main="QQ plot composite fitness", panel = function(x, ...) { 
+    panel.qqmathline(x, ...) 
+    panel.qqmath(x, ...) 
+  })
+dev.off()
+
+# SnR fitness
+jpeg("./figures/qqplot.snr.fitness.jpg",res=600, unit="in", width=5, height=5, pointsize=12)
+qqmath(-log10(snr.p$pval), distribution=function(x){-log10(qunif(1-x))},  main="QQ plot SnR fitness", panel = function(x, ...) { 
+    panel.qqmathline(x, ...) 
+    panel.qqmath(x, ...) 
+  })
+dev.off()
+```
+
+
+
+

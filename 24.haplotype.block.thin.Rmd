@@ -1,0 +1,736 @@
+---
+title: "24.halotype.block.thin"
+author: "Daniele Filiault"
+date: "11/20/2019 revisited 16OCT20 and 08NOV20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("./99.geo.helper.fxns.R")
+library(ggplot2)
+library(gridExtra)
+library(ggpmisc)
+library(tidyr)
+library(ggpubr)
+library(cowplot)
+library(dplyr)
+library(viridis)
+```
+
+## Introduction
+
+Ran haplotype block fxn in plink on 200 experimental line SNPs data (same data as used for GWAS with same filters)
+Want to thin allele frequency and beta data to these blocks.
+First step is to choose a block set to use.  I tried a few variable combinations that might suit A.thaliana better than the defaults
+field_experiments/adaptation_sweden/common.gardens/scripts/plink.haplotype.block.Sweden200.sh
+
+```{r load haploblock data}
+##specifications ben used for microbiome paper
+ben.b <- read.table(file="/groups/nordborg/projects/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben.blocks.det", header=TRUE, stringsAsFactors=FALSE)
+colnames(ben.b)[1:2] <- c("Chromosome", "Position")
+hist(ben.b$NSNPS)
+hist(ben.b$KB)
+genome.plot(ben.b,"KB")
+
+##increasing windows considered to 400kb
+ben.b400 <- read.table(file="/groups/nordborg/projects/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben.400kb.blocks.det", header=TRUE, stringsAsFactors=FALSE)
+colnames(ben.b400)[1:2] <- c("Chromosome", "Position")
+hist(ben.b400$NSNPS)
+hist(ben.b400$KB)
+genome.plot(ben.b400,"KB")
+
+## almost the same.
+
+## reduce "recombination" detection point
+ben.br8 <- read.table(file="/groups/nordborg/projects/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben.400kb.recomb8.blocks.det", header=TRUE, stringsAsFactors=FALSE)
+colnames(ben.br8)[1:2] <- c("Chromosome", "Position")
+hist(ben.br8$NSNPS)
+hist(ben.br8$KB)
+genome.plot(ben.br8,"KB")
+
+## this is assembling some larger blocks, espcially around centromeres.
+
+## 3 different settings of proportion of SNPs within a block that must be in strong LD
+ben.bi9 <- read.table(file="/groups/nordborg/projects/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben.inform9.blocks.det", header=TRUE, stringsAsFactors=FALSE)
+colnames(ben.bi9)[1:2] <- c("Chromosome", "Position")
+hist(ben.bi9$NSNPS)
+hist(ben.bi9$KB)
+genome.plot(ben.bi9,"KB")
+
+ben.bi8 <- read.table(file="/groups/nordborg/projects/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben.inform8.blocks.det", header=TRUE, stringsAsFactors=FALSE)
+colnames(ben.bi8)[1:2] <- c("Chromosome", "Position")
+hist(ben.bi8$NSNPS)
+hist(ben.bi8$KB)
+genome.plot(ben.bi8,"KB")
+
+ben.bi5 <- read.table(file="/groups/nordborg/projects//field_experiments/001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben.inform5.blocks.det", header=TRUE, stringsAsFactors=FALSE)
+colnames(ben.bi5)[1:2] <- c("Chromosome", "Position")
+hist(ben.bi5$NSNPS)
+hist(ben.bi5$KB)
+genome.plot(ben.bi5,"KB")
+
+### so, 0.5 is too low.  0.8 might be reasonable??  But also increase window possibilities to 400 and 600kb
+ben.b400.i9 <- read.table(file="/groups/nordborg/projects/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben400.inform9.blocks.det", header=TRUE, stringsAsFactors=FALSE)
+colnames(ben.b400.i9)[1:2] <- c("Chromosome", "Position")
+hist(ben.b400.i9$NSNPS)
+hist(ben.b400.i9$KB)
+genome.plot(ben.b400.i9,"KB")
+
+ben.b400.i8 <- read.table(file="/groups/nordborg/projects/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben400.inform8.blocks.det", header=TRUE, stringsAsFactors=FALSE)
+colnames(ben.b400.i8)[1:2] <- c("Chromosome", "Position")
+hist(ben.b400.i8$NSNPS)
+hist(ben.b400.i8$KB)
+genome.plot(ben.b400.i8,"KB")
+
+## so there are a few 400kb blocks, but these are in the centromeres
+## staring at these distributions, I am gonna go ahead and try 400kb with the proportion 0.9
+## look at effect on manhattan plot
+```
+## also want to see how blocks would affect manhattan plots.  Can I get rid of peaks?
+
+```{r get GWAS pvalue results}
+
+gwas.files <- c("./res/gemma_marginal/gemma_lmm_blup_RAM_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAM_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ADA_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ADA_2012.rds","./res/gemma_marginal/gemma_lmm_blup_RAT_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAT_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ULL_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ULL_2012.rds")
+
+### extract pheno name from filename
+get.p.name <- function(up.gwa.file){
+  up.pheno <- unlist(strsplit(up.gwa.file, "/"))
+  up.pheno <- up.pheno[grep("rds", up.pheno)]
+  up.pheno <- gsub("gemma_lmm_blup_","" ,up.pheno)
+  up.pheno <- gsub(".rds","" ,up.pheno)
+  return(up.pheno)
+}
+
+### get p-values
+if(exists("pvals")){rm(pvals)}
+for(up.f in gwas.files){
+  print(up.f)
+  load(up.f) ##variable is named p
+  up.pheno <- get.p.name(up.gwa.file=up.f)
+  colnames(p)[1:3] <- c("chrom","marker","pos")
+  p <- p[c(1,3,15)]
+  colnames(p)[3] <- paste(up.pheno,".p",sep="")
+  #print(head(p))
+  if(exists("pvals")){pvals <- merge(pvals,p, by=c("chrom", "pos"))
+  }else{pvals <- p}
+}
+
+### get betas
+if(exists("betas")){rm(betas)}
+for(up.f in gwas.files){
+  print(up.f)
+  load(up.f) ##variable is named p
+  up.pheno <- get.p.name(up.gwa.file=up.f)
+  colnames(p)[1:3] <- c("chrom","marker","pos")
+  p <- p[c(1,3,8)]
+  colnames(p)[3] <- paste(up.pheno,".b",sep="")
+  #print(head(p))
+  if(exists("betas")){betas <- merge(betas,p, by=c("chrom", "pos"))
+  }else{betas <- p}
+}
+
+gwas.dat <- merge(betas,pvals, by=c("chrom", "pos"))
+```
+
+
+
+```{r load and prep afd and beta data}
+### allele frequency data from script 46.allele.freq.differences.Kgroups
+load("./data/allele.freq.GWAS.snps.Rdata")#afg
+
+afb.dat <- afg
+pos <- do.call(rbind,strsplit(rownames(afb.dat), "_"))
+pos <- as.data.frame(pos)
+colnames(pos) <- c("chrom", "pos")
+afb.dat <- cbind(pos, afb.dat)
+afb.dat <- merge(afb.dat,gwas.dat, by=c("chrom", "pos"))
+afb.dat$pos <- as.numeric(as.character(afb.dat$pos))
+afb.dat <- afb.dat[order(afb.dat$chrom, afb.dat$pos),]
+afb.dat$chrom <- as.numeric(as.character(afb.dat$chrom))
+```
+```{r tom candidate subset}
+c.snp <- 5929184
+c.chr <- 2
+c.wind <- 30000
+
+c.subset <- afb.dat[afb.dat$chrom==c.chr & afb.dat$pos>=(c.snp-c.wind) & afb.dat$pos<=(c.snp+c.wind),]
+
+c.ps <- c.subset[,19:26]
+pairs(-log10(c.ps))
+
+c.bs <- c.subset[,11:18]
+pairs(c.bs)
+write.csv(c.subset,file="./data/chr2.snp5929184.30kb.csv")
+```
+
+
+### General idea is to get the SNP with most extreme afd per block functions
+Should output SNP and beta
+
+```{r add intervals to beta and afd data, eval=FALSE}
+## first try 400kb blocks, .9 proportion
+hb <- ben.b400.i9
+hb$block.no <- rownames(hb)
+
+### change this so it runs faster!! since redid by SNP, can do by matrix row instead of slow append
+block.dat <- matrix(NA,nrow=nrow(afb.dat),ncol=ncol(afb.dat)+1)
+for(up in 1:nrow(afb.dat)){  
+  print(up)
+  up.h <- afb.dat[up,]
+  up.b <- hb[up.h$chrom==hb$Chromosome & up.h$pos>=hb$Position& up.h$pos<=hb$BP2,]
+  if(nrow(up.b)==0){up.h$block.no <- NA
+  } else {
+    up.h$block.no <- up.b$block.no
+  }
+  block.dat[up, ]<- as.numeric(up.h)
+}
+
+colnames(block.dat) <- c(colnames(afb.dat),"hap.block")
+  
+save(block.dat, file="./data/block.dat.Rdat")
+#load("./data/block.dat.Rdat")
+```
+
+
+
+```{r polarize by most common home allele}
+load("./data/block.dat.Rdat")
+block.dat <- as.data.frame(block.dat,stringsAsFactors=FALSE)
+## let's -log10 the pvalues (19:27)
+for (up in 19:26){block.dat[,up] <- -log10(block.dat[,up])}
+
+#up.exp <- "RAM_2011"
+#comp.exp <- "ULL_2011"
+#home.allele <- "ANORTH"
+#away.allele <- "ASOUTH"
+
+## this will change signs of betas
+
+pol.by.home <- function(home.allele, away.allele){
+  home.c <- which(colnames(block.dat)==home.allele)
+  away.c <- which(colnames(block.dat)==away.allele)
+  maf.dat <- block.dat[block.dat[,home.c]<0.5,]
+  #these are SNPs where the ref allele is more frequent locally
+  #need to calculate AFD and switch beta appropriately
+  maf.dat$ahome <- 1-maf.dat[,home.c]
+  maf.dat$aaway <- 1-maf.dat[,away.c]
+  maf.dat[11:18] <- -maf.dat[11:18]
+  
+  # do same to subset where alt allele is major allele in home pop (don't need to flip sign)
+  home.dat <- block.dat[block.dat[,home.c]>=0.5,]
+  home.dat$ahome <- home.dat[,home.c]
+  home.dat$aaway <- home.dat[,away.c]
+  
+  # put back together and finish AFD calculations
+  out.dat <- rbind(maf.dat, home.dat)
+  out.dat$ha.afd <- out.dat$ahome-out.dat$aaway
+  # get AFD bins
+  breaks <- seq(-0.5,1,0.15)
+  # specify interval/bin labels
+  tags <- c("-[.5-.35)","-[.35-.2)", "-[.2-.05)", "-[.05-.1)", "[.1-.25)","[.25-.4)", "[.4-.55)","[.55-.7)", "[.7-85)","[.85-1)")
+  # bucketing values into bins north/south
+  out.dat$ha.bins <- cut(out.dat$ha.afd, breaks=breaks, include.lowest=TRUE, right=FALSE, labels=tags)
+  out.dat$ha.bins <- factor(out.dat$ha.bins, levels = tags,ordered = TRUE)
+  
+  #do home allele frequency bins
+  breaks <- seq(0.5,1,0.1)
+  tags <- c("[.5-.6)","[.6-.7)","[.7-.8)","[.8-.9)","[.9-1)" )
+  out.dat$ahome.bins <- cut(out.dat$ahome, breaks=breaks, include.lowest=TRUE, right=FALSE, labels=tags)
+  out.dat$ahome.bins <- factor(out.dat$ahome.bins, levels = tags,ordered = TRUE)
+  
+  #do away allele frequency bins
+  breaks <- seq(0,1,0.1)
+  tags <- c("[.0-.1)","[.1-.2)","[.2-.3)","[.3-.4)","[.4-5)","[.5-.6)","[.6-.7)","[.7-.8)","[.8-.9)","[.9-1)" )
+  out.dat$aaway.bins <- cut(out.dat$aaway, breaks=breaks, include.lowest=TRUE, right=FALSE, labels=tags)
+  out.dat$aaway.bins <- factor(out.dat$aaway.bins, levels = tags,ordered = TRUE)
+  
+  return(out.dat)
+}  
+
+test.dat <- pol.by.home(home.allele="ANORTH", away.allele="ASOUTH")
+```
+
+```{r most extreme afd per block functions}
+#od.s <- split(test.dat, test.dat$block.no)
+#max.afd <- unlist(lapply(od.s, function(x){max(x$ha.afd, na.rm=TRUE)}))
+#max.beta <- unlist(lapply(od.s, function(x){max(x$RAM_2011, na.rm=TRUE)}))
+#max.haf <- unlist(lapply(od.s, function(x){max(x$ahome, na.rm=TRUE)}))
+#min.beta <- unlist(lapply(od.s, function(x){min(x$RAM_2011, na.rm=TRUE)}))
+#abs.beta <- unlist(lapply(od.s, function(x){max(abs(x$RAM_2011), na.rm=TRUE)}))
+#med.beta <- unlist(lapply(od.s, function(x){median(x$RAM_2011, na.rm=TRUE)}))
+#beta.diff <- max.beta-min.beta
+#test.blocks <- cbind(h.blocks,max.beta, max.haf, max.afd)
+#test.plot <- ggplot(test.blocks, aes(x=Position, y=max.beta, color=max.afd)) +
+#    geom_point() +
+#    facet_grid(~Chromosome)
+
+### function: get SNP with maximum afd per block
+extreme.afd.blocks <- function(beta.dat){
+  od.s <- split(beta.dat, beta.dat$hap.block)
+  out.dat <- lapply(od.s, function(x){
+    out.x <- x[x$ha.afd==max(x$ha.afd, na.rm=TRUE),]
+    if(nrow(out.x)!=1){out.x <- out.x[1,]}
+    return(out.x)
+  })
+  out.dat <- do.call(rbind, out.dat)
+  out.dat <- merge(out.dat, hb, by.x="hap.block", by.y="block.no", all=TRUE)
+  out.dat$hap.block <- as.numeric(out.dat$hap.block)
+  out.dat <- out.dat[order(out.dat$hap.block),]
+  out.dat <- out.dat[,-39]
+  return(out.dat)
+}
+
+### function: make plots
+single.exp.plots <- function(plot.dat, up.exp, home.allele, away.allele, exp.short.name){
+  plot.title <- exp.short.name
+  plot.subtitle <- paste("home allele=", home.allele, ", away allele=", away.allele, sep="")
+  plot.betas <- paste(up.exp,".b", sep="")
+  
+  beta.manhattan.plot <- ggplot(data = subset(plot.dat, !is.na(ahome.bins)), aes(x=pos/1000000, y=get(plot.betas), color=ha.bins)) +
+    geom_point() +
+    facet_grid(~chrom) +
+    labs(x="chr and pos (Mb)", y="max effect of home allele", color = "AFD bin") +
+    ggtitle(bquote(atop(.(plot.title), atop(italic(.(plot.subtitle)), ""))))
+  plot.name <- paste("./figures/24.figures/beta.manhattan",up.exp,home.allele,away.allele,"jpg",sep=".")
+  ggsave(plot.name, plot=beta.manhattan.plot, width=12, height=4, units="in")
+
+  kb.manhattan.plot <- ggplot(data = subset(plot.dat, !is.na(ahome.bins)), aes(x=pos/1000000, y=KB, color=ha.bins)) +
+    geom_point() +
+    facet_grid(~chrom) +
+    labs(x="chr and pos (Mb)", y="size of LD block (kb)")+
+    ggtitle(bquote(atop(.(plot.title), atop(italic(.(plot.subtitle)), ""))))
+  plot.name <- paste("./figures/24.figures/kb.manhattan",up.exp,home.allele,away.allele,"jpg",sep=".")
+  ggsave(plot.name, plot=kb.manhattan.plot, width=12, height=4, units="in")
+
+  kb.boxplot <- ggplot(data = subset(plot.dat, !is.na(ahome.bins)), aes(x=ha.bins, y=KB, fill=ha.bins)) +
+    geom_boxplot()+
+    ggtitle(bquote(atop(.(plot.title), atop(italic(.(plot.subtitle)), "")))) +
+    labs(x="AFD bin", y="LD block size (kb)")
+  plot.name <- paste("./figures/24.figures/kb.boxplot",up.exp,home.allele,away.allele,"pdf",sep=".")
+  ggsave(plot.name, plot=kb.boxplot, width=8, height=6, units="in")
+
+  afd.boxplot <- ggplot(data = subset(plot.dat, !is.na(ahome.bins)), aes(x=ha.bins,y=get(plot.betas))) + 
+    geom_jitter(aes(color='blueviolet'),alpha=0.2) +
+    scale_color_manual(values=c("blueviolet")) +
+    geom_boxplot(fill="aquamarine",color="black", alpha=0.7) + 
+    labs(x='AFD home-away (polarized by most common home allele)', y="effect of most common allele in home pop") +
+    guides(color=FALSE) +
+    geom_hline(yintercept=0, linetype="dashed", color = "red", size=1) +
+    theme_minimal() +
+    ggtitle(bquote(atop(.(plot.title), atop(italic(.(plot.subtitle)), ""))))
+  plot.name <- paste("./figures/24.figures/afd.boxplot",up.exp,home.allele,away.allele,"jpg",sep=".")
+  ggsave(plot.name, plot=afd.boxplot, width=6, height=5, units="in")
+
+  haf.boxplot <- ggplot(data = subset(plot.dat, !is.na(ahome.bins)), mapping = aes(x=ahome.bins,y=get(plot.betas))) + 
+    geom_jitter(aes(color='blueviolet'),alpha=0.2) +
+    scale_color_manual(values=c("blueviolet")) +
+    geom_boxplot(fill="aquamarine",color="black", alpha=0.7) + 
+    labs(x='home allele frequency', y="home allele effect") +
+    guides(color=FALSE) +
+    geom_hline(yintercept=0, linetype="dashed", color = "red", size=1) +
+    theme_minimal() +
+    ggtitle(bquote(atop(.(plot.title), atop(italic(.(plot.subtitle)), ""))))
+  plot.name <- paste("./figures/24.figures/haf.boxplot",up.exp,home.allele,away.allele,"jpg",sep=".")
+  ggsave(plot.name, plot=haf.boxplot, width=4, height=4, units="in")
+}
+```
+
+```{r most extreme beta per block plots}
+## north plots
+nexps <- c("RAM_2011", "RAM_2012", "ADA_2011", "ADA_2012")
+nnames <- c("NM_2011", "NM_2012", "NA_2011", "NA_2012")
+for(up in 1:4){
+  print(up)
+  up.exp <- nexps[up]
+  exp.short.name <- nnames[up]
+  test.dat <- pol.by.home(home.allele="ANORTH", away.allele="ASOUTH")
+  plot.dat <- extreme.afd.blocks(beta.dat=test.dat)
+  single.exp.plots(plot.dat=plot.dat, up.exp=up.exp, home.allele="ANORTH", away.allele="ASOUTH", exp.short.name=exp.short.name)
+}
+
+sexps <- c("RAT_2011", "RAT_2012", "ULL_2011", "ULL_2012")
+snames <- c("SR_2011", "SR_2012", "SU_2011", "SU_2012")
+for(up in 1:4){
+  print(up)
+  up.exp <- sexps[up]
+  exp.short.name <- snames[up]
+  test.dat <- pol.by.home(home.allele="ASOUTH", away.allele="ANORTH")
+  plot.dat <- extreme.afd.blocks(beta.dat=test.dat)
+  single.exp.plots(plot.dat=plot.dat, up.exp=up.exp, home.allele="ASOUTH", away.allele="ANORTH", exp.short.name=exp.short.name)
+}
+```
+
+## Manhattan plots with AFD bin colors
+
+```{R pval manhattan plot fxn}
+pval.plots <- function(test.dat, plot.dat, up.exp, home.allele, away.allele, exp.short.name){
+  plot.title <- exp.short.name
+  plot.subtitle <- paste("home allele=", home.allele, ", away allele=", away.allele, sep="")
+  plot.pvals <- paste(up.exp,".p", sep="")
+  
+ p.manhattan.plot.afd <- ggplot(data = subset(test.dat, !is.na(ha.bins)), aes(x=(pos/1000000), y=get(plot.pvals), color=ha.bins)) +
+    geom_point() +
+    facet_grid(~chrom) +
+    labs(x="chromosome and position (Mb)", y="-log10 p-value", color = "AFD bin") +
+    ggtitle(bquote(atop(.(plot.title), atop(italic(.(plot.subtitle)), ""))))
+  plot.name <- paste("./figures/24.figures/pval.manhattan.afd",up.exp,home.allele,away.allele,"jpg",sep=".")
+  ggsave(plot.name, plot=p.manhattan.plot.afd, width=12, height=4, units="in")
+  
+ 
+   p.manhattan.plot.haf <- ggplot(data = subset(test.dat, !is.na(ahome.bins)), aes(x=(pos/1000000), y=get(plot.pvals), color=ahome.bins)) +
+    geom_point() +
+    facet_grid(~chrom) +
+    labs(x="chromosome and position (Mb)", y="-log10 p-value", color = "home AF bin") +
+    ggtitle(bquote(atop(.(plot.title), atop(italic(.(plot.subtitle)), ""))))
+  plot.name <- paste("./figures/24.figures/pval.manhattan.haf",up.exp,home.allele,away.allele,"jpg",sep=".")
+  ggsave(plot.name, plot=p.manhattan.plot.haf, width=12, height=4, units="in") 
+
+  
+  p.manhattan.plot.afd.t <- ggplot(data = subset(plot.dat, !is.na(ha.bins)), aes(x=(pos/1000000), y=get(plot.pvals), color=ha.bins)) +
+    geom_point() +
+    facet_grid(~chrom) +
+    labs(x="chromosome and position (Mb)", y="-log10 p-value", color = "AFD bin") +
+    ggtitle(bquote(atop(.(plot.title), atop(italic(.(plot.subtitle)), ""))))
+  plot.name <- paste("./figures/24.figures/pval.manhattan.afd.thinned",up.exp,home.allele,away.allele,"jpg",sep=".")
+  ggsave(plot.name, plot=p.manhattan.plot.afd.t, width=12, height=4, units="in")
+  
+
+p.manhattan.plot <- ggplot(data = subset(test.dat, !is.na(ha.bins)), aes(x=(pos/1000000), y=get(plot.pvals))) +
+    geom_point(colour="blue") +
+    facet_grid(~chrom) +
+    labs(x="chromosome and position (Mb)", y="-log10 p-value") +
+    ggtitle(plot.title)
+  plot.name <- paste("./figures/24.figures/pval.manhattan",up.exp,home.allele,away.allele,"jpg",sep=".")
+  ggsave(plot.name, plot=p.manhattan.plot, width=12, height=4, units="in")
+}
+```
+
+```{R pval manhattan plot run}
+sexps <- c("RAT_2011", "RAT_2012", "ULL_2011", "ULL_2012")
+snames <- c("SR_2011", "SR_2012", "SU_2011", "SU_2012")
+for(up in 1:4){
+  print(up)
+  up.exp <- sexps[up]
+  exp.short.name <- snames[up]
+  test.dat <- pol.by.home(home.allele="ASOUTH", away.allele="ANORTH")
+  plot.dat <- extreme.afd.blocks(beta.dat=test.dat)
+  pval.plots(test.dat=test.dat, plot.dat=plot.dat, up.exp=up.exp, home.allele="ASOUTH", away.allele="ANORTH", exp.short.name=exp.short.name)
+}
+
+nexps <- c("RAM_2011", "RAM_2012", "ADA_2011", "ADA_2012")
+nnames <- c("NM_2011", "NM_2012", "NA_2011", "NA_2012")
+for(up in 1:4){
+  print(up)
+  up.exp <- nexps[up]
+  exp.short.name <- nnames[up]
+  test.dat <- pol.by.home(home.allele="ANORTH", away.allele="ASOUTH")
+  plot.dat <- extreme.afd.blocks(beta.dat=test.dat)
+  pval.plots(test.dat=test.dat, plot.dat=plot.dat, up.exp=up.exp, home.allele="ANORTH", away.allele="ASOUTH", exp.short.name=exp.short.name)
+}
+```
+
+
+## plot betas by allele frequency bins pairwise
+
+```{r betas by afb function}
+up.exp <- "ULL_2011"
+comp.exp <- "RAM_2011"
+home.allele <- "ASOUTH"
+away.allele <- "ANORTH"
+exp.short.name <- "SU_2011"
+cexp.short.name <- "NM_2011"
+
+beta.by.bin.plots <- function(up.exp, comp.exp, home.allele, away.allele, exp.short.name, cexp.short.name){
+  test.dat <- pol.by.home(home.allele=home.allele, away.allele=away.allele)
+  plot.dat <- extreme.afd.blocks(beta.dat=test.dat)
+
+  plot.title <- paste(exp.short.name," - ",cexp.short.name, sep="")
+  plot.subtitle <- paste("home allele=", home.allele, ", away allele=", away.allele, sep="")
+  out.dat <- plot.dat
+
+  pw.bins.plot <- ggplot(data=subset(out.dat, !is.na(ha.bins)), aes(x=get(paste(up.exp,".b",sep="")), y=get(paste(comp.exp,".b",sep="")))) +
+    #geom_bin2d(bins = 100) +
+    geom_density_2d(aes(color = ..level..)) +
+    scale_fill_continuous(type = "viridis") +
+    facet_grid(~ha.bins) +
+    geom_vline(xintercept = 0, color="orange") +
+    geom_hline(yintercept = 0, color="orange") +
+    xlab(paste(exp.short.name,"effect", sep=" ")) +
+    ylab(paste(cexp.short.name, "effect", sep=" ")) +
+    theme(axis.text.x=element_text(angle =- 90, vjust = 0.5)) +
+    stat_quadrant_counts(aes(label = stat(count))) +
+    ggtitle(bquote(atop(.(plot.title), atop(italic(.(plot.subtitle)), "")))) 
+
+
+  pw.plot <- ggplot(data=out.dat, aes(x=get(paste(up.exp,".b",sep="")), y=get(paste(comp.exp,".b",sep="")))) +
+    #geom_bin2d(bins = 100) +
+    geom_density_2d(aes(color = ..level..)) +
+    #stat_density_2d(aes(fill = ..level..), geom = "polygon") +
+    scale_fill_continuous(type = "viridis") +
+    geom_vline(xintercept = 0, color="orange") +
+    geom_hline(yintercept = 0, color="orange") +
+    xlab(exp.short.name) +
+    ylab(cexp.short.name)+
+    theme(axis.text.x=element_text(angle =- 90, vjust = 0.5)) +
+    stat_quadrant_counts(aes(label = stat(count))) +
+    ggtitle(bquote(atop(.(plot.title), atop(italic(.(plot.subtitle)), "")))) 
+
+  c.fit <- matrix(nrow=length(levels(out.dat$ha.bins)), ncol=4)
+  for(up in 1:length(levels(out.dat$ha.bins))){
+    up.b <- levels(out.dat$ha.bins)[up]
+    up.dat <- out.dat[out.dat$ha.bins==up.b,]
+    ue.col <- which(colnames(up.dat)==paste(up.exp,".b", sep=""))
+    ce.col <- which(colnames(up.dat)==paste(comp.exp,".b", sep=""))
+    sh1 <- sum(up.dat$ahome*up.dat[,ue.col], na.rm=TRUE)
+    sa1 <- sum(up.dat$aaway*up.dat[,ue.col], na.rm=TRUE)
+    sh2 <- sum(up.dat$ahome*up.dat[,ce.col], na.rm=TRUE)
+    sa2 <- sum(up.dat$aaway*up.dat[,ce.col], na.rm=TRUE)
+    out.fit <- c(sh1, sa1 ,sh2,sa2)
+    c.fit[up,] <-out.fit
+  }
+  colnames(c.fit) <- c("sh1", "sa1","sh2","sa2")
+  rownames(c.fit) <- levels(out.dat$ha.bins)
+  c.fit <- as.data.frame(c.fit)
+  c.fit$bin <- rownames(c.fit)
+  c.fit.l <- gather(c.fit, pop.exp, c.fitness, sh1, sa1, sh2, sa2)
+  c.fit.l$pop.exp <- factor(c.fit.l$pop.exp, levels=c("sh1","sa1","sh2","sa2"))
+  c.fit.l$bin <- factor(c.fit.l$bin, levels=c("-[.5-.35)","-[.35-.2)", "-[.2-.05)", "-[.05-.1)", "[.1-.25)","[.25-.4)", "[.4-.55)","[.55-.7)", "[.7-85)","[.85-1)"))
+
+  #number of SNPs in each bin
+  hen <- out.dat[is.na(out.dat[,ue.col])==FALSE,]
+  ht <- table(hen$ha.bins)
+  ht <- as.matrix(ht)
+  aen <- out.dat[is.na(out.dat[,ce.col])==FALSE,]
+  at <- table(aen$ha.bins)
+  at <- as.matrix(at)
+  sn.index <- cbind(ht,ht,at,at)
+  colnames(sn.index) <- c("sh1","sa1","sh2","sa2")
+  sn.index <- as.data.frame(sn.index)
+  sn.index$bin <- rownames(sn.index)
+  sn.index.l <- gather(sn.index, pop.exp, snp.no, sh1, sa1, sh2, sa2)
+
+  c.fit.l <- merge(c.fit.l, sn.index.l, by=c("pop.exp", "bin"))
+  c.fit.l$fit.per.snp <- c.fit.l$c.fitness/c.fit.l$snp.no
+
+
+  f.plot <-ggplot(c.fit.l, aes(x=bin, y=c.fitness, group=pop.exp)) + 
+    geom_line(aes(color=pop.exp)) + 
+    geom_point(aes(color=pop.exp, size=abs(fit.per.snp))) + 
+    xlab("AFD bin") + 
+    ylab("population fitness of bin") + 
+    #scale_color_discrete(name = "pop/EXP", labels = c("home/HOME", "away/HOME", "home/AWAY","away/AWAY")) +
+    ggtitle(bquote(atop(.(plot.title), atop(italic(.(plot.subtitle)), "")))) +
+    geom_hline(yintercept = 0, color="grey50", linetype="dashed") +
+    scale_color_manual(values=c("red", "pink2", "dodgerblue","lightblue2"),name = "EXP/pop", labels=c("HOME/home", "HOME/away", "AWAY/home","AWAY/away")) +
+    scale_size(name="mean effect per SNP\n(absolute value)") +
+    theme_linedraw()  
+
+  #generate plots
+  plot.file <- paste("./figures/24.figures/",up.exp,"_",comp.exp,"_",home.allele,"_",away.allele,"_beta_pairwise_by_AFD_bins.pdf",sep="")
+  #pdf(file=plot.file, width=14, height=8)
+  comp.plot <- plot_grid(pw.bins.plot, f.plot, ncol = 1, align="v", axis="rl")
+  ggsave(file=plot.file, comp.plot, width=14, height=8, units="in")
+  #dev.off()
+  
+    plot.file <- paste("./figures/24.figures/",up.exp,"_",comp.exp,"_",home.allele,"_",away.allele,"_beta_pairwise_genome.pdf",sep="")
+    ggsave(file=plot.file, pw.plot, width=5, height=5, units="in")
+}
+
+#beta.by.bin.plots(up.exp="ULL_2011", comp.exp="RAM_2011", home.allele="ASOUTH", away.allele="ANORTH")
+```
+
+```{r beta by bin generate plots}
+#up.exp <- "ULL_2011"
+#comp.exp <- "RAM_2011"
+##home.allele <- "ASOUTH"
+#away.allele <- "ANORTH"
+#exp.short.name <- "SU_2011"
+#cexp.short.name <- "NM_2011"
+
+###ULL vs North
+beta.by.bin.plots(up.exp="ULL_2011", comp.exp="RAM_2011", home.allele="ASOUTH", away.allele="ANORTH", exp.short.name="SU_2011", cexp.short.name="NM_2011")
+
+beta.by.bin.plots(up.exp="ULL_2011", comp.exp="ADA_2011", home.allele="ASOUTH", away.allele="ANORTH", exp.short.name="SU_2011", cexp.short.name="NA_2011")
+
+beta.by.bin.plots(up.exp="ULL_2012", comp.exp="RAM_2012", home.allele="ASOUTH", away.allele="ANORTH", exp.short.name="SU_2012", cexp.short.name="NM_2012")
+
+beta.by.bin.plots(up.exp="ULL_2012", comp.exp="ADA_2012", home.allele="ASOUTH", away.allele="ANORTH", exp.short.name="SU_2012", cexp.short.name="NA_2012")
+
+
+###RAT vs North
+beta.by.bin.plots(up.exp="RAT_2011", comp.exp="RAM_2011", home.allele="ASOUTH", away.allele="ANORTH", exp.short.name="SR_2011", cexp.short.name="NM_2011")
+
+beta.by.bin.plots(up.exp="RAT_2011", comp.exp="ADA_2011", home.allele="ASOUTH", away.allele="ANORTH", exp.short.name="SR_2011", cexp.short.name="NA_2011")
+
+beta.by.bin.plots(up.exp="RAT_2012", comp.exp="RAM_2012", home.allele="ASOUTH", away.allele="ANORTH", exp.short.name="SR_2012", cexp.short.name="NM_2012")
+
+beta.by.bin.plots(up.exp="RAT_2012", comp.exp="ADA_2012", home.allele="ANORTH", away.allele="ANORTH", exp.short.name="SR_2012", cexp.short.name="NA_2012")
+
+
+###RAM vs South
+beta.by.bin.plots(up.exp="RAM_2011", comp.exp="ULL_2011", home.allele="ANORTH", away.allele="ASOUTH", exp.short.name="NM_2011", cexp.short.name="SU_2011")
+
+beta.by.bin.plots(up.exp="RAM_2011", comp.exp="RAT_2011", home.allele="ANORTH", away.allele="ASOUTH", exp.short.name="NM_2011", cexp.short.name="SR_2011")
+
+beta.by.bin.plots(up.exp="RAM_2012", comp.exp="ULL_2012", home.allele="ANORTH", away.allele="ASOUTH", exp.short.name="NM_2012", cexp.short.name="SU_2012")
+
+beta.by.bin.plots(up.exp="RAM_2012", comp.exp="RAT_2012", home.allele="ANORTH", away.allele="ASOUTH", exp.short.name="NM_2012", cexp.short.name="SR_2012")
+
+
+###ADA vs South
+beta.by.bin.plots(up.exp="ADA_2011", comp.exp="ULL_2011", home.allele="ANORTH", away.allele="ASOUTH", exp.short.name="NA_2011", cexp.short.name="SU_2011")
+
+beta.by.bin.plots(up.exp="ADA_2011", comp.exp="RAT_2011", home.allele="ANORTH", away.allele="ASOUTH", exp.short.name="NA_2011", cexp.short.name="SR_2011")
+
+beta.by.bin.plots(up.exp="ADA_2012", comp.exp="ULL_2012", home.allele="ANORTH", away.allele="ASOUTH", exp.short.name="NA_2012", cexp.short.name="SU_2012")
+
+beta.by.bin.plots(up.exp="ADA_2012", comp.exp="RAT_2012", home.allele="ANORTH", away.allele="ASOUTH", exp.short.name="NA_2012", cexp.short.name="SR_2012")
+
+###both south
+beta.by.bin.plots(up.exp="ULL_2012", comp.exp="RAT_2012", home.allele="ASOUTH", away.allele="ANORTH", exp.short.name="SU_2012", cexp.short.name="SR_2012")
+
+beta.by.bin.plots(up.exp="ULL_2011", comp.exp="RAT_2011", home.allele="ASOUTH", away.allele="ANORTH", exp.short.name="SU_2011", cexp.short.name="SR_2011")
+
+###both north
+beta.by.bin.plots(up.exp="RAM_2012", comp.exp="ADA_2012", home.allele="ANORTH", away.allele="ASOUTH", exp.short.name="NM_2012", cexp.short.name="NA_2012")
+
+beta.by.bin.plots(up.exp="RAM_2011", comp.exp="ADA_2011", home.allele="ANORTH", away.allele="ASOUTH", exp.short.name="NM_2011", cexp.short.name="NA_2011")
+
+```
+
+
+### percentage in quadrants by AF pairwise
+```{r percentage by quadrats for all AF combos fxn}
+
+#up.exp <- "ULL_2011"
+#comp.exp <- "RAM_2011"
+#home.allele <- "ASOUTH"
+#away.allele <- "ANORTH"
+#exp.short.name <- "SU_2011"
+#cexp.short.name <- "NM_2011"
+
+af.combo.plot <- function(home.allele, away.allele, up.exp, comp.exp, exp.short.name, cexp.short.name) {
+  test.dat <- pol.by.home(home.allele=home.allele, away.allele=away.allele)
+  plot.dat <- extreme.afd.blocks(beta.dat=test.dat)
+
+  plot.title <- paste(exp.short.name," - ",cexp.short.name, sep="")
+  plot.subtitle <- paste("home allele=", home.allele, ", away allele=", away.allele, sep="")
+  out.dat <- plot.dat
+
+  ## need to reshape the data and calculate quadrant numbers
+  ue.col <- which(colnames(out.dat)==paste(up.exp,".b",sep=""))
+  ce.col <- which(colnames(out.dat)==paste(comp.exp,".b",sep=""))
+  combos <- expand.grid(levels(out.dat$ahome.bins), levels(out.dat$aaway.bins))
+  c.table <- apply(combos,1, function(x){
+    ugh <- out.dat[out.dat$ahome.bins==x[1] & out.dat$aaway.bins==x[2],]
+    ugh.t <- table(ugh[,ue.col]>0, ugh[,ce.col]>0)
+    ugh.u <- as.numeric(ugh.t)
+    return(ugh.u)
+  })
+  c.table <- t(c.table)
+  c.table <- as.data.frame(c.table)
+  colnames(c.table) <- c("NN","PN","NP","PP") ## N=negative, P=positive, first is home, second is away betas
+  c.table <- cbind(c.table,combos)
+  colnames(c.table)[5:6] <- c("ahome.bins", "aaway.bins")
+
+  ## turn this into proportions
+  c.table$totals <- apply(c.table[,1:4],1, sum)
+  c.table.l <- gather(c.table, quadrant, snp.no, NN:PP, factor_key=TRUE)
+  c.table.l$snp.p <- c.table.l$snp.no/c.table.l$totals
+
+  cpd <- c.table.l %>% 
+    mutate(xmin = if_else(quadrant %in% c("NN","NP"), -sqrt(snp.p), 0),
+         xmax = if_else(quadrant %in% c("PP", "PN"), sqrt(snp.p), 0),
+         ymin = if_else(quadrant %in% c("NN","PN"), -sqrt(snp.p), 0),
+         ymax = if_else(quadrant %in% c("PP","NP"), sqrt(snp.p), 0))
+
+  combo.plot <- ggplot(cpd) + 
+    geom_rect(aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax), fill = "grey") +
+    geom_text(aes(x = xmin + 0.5*sqrt(snp.p), y = ymin +0.5*sqrt(snp.p), label = formatC(round(snp.p*100,2), digits=0,format="f")),color = "blue", size=3) +
+    facet_grid(aaway.bins~ahome.bins,switch="both") +
+    coord_equal() +
+    geom_hline(yintercept = 0) +
+    geom_vline(xintercept = 0) +
+    labs(title = "Percent SNPs per effect quadrant", x=paste("home AF/ ", exp.short.name," effects", sep=""), y=paste("away AF/ ", cexp.short.name, "  effects", sep="")) +
+    theme_minimal() +
+    theme(axis.text = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(color="grey40", face="bold", size=10, hjust = 0.5))
+  
+  plot.file <- paste("./figures/24.figures/quadrant.af.",up.exp,".",comp.exp,".pdf", sep="")
+  ggsave(file=plot.file, combo.plot, width=8, height=12, units="in")
+}
+
+#af.combo.plot(out.dat=out.dat, up.exp="RAM_2011", comp.exp="ULL_2011")
+```
+
+```{r generate combo plots}
+
+## ULL vs north
+af.combo.plot(home.allele="ASOUTH", away.allele="ANORTH", up.exp="ULL_2011", comp.exp="RAM_2011", exp.short.name="SU_2011", cexp.short.name="NM_2011")
+
+af.combo.plot(home.allele="ASOUTH", away.allele="ANORTH", up.exp="ULL_2011", comp.exp="ADA_2011", exp.short.name="SU_2011", cexp.short.name="NA_2011")
+
+af.combo.plot(home.allele="ASOUTH", away.allele="ANORTH", up.exp="ULL_2012", comp.exp="RAM_2012", exp.short.name="SU_2012", cexp.short.name="NM_2012")
+
+af.combo.plot(home.allele="ASOUTH", away.allele="ANORTH", up.exp="ULL_2012", comp.exp="ADA_2012", exp.short.name="SU_2012", cexp.short.name="NA_2012")
+
+## RAT vs north
+af.combo.plot(home.allele="ASOUTH", away.allele="ANORTH", up.exp="RAT_2011", comp.exp="RAM_2011", exp.short.name="SR_2011", cexp.short.name="NM_2011")
+
+af.combo.plot(home.allele="ASOUTH", away.allele="ANORTH", up.exp="RAT_2011", comp.exp="ADA_2011", exp.short.name="SR_2011", cexp.short.name="NA_2011")
+
+af.combo.plot(home.allele="ASOUTH", away.allele="ANORTH", up.exp="RAT_2012", comp.exp="RAM_2012", exp.short.name="SR_2012", cexp.short.name="NM_2012")
+
+af.combo.plot(home.allele="ASOUTH", away.allele="ANORTH", up.exp="RAT_2012", comp.exp="ADA_2012", exp.short.name="SR_2012", cexp.short.name="NA_2012")
+
+
+## RAM vs south
+af.combo.plot(home.allele="ANORTH", away.allele="ASOUTH", up.exp="RAM_2011", comp.exp="ULL_2011", exp.short.name="NM_2011", cexp.short.name="SU_2011")
+
+af.combo.plot(home.allele="ANORTH", away.allele="ASOUTH", up.exp="RAM_2011", comp.exp="RAT_2011", exp.short.name="NM_2011", cexp.short.name="SR_2011")
+
+af.combo.plot(home.allele="ANORTH", away.allele="ASOUTH", up.exp="RAM_2012", comp.exp="ULL_2012", exp.short.name="NM_2012", cexp.short.name="SU_2012")
+
+af.combo.plot(home.allele="ANORTH", away.allele="ASOUTH", up.exp="RAM_2012", comp.exp="RAT_2012", exp.short.name="NM_2012", cexp.short.name="SR_2012")
+
+## ADA vs south
+af.combo.plot(home.allele="ANORTH", away.allele="ASOUTH", up.exp="ADA_2011", comp.exp="ULL_2011", exp.short.name="NA_2011", cexp.short.name="SU_2011")
+
+af.combo.plot(home.allele="ANORTH", away.allele="ASOUTH", up.exp="ADA_2011", comp.exp="RAT_2011", exp.short.name="NA_2011", cexp.short.name="SR_2011")
+
+af.combo.plot(home.allele="ANORTH", away.allele="ASOUTH", up.exp="ADA_2012", comp.exp="ULL_2012", exp.short.name="NA_2012", cexp.short.name="SU_2012")
+
+af.combo.plot(home.allele="ANORTH", away.allele="ASOUTH", up.exp="ADA_2012", comp.exp="RAT_2012", exp.short.name="NA_2012", cexp.short.name="SR_2012")
+
+
+## both south
+af.combo.plot(home.allele="ASOUTH", away.allele="ANORTH", up.exp="ULL_2011", comp.exp="RAT_2011", exp.short.name="SU_2011", cexp.short.name="SR_2011")
+
+af.combo.plot(home.allele="ASOUTH", away.allele="ANORTH", up.exp="ULL_2012", comp.exp="RAT_2012", exp.short.name="SU_2012", cexp.short.name="SR_2012")
+
+## both North
+af.combo.plot(home.allele="ANORTH", away.allele="ASOUTH", up.exp="ADA_2011", comp.exp="RAM_2011", exp.short.name="NA_2011", cexp.short.name="NR_2011")
+
+af.combo.plot(home.allele="ANORTH", away.allele="ASOUTH", up.exp="ADA_2012", comp.exp="RAM_2012", exp.short.name="NA_2012", cexp.short.name="NR_2012")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

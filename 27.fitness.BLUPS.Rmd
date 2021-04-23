@@ -1,0 +1,409 @@
+---
+title: "27.fitness.BLUPs"
+author: "Daniele Filiault"
+date: "12/4/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#setwd("/Volumes/field_experiments/adaptation_sweden/common.gardens/")
+
+library(lme4) # mixed models
+library(statmod) 
+library(tweedie) # tweedie model specification
+library(merTools)
+library(MuMIn) # for calculating R2 of mixed models
+library(RColorBrewer)
+library(pander)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(corrplot)
+library(heatmaply)
+library(gridExtra)
+library(superheat) #extended heatmap functions
+library(pheatmap)
+##for maps
+library(maps)
+library(mapdata)
+library("sf")
+library("rnaturalearth")
+library("rnaturalearthdata")
+library("rgeos")
+library("egg")
+library("gplots")
+
+### for admixture group plots
+ag.names <- c("N.Sweden","Germany","S.Sweden","Iberia","Italy/E.Europe","Russia/Asia","C.Europe","USA","W.Europe")  ### these are my admixture group names based on the table
+group.colors <- brewer.pal(9, "Paired")[c(4,7,3,2,6,5,8,1,9)]
+
+```
+
+## Want to estimate BLUPs per accessions (i.e. use accession as a random effect in a mixed effects model)
+
+### 1. prep data
+
+```{r data prep}
+d11=readRDS(file="./data/d11_for_analysis.rds")
+d12=readRDS(file="./data/d12_for_analysis.rds")
+
+##restrict to fitness
+traits=c("fitness")
+
+d11$year=2011
+d12$year=2012
+
+d11=d11[, c("year", "exp", "block", "id", "fitness")]
+d12=d12[, c("year", "exp", "block", "id", "fitness")]
+
+d=rbind(d11, d12)
+d$region[d$exp%in%c("ULL", "RAT")]="S"
+d$region[d$exp%in%c("RAM", "ADA")]="N"
+d$year=as.factor(d$year)
+d=d[, c("year", "region", "exp","block", "id", "fitness")]
+d=na.omit(d)
+
+hist(d$fitness)
+hist(sqrt(d$fitness))
+with(d, boxplot(fitness~exp+year))
+
+pdf(file="./figures/raw.fitness.boxplot.by.year.site.pdf", width=10, height=6)
+with(d, boxplot(fitness~year+exp, col=c(rep(brewer.pal(9, "Paired")[4],4), rep(brewer.pal(9, "Paired")[3],4))))
+dev.off()
+
+```
+
+
+
+### 2. function to get predicted fitness per block/line/exp
+```{r test normal linear models}
+
+### do as normal lm first to understand specification, then move to glm so can use tweedie
+lm1 <- lm(fitness~id*year*exp, data=d)
+lm3 <- lm(fitness~id*year*exp + exp:year/block, data=d)
+plot(lm3)
+anova(lm1,lm3) ### yes, lm3 is much better.  The block helps. If it is specified correctly???
+anova(lm3)
+
+### test model fits by removing some components
+
+lm4 <- lm(fitness~id + year*exp + exp:year/block, data=d)
+lm5 <- lm(fitness~id, data=d)
+lm6 <- lm(fitness~year*exp + exp:year/block, data=d)
+anova(lm3, lm4)
+anova(lm3, lm5)
+anova(lm3, lm6)
+
+ssq <- anova(lm3)[[2]]
+pve <-ssq/sum(ssq)
+names(pve) <- rownames(anova(lm3))
+print(pve)
+
+#(summary(lm3))
+pander(anova(lm3))
+
+```
+
+So the full model with triple interaction plus block is the best one (lm3). Plots aren't the best - you can clearly see the effect of the truncated 0 distribution. Can try this as a tweedie model?
+
+```{r test tweedie models, eval=FALSE}
+
+#profile.all.dat <- tweedie.profile(fitness~id*year*exp + exp:year/block, data = d, p.vec = seq(1.1, 1.9, 0.1),do.plot=TRUE, fit.glm = TRUE)
+#print(profile.all.dat$p.max)
+#vp.up <- 1.385714
+#dat.up <- d
+
+#glm.a11 <- glm(fitness~id*year*exp + exp:year/block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+
+#Analysis of Deviance Table
+#Model: Tweedie, link: mu^0
+#Response: fitness
+#Terms added sequentially (first to last)
+#                Df Deviance Resid. Df Resid. Dev
+#NULL                            25753     883.49
+#id             199   49.732     25554     833.75
+#year             1    0.385     25553     833.37
+#exp              3   12.883     25550     820.48
+#id:year        199   22.459     25351     798.03
+#id:exp         597   35.043     24754     762.98
+#year:exp         3   75.799     24751     687.18
+#id:year:exp    595   29.557     24156     657.63
+#year:exp:block  16   22.163     24140     635.46
+
+### so the plots aren't a lot better on this model and the PVE (or PDE) by the variables is about the same as in the normal linear model.
+
+### other thing to try might be a mixed effects model with block as a random effect...
+```
+
+Plots for tweedie model aren't much better.  Also, estimates of effect sizes are really similar.  Just stick with the regular linear model despite its shortcomings.
+
+I'm not 100% sure that I'm specifying block correctly in model.  Make unique block names and compare?
+Probably better choice is to specify block as a random effect in a mixed effect model.  I'm going that direction to estimate BLUPs anyway...
+
+```{r mixed model specifications}
+mm1 <- lmer(fitness ~ 1 + (1 | block), data=d)
+mm2 <- lmer(fitness ~ 1 + (1 | id), data=d)
+mm3 <- lmer(fitness~exp + (1|exp:block), data=d) # so this is correctly specified (without year effect, at least)
+mm4 <- lmer(fitness~exp + year + (1|exp:year:block), data=d)  ## I think this is also correctly specified!
+ranef(mm4)
+fixef(mm4)
+mm5 <- lmer(fitness~exp*year + (1|exp:year:block), data=d)
+anova(mm4, mm5)
+ranef(mm5)
+fixef(mm5)
+
+mm6 <- lmer(fitness~exp*year + (1|exp:year:block) + (1|id), data=d)
+anova(mm5,mm6)
+
+mm7 <- lmer(fitness~exp*year + (1|exp:year:block) + (1|exp:year:id), data=d)
+anova(mm6,mm7)
+
+mm8 <- lmer(fitness~exp*year  + (1|exp:year:id), data=d)
+
+c2 <- predictInterval(mm7)
+int.mm7 <- REsim(mm7)
+plotREsim(REsim(mm7))
+
+ranks <- expectedRank(mm7)
+
+VarCorr(mm7)
+anova(mm7)
+summary(mm7)
+
+# random effect variances
+var.mm7 <- VarCorr(mm7)
+print(var.mm7,comp=c("Variance","Std.Dev."),digits=4)
+re.var <- as.data.frame(var.mm7, row.names = NULL,optional = FALSE)
+
+r.squaredGLMM(mm5)
+r.squaredGLMM(mm6)
+r.squaredGLMM(mm7)
+r.squaredGLMM(mm8)
+## R2m is from marginal(fixed effects)
+## R2c is from entire model
+```
+
+So now let's think about these BLUPs per accession per experiment.
+Can we use them to demonstrate local adaptation?
+Can they be used for GWAS?
+
+```{r explore blups}
+blups <- ranef(mm7)[[1]]
+blups <- as.data.frame(blups)
+desc <- do.call(rbind,strsplit(rownames(blups),":"))
+colnames(desc) <- c("exp","year","id")
+blups <- cbind(blups, desc)
+colnames(blups)[1] <- "fb"
+
+hist(blups$fb)
+pdf(file="./figures/blup.fitness.boxplot.by.year.site.pdf", width=10, height=6)
+with(blups, boxplot(fb~year+exp, col=c(rep(brewer.pal(9, "Paired")[4],4), rep(brewer.pal(9, "Paired")[3],4))))
+dev.off()
+
+## write BLUPS to file
+write.csv(blups, file="./data/marginal.blups.csv", quote=FALSE,row.names=FALSE)
+
+```
+
+
+```{r load admixture results}
+# parsed in 26.parse.redone.admixture.Rmd
+a.group <- read.csv("./data/complete.admixture.groups.csv", stringsAsFactors = FALSE)
+```
+
+
+```{r add fitness blups plot rxn norms}
+acc.fit.rxn <- blups
+acc.fit.rxn <- merge(acc.fit.rxn, a.group[,c(1:3,17)], all.x=TRUE)
+acc.fit.rxn$a.group <- as.factor(acc.fit.rxn$a.group)
+acc.fit.rxn$site.complex <- paste(acc.fit.rxn$exp, acc.fit.rxn$year, sep="_")
+acc.fit.rxn$group.names <- as.factor(acc.fit.rxn$group.names)
+acc.fit.rxn$group.names = factor(acc.fit.rxn$group.names,levels(acc.fit.rxn$group.names)[c(5,3,6,4,2,7,1)])
+
+pdf(file="./figures/reaction.norms.blups.pdf", width=8, height=5)
+rxn.norms <- ggplot(acc.fit.rxn, aes(site.complex,fb, group=id)) + 
+  geom_line(aes(colour=group.names)) + 
+  scale_color_manual(values=group.colors[c(1,2,3,4,7,9,8)],name = "admixture group") +
+  xlab("Site_year") +
+  ylab("fitness BLUPS")+
+  guides(color = guide_legend(override.aes = list(size = 3)))
+print(rxn.norms)
+dev.off()
+```
+
+```{r pairwise correlations between blups}
+## need to reformat blups to long format
+blups <- read.csv(file="./data/marginal.blups.csv", stringsAsFactors=FALSE)
+blups.l <- blups %>% pivot_wider(id_cols=id,names_from=c(exp,year),values_from=fb)%>%as.data.frame()
+colnames(blups.l) <- c("id","NA_2011","NA_2012","NM_2011", "NM_2012","SR_2011", "SR_2012","SU_2011","SU_2012")
+
+pdf("./figures/correlation.fitness.blups.pdf", width=8, height=8)
+corrplot(cor(blups.l[,2:9], use="na.or.complete"), method="ellipse", type="upper", diag=FALSE)
+dev.off()
+
+my_cor <- cor(blups.l[,2:9], use="na.or.complete")
+colfunc<-colorRampPalette(c("red","white","royalblue"))
+heatmaply_cor(my_cor, colors= colfunc(100),cellnote=my_cor,cellnote_textposition="middle center")
+### since these are interactive plots in plotly, they are hard to save statically, so I saved this one manually from the window
+#file="./figures/correlation.dendrogram.fitness.blups.jpeg")
+
+#try using egg package
+##ggheatmap(
+  #mtcars,
+  #scale = "column",
+  #row_side_colors = mtcars[, c("cyl", "gear")]
+#)
+
+ns.site <- as.data.frame(c(rep("North",4),rep("South",4)))
+ns.palette = c("North" = "green2", "South" = "dodgerblue2")
+colnames(ns.site) <- "location"
+cor.hm <- ggheatmap(my_cor,row_side_colors = ns.site, row_side_palette=ns.palette,show_dendrogram = c(TRUE, FALSE),margins = c(40, 130))
+print(cor.hm)
+pdf(file="./figures/blup.correlation.heatmap.pdf", width=8, height=5)
+print(cor.hm)
+dev.off()
+### so this isn't exactly right - missing a bar in the dendrogram, but I can't fix right now
+```
+
+```{r blup values by experiment and admixture group}
+ga.long.short <- acc.fit.rxn
+ga.long.short$exp <- gsub("ADA","N2", ga.long.short$exp)
+ga.long.short$exp <- gsub("RAM","N1", ga.long.short$exp)
+ga.long.short$exp <- gsub("RAT","S2", ga.long.short$exp)
+ga.long.short$exp <- gsub("ULL","S1", ga.long.short$exp)
+### remove admixture groups with only one accession
+acc.tab <- table(ga.long.short$group.names)
+ga.long.short <- ga.long.short[ga.long.short$group.names%in%names(acc.tab[acc.tab>8]),]
+ga.long.short$group.names = droplevels(ga.long.short$group.names)
+ga.long.short$group.names <- factor(ga.long.short$group.names, level=c("C.Europe","S.Sweden", "N.Sweden","admixed"))
+
+ad.group.short.boxplot <- ggplot(ga.long.short, aes(x=group.names, y=fb, fill=as.factor(group.names))) +
+  geom_violin() +
+  geom_boxplot(width=0.1, show.legend=FALSE)+
+  xlab("admixture group")+ 
+  facet_grid(year~exp) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(name = "admixture group", values=brewer.pal(9, "Paired")[c(8,4,3,1)]) +
+  ylab("fitness BLUPS")
+
+pdf(file="./figures/fitness.blups.by.admix.group.short.names.pdf", width=10, height=6)
+print(ad.group.short.boxplot)
+dev.off()
+
+```
+
+### reaction norms between years, same site
+
+```{r ind rxn norms}
+#test.sub <- acc.fit.rxn[acc.fit.rxn$year=="2011" & acc.fit.rxn$exp%in%c("RAT","ULL"),]
+ada.sub <- acc.fit.rxn[acc.fit.rxn$exp%in%c("ADA"),]
+ram.sub <- acc.fit.rxn[acc.fit.rxn$exp%in%c("RAM"),]
+ull.sub <- acc.fit.rxn[acc.fit.rxn$exp%in%c("ULL"),]
+rat.sub <- acc.fit.rxn[acc.fit.rxn$exp%in%c("RAT"),]
+
+
+ada.rn <- ggplot(ada.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour=group.names)) + scale_color_manual(values=group.colors[c(1,2,3,4,7,9,8)],name = "admixture group") + xlab("Site_year") +ylab("fitness BLUPS") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+ram.rn <- ggplot(ram.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour=group.names)) + scale_color_manual(values=group.colors[c(1,2,3,4,7,9,8)],name = "admixture group") + xlab("Site_year") +ylab("fitness BLUPS") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+
+ull.rn <- ggplot(ull.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour=group.names)) + scale_color_manual(values=group.colors[c(1,2,3,4,7,9,8)],name = "admixture group") + xlab("Site_year") +ylab("fitness BLUPS") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+
+rat.rn <- ggplot(rat.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour=group.names)) + scale_color_manual(values=group.colors[c(1,2,3,4,7,9,8)],name = "admixture group") + xlab("Site_year") +ylab("fitness BLUPS") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+grid.arrange(ada.rn, ram.rn, ull.rn, rat.rn, nrow = 2)
+
+pdf(file="./figures/site.rxn.norms.pdf", width=11, height=7)
+grid.arrange(ada.rn, ram.rn, ull.rn, rat.rn, nrow = 2)
+dev.off()
+```
+
+### reaction norms between sites, 2011
+
+```{r 2011 rxn norms}
+up.year <- "2011"
+au.sub <- acc.fit.rxn[acc.fit.rxn$year==up.year & acc.fit.rxn$exp%in%c("ADA","ULL"),]
+at.sub <- acc.fit.rxn[acc.fit.rxn$year==up.year & acc.fit.rxn$exp%in%c("ADA","RAT"),]
+ru.sub <- acc.fit.rxn[acc.fit.rxn$year==up.year & acc.fit.rxn$exp%in%c("RAM","ULL"),]
+rt.sub <- acc.fit.rxn[acc.fit.rxn$year==up.year & acc.fit.rxn$exp%in%c("RAM","RAT"),]
+ar.sub <- acc.fit.rxn[acc.fit.rxn$year==up.year & acc.fit.rxn$exp%in%c("ADA","RAM"),]
+ut.sub <- acc.fit.rxn[acc.fit.rxn$year==up.year & acc.fit.rxn$exp%in%c("ULL","RAT"),]
+
+
+au.rn <- ggplot(au.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour=group.names)) + scale_color_manual(values=group.colors[c(1,2,3,4,7,9,8)],name = "admixture group") + xlab("Site_year") +ylab("fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+at.rn <- ggplot(at.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour=group.names)) + scale_color_manual(values=group.colors[c(1,2,3,4,7,9,8)],name = "admixture group") + xlab("Site_year") +ylab("fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+ru.rn <- ggplot(ru.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour=group.names)) + scale_color_manual(values=group.colors[c(1,2,3,4,7,9,8)],name = "admixture group") + xlab("Site_year") +ylab("fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+rt.rn <- ggplot(rt.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour=group.names)) + scale_color_manual(values=group.colors[c(1,2,3,4,7,9,8)],name = "admixture group") + xlab("Site_year") +ylab("fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+ar.rn <- ggplot(ar.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour=group.names)) + scale_color_manual(values=group.colors[c(1,2,3,4,7,9,8)],name = "admixture group") + xlab("Site_year") +ylab("fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+ut.rn <- ggplot(ut.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour=group.names)) + scale_color_manual(values=group.colors[c(1,2,3,4,7,9,8)],name = "admixture group") + xlab("Site_year") +ylab("fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+grid.arrange(au.rn, at.rn, ru.rn, rt.rn, ar.rn, ut.rn, nrow = 3)
+
+pdf(file="./figures/2011.rxn.norms.pdf", width=9, height=11)
+grid.arrange(au.rn, at.rn, ru.rn, rt.rn, ar.rn, ut.rn, nrow = 3)
+dev.off()
+
+```
+### reaction norms between sites, 2012
+
+```{r 2012 rxn norms}
+up.year <- "2012"
+au.sub <- acc.fit.rxn[acc.fit.rxn$year==up.year & acc.fit.rxn$exp%in%c("ADA","ULL"),]
+at.sub <- acc.fit.rxn[acc.fit.rxn$year==up.year & acc.fit.rxn$exp%in%c("ADA","RAT"),]
+ru.sub <- acc.fit.rxn[acc.fit.rxn$year==up.year & acc.fit.rxn$exp%in%c("RAM","ULL"),]
+rt.sub <- acc.fit.rxn[acc.fit.rxn$year==up.year & acc.fit.rxn$exp%in%c("RAM","RAT"),]
+ar.sub <- acc.fit.rxn[acc.fit.rxn$year==up.year & acc.fit.rxn$exp%in%c("ADA","RAM"),]
+ut.sub <- acc.fit.rxn[acc.fit.rxn$year==up.year & acc.fit.rxn$exp%in%c("ULL","RAT"),]
+
+
+au.rn <- ggplot(au.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour=group.names)) + scale_color_manual(values=group.colors[c(1,2,3,4,7,9,8)],name = "admixture group") + xlab("Site_year") +ylab("fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+at.rn <- ggplot(at.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour=group.names)) + scale_color_manual(values=group.colors[c(1,2,3,4,7,9,8)],name = "admixture group") + xlab("Site_year") +ylab("fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+ru.rn <- ggplot(ru.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour=group.names)) + scale_color_manual(values=group.colors[c(1,2,3,4,7,9,8)],name = "admixture group") + xlab("Site_year") +ylab("fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+rt.rn <- ggplot(rt.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour=group.names)) + scale_color_manual(values=group.colors[c(1,2,3,4,7,9,8)],name = "admixture group") + xlab("Site_year") +ylab("fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+ar.rn <- ggplot(ar.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour=group.names)) + scale_color_manual(values=group.colors[c(1,2,3,4,7,9,8)],name = "admixture group") + xlab("Site_year") +ylab("fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+ut.rn <- ggplot(ut.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour=group.names)) + scale_color_manual(values=group.colors[c(1,2,3,4,7,9,8)],name = "admixture group") + xlab("Site_year") +ylab("fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+grid.arrange(au.rn, at.rn, ru.rn, rt.rn, ar.rn, ut.rn, nrow = 3)
+
+pdf(file="./figures/2012.rxn.norms.pdf", width=9, height=11)
+grid.arrange(au.rn, at.rn, ru.rn, rt.rn, ar.rn, ut.rn, nrow = 3)
+dev.off()
+
+```
+
+### patterns of significance and effect by line - per site and year
+```{r sig pattern}
+line.est <- int.mm7[int.mm7$groupFctr=="exp:year:id",] ### 2 of 1600 missing
+
+## does CI contain zero?
+line.est$ci.low <- line.est$mean-line.est$sd
+line.est$ci.hi <- line.est$mean+line.est$sd
+line.est$sig <- apply(line.est,1, function(x){(as.numeric(x[7])<0 & as.numeric(x[8])>0)==FALSE})
+### 39% of CIs don't contain zero
+line.est$mean.sig <- line.est$mean*line.est$sig
+
+## reshape dataframe
+tmp.ids <- do.call(rbind, sapply(line.est$groupID, function(x){strsplit(x,":")}))
+tmp.ids <- data.frame(tmp.ids)
+colnames(tmp.ids) <- c("site","year", "id")
+line.est <- cbind(line.est, tmp.ids)
+line.est$exp <- paste(line.est$site, line.est$year, sep="_")
+
+test <- line.est[,c(10,13,14)]
+test <- spread(test, exp, mean.sig)
+
+write.table(line.est, file="./data/line.fitness.estimate.significance.txt")
+```
+

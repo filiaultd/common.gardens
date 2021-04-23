@@ -1,0 +1,384 @@
+---
+title: "21.beta.by.frequency"
+author: "Daniele Filiault"
+date: "10/10/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(data.table)
+library(ggplot2)
+library(reshape2)
+library(RColorBrewer)
+library(viridis)
+library(gridExtra)
+library(multcompView)
+library(dplyr)
+library(tidyr)
+source("./99.geo.helper.fxns.R")
+
+group.colors <- brewer.pal(9, "Paired")
+ss.col <- group.colors[3]
+group.colors[3] <- group.colors[7]
+group.colors[7] <- ss.col
+ag.colors <-group.colors[c(3,7,4)]
+```
+
+## Introduction
+
+Want to look for relationships between beta, allele frequency of derived alleles in experimental sites.
+This replaces script 20, which got very convoluted and I messed up calculating the effect of the derived SNP.
+
+### prep admixture data
+```{r prep admix data}
+### done in script ./scripts/admix.prop.by.snp.R
+### ran this on the cluster with ./scripts/submit.admix.prop.by.snp.sh
+### output is admixture group of derived and ancestral alleles for the 1001g data
+### so a few of our experimental lines are missing from this.  I think that's OK, but I will need to think about it more...
+### this gives the number of acessions determined to be in each admixture group that have the ancestral (A) and derived (D) allele.
+
+load("./data/admix.prop.pol.Rdat")
+rownames(admix.prop.pol) <- admix.prop.pol$rs
+admix.prop.pol <- admix.prop.pol[,-c(19:20)]
+admix.prop.pol <- as.matrix(admix.prop.pol) #1129233
+
+### subset to SNPs that were used for GWAS
+load("./data/betas2011.Rdat")
+load("./data/betas2012.Rdat")
+b.pos <- unique(c(as.character(betas2011$rs), as.character(betas2012$rs))) #760264
+admix.prop.pol <- admix.prop.pol[row.names(admix.prop.pol)%in%b.pos,]  #341332
+
+### remove non-polymorphic (1 or 2 calls)
+a.sums <- apply(admix.prop.pol, 1, sum)
+admix.prop.pol <- admix.prop.pol[a.sums>1,]
+
+## which admixture group is which (from 0-8)
+group.names <- c("W.Europe","Relicts","Germany","N.Sweden","Iberia","Asia","S.Sweden","Italy/E.Europe","C.Europe")
+```
+
+
+```{R frequency of derived allele in each admix group}
+
+a.group <- 2
+
+get.da.allele.freq <- function(a.group){
+  up.dat <- admix.prop.pol[,grep(a.group,colnames(admix.prop.pol))]
+  up.sum <- apply(up.dat,1,sum)
+  total <- max(up.sum)
+  d.prop <- up.dat[,colnames(up.dat)==paste("D", a.group,sep="")]/up.sum
+  a.prop <- up.dat[,colnames(up.dat)==paste("A", a.group,sep="")]/up.sum
+  both.p <- cbind(d.prop, a.prop)
+  return(both.p)
+}
+
+ger.df <- get.da.allele.freq(a.group=2)
+ns.df <- get.da.allele.freq(a.group=3)
+ss.df <- get.da.allele.freq(a.group=6)
+
+par(mfcol=c(1,3))
+hist(ger.df[,1], main="derived freq in German")
+hist(ss.df[,1],main="derived freq in S.Swedish")
+hist(ns.df[,1],main="derived freq in N.Swedish")
+
+hist(ger.df[,2], main="anc freq in German")
+hist(ss.df[,2],main="anc freq in S.Swedish")
+hist(ns.df[,2],main="anc freq in N.Swedish")
+```
+
+```{R prep betas}
+# these are the betas of the alternate allele
+#betas 2011
+load("./data/betas2011.Rdat")
+#betas 2012
+load("./data/betas2012.Rdat")
+
+colnames(betas2011)[4:ncol(betas2011)]<- paste(colnames(betas2011)[4:ncol(betas2011)],"2011", sep="_")
+colnames(betas2012)[4:ncol(betas2012)]<- paste(colnames(betas2012)[4:ncol(betas2011)],"2012", sep="_")
+
+com.dat <- merge(betas2011, betas2012, by=c("rs","chr","pos"), all=TRUE)
+com.dat <- com.dat[,c(1:3,8:11,31:34)]
+```
+
+```{R betas of derived alleles}
+### ancestral and derived alleles were determined in /projects/field_experiments/001.common.reference.files/004.genus.vcfs
+
+p.snps <- read.table("./data/Polarized.snps.txt",colClasses="character")
+
+### 000 is cases without calls in either ref or alt species 299151
+### 100 is reference ancestral  1018851 (ie alt is derived allele)
+### 010 is alt ancestral  111968 
+### 001 is both ref and alt alleles occur in species 351834
+
+p.snps$rs <- rownames(p.snps)
+colnames(p.snps)[1] <- "history"
+p.snps$rs <- gsub("Chr","", p.snps$rs)
+
+geo.beta.hist <- merge(p.snps, com.dat)  ## 562086
+
+### need 100 and 010 cases
+### 100 can stay the way they are - these are ref ancestral(i.e. alt derived)
+### (going to plot the effect of the derived allele)
+### for 010, need to flip both the betas
+
+geo.beta.hist <- geo.beta.hist[geo.beta.hist$history %in% c("100", "010"),]  ### only 341855 snps left
+gbs <- split(geo.beta.hist, geo.beta.hist$history)
+gbs.alt <- gbs[[1]] # 010
+gbs.alt[,c(5:12)] <- -gbs.alt[,c(5:12)]
+
+## put everthing back together
+geo.beta.hist <- rbind(gbs.alt, gbs[[2]])
+colnames(geo.beta.hist) <- gsub("beta_1", "ADA", colnames(geo.beta.hist))
+colnames(geo.beta.hist) <- gsub("beta_2", "RAM", colnames(geo.beta.hist))
+colnames(geo.beta.hist) <- gsub("beta_3", "ULL", colnames(geo.beta.hist))
+colnames(geo.beta.hist) <- gsub("beta_4", "RAT", colnames(geo.beta.hist))
+rownames(geo.beta.hist) <- geo.beta.hist$rs
+
+```
+
+### plot these
+
+```{R plot freq derived by beta, eval=FALSE}
+up.betas <- geo.beta.hist
+up.df <- ns.df
+ad.group <- "N.Sweden"
+
+make.plot <- function(up.dat, up.column, ad.group, simple.group.name){
+    ggplot(up.dat, aes(x=d.prop, y=get(up.column)) ) +
+      geom_bin2d(bins=40) +
+      scale_fill_viridis_c(option = "C") +
+      ggtitle(simple.group.name) +
+      theme_bw() +
+      xlab(paste("frequency of derived allele in", ad.group, "admixture group", sep=" ")) +
+      ylab(paste("fitness effect in", up.column, sep=" ")) +
+      geom_hline(yintercept = 0, linetype="dashed", color = "springgreen") +
+      geom_smooth()
+  }
+
+#a <- make.plot(up.dat=up.dat, up.column="ULL_2011")
+
+
+plot.der.freq.beta <- function(up.betas, up.df, ad.group){
+  up.dat <- merge(up.betas,up.df, by="row.names")
+  p1 <- make.plot(up.dat=up.dat, up.column="ADA_2011", ad.group=ad.group, simple.group.name="N2_2011")    
+  p2 <- make.plot(up.dat=up.dat, up.column="RAM_2011", ad.group=ad.group, simple.group.name="N1_2011")
+  p3 <- make.plot(up.dat=up.dat, up.column="ULL_2011", ad.group=ad.group, simple.group.name="S1_2011")
+  p4 <- make.plot(up.dat=up.dat, up.column="RAT_2011", ad.group=ad.group, simple.group.name="S2_2011")
+  p5 <- make.plot(up.dat=up.dat, up.column="ADA_2012", ad.group=ad.group, simple.group.name="N2_2012")    
+  p6 <- make.plot(up.dat=up.dat, up.column="RAM_2012", ad.group=ad.group, simple.group.name="N1_2012")
+  p7 <- make.plot(up.dat=up.dat, up.column="ULL_2012", ad.group=ad.group, simple.group.name="S1_2012")
+  p8 <- make.plot(up.dat=up.dat, up.column="RAT_2012", ad.group=ad.group, simple.group.name="S2_2012")
+  
+  grid.arrange(p2, p1, p3, p4, p6, p5, p7, p8, nrow=2, top=ad.group)
+  }
+ 
+pdf("./figures/beta.by.derived.freq.N.Sweden.pdf", width=18, height=10)
+plot.der.freq.beta(up.betas=geo.beta.hist, up.df=ns.df, ad.group="N.Swedish") 
+dev.off()
+
+pdf("./figures/beta.by.derived.freq.S.Sweden.pdf", width=18, height=10)
+plot.der.freq.beta(up.betas=geo.beta.hist, up.df=ss.df, ad.group="S.Swedish") 
+dev.off()
+
+pdf("./figures/beta.by.derived.freq.German.pdf", width=18, height=10)
+plot.der.freq.beta(up.betas=geo.beta.hist, up.df=ger.df, ad.group="German") 
+dev.off()
+  
+```
+  
+### for each of these panels, also calculate the "predicted fitness" of each admixture group.  That is beta.ancestral* freq.ancestral + beta.derived*freq.derived  
+  
+```{R anc/der fitness per group}
+up.betas <- geo.beta.hist
+up.df <- ns.df
+ad.group <- "N.Sweden" 
+  
+add.fit.predict <- function(up.betas, up.df){
+  up.dat <- merge(up.betas,up.df, by="row.names")  
+
+  out.fit <- apply(up.dat[,6:13], 2, function(x){
+    d.fit <- x*up.dat$d.prop
+    d.fit <- sum(d.fit[is.na(d.fit)==FALSE])
+    a.fit <- -x*up.dat$a.prop
+    a.fit <- sum(a.fit[is.na(a.fit)==FALSE])
+    return(c(d.fit, a.fit))
+  })
+  total.fit <- apply(out.fit,2, sum)
+  total.fit <- rbind(out.fit, total.fit)
+  rownames(total.fit) <- c("der.tot","anc.tot","combined")
+  return(total.fit)
+}
+
+n.fit.p <- add.fit.predict(up.betas=geo.beta.hist, up.df=ns.df)
+s.fit.p <- add.fit.predict(up.betas=geo.beta.hist, up.df=ss.df)
+g.fit.p <- add.fit.predict(up.betas=geo.beta.hist, up.df=ger.df)
+```
+
+This is based on the proportion in admixture groups.  Do with proportion in experimental lines?
+Plot this
+
+```{R plot anc/der fitness per group}
+n.fit <- melt(n.fit.p)
+n.fit$ad.group <- "N.Swedish"
+s.fit <- melt(s.fit.p)
+s.fit$ad.group <- "S.Swedish"
+g.fit <- melt(g.fit.p)
+g.fit$ad.group <- "German"
+
+all.fit <- rbind(n.fit, s.fit, g.fit)
+colnames(all.fit) <- c("calc.type","site","fitness", "ad.group")
+all.fit$ad.group <- factor(all.fit$ad.group, levels=c("German","S.Swedish", "N.Swedish"))
+all.fit$site <- factor(all.fit$site, levels=c("ADA_2011","ADA_2012", "RAM_2011","RAM_2012","ULL_2011","ULL_2012", "RAT_2011", "RAT_2012"))
+
+p1 <- ggplot(all.fit, aes( x = calc.type, y = fitness , fill=calc.type) ) + 
+      geom_bar(stat = "identity") + 
+      facet_grid(ad.group ~ site ) +
+      theme_bw() +
+      scale_fill_discrete(name = "Weighted fitness of", labels = c("derived alleles", "ancestral alleles", "both combined")) +
+    theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank()) +
+  labs(y = "Weighted fitness") 
+
+pdf("./figures/weighted.fitness.pdf", width=10, height=6)
+print(p1)
+dev.off()
+
+
+
+```
+
+Can also add weighted fitness of standing variation
+Calculated in ./scripts/admix.prop.by.intraspecific.snp.R
+
+```{R standing weighted fitness}
+load("./data/admix.prop.intra.Rdat")
+
+## get proportion ref and alt
+
+a.group <- 2
+
+get.ar.allele.freq <- function(a.group){
+  up.dat <- admix.prop.intra[,grep(a.group,colnames(admix.prop.intra))]
+  up.sum <- apply(up.dat,1,sum)
+  total <- max(up.sum)
+  a.prop <- up.dat[,colnames(up.dat)==paste("A", a.group,sep="")]/up.sum
+  r.prop <- up.dat[,colnames(up.dat)==paste("R", a.group,sep="")]/up.sum
+  both.p <- cbind(a.prop, r.prop)
+  return(both.p)
+}
+
+ger.altf <- get.ar.allele.freq(a.group=2)
+rownames(ger.altf) <- admix.prop.intra$rs
+ns.altf <- get.ar.allele.freq(a.group=3)
+rownames(ns.altf) <- admix.prop.intra$rs
+ss.altf <- get.ar.allele.freq(a.group=6)
+rownames(ss.altf) <- admix.prop.intra$rs
+ 
+# combine with betas
+colnames(com.dat) <- gsub("beta_1", "ADA", colnames(com.dat))
+colnames(com.dat) <- gsub("beta_2", "RAM", colnames(com.dat))
+colnames(com.dat) <- gsub("beta_3", "ULL", colnames(com.dat))
+colnames(com.dat) <- gsub("beta_4", "RAT", colnames(com.dat))
+
+ger.alt.beta <- merge(com.dat, ger.altf, by.x="rs", by.y="row.names")
+ns.alt.beta <- merge(com.dat, ns.altf, by.x="rs", by.y="row.names")
+ss.alt.beta <- merge(com.dat, ss.altf, by.x="rs", by.y="row.names")
+```
+
+```{R weighted fitness standing}
+#up.betas <- ger.alt.beta
+
+add.fit.predict <- function(up.betas){
+  out.fit <- apply(up.betas[,4:11], 2, function(x){
+    a.fit <- x*up.betas$a.prop #betas are of alt allele
+    a.fit <- sum(a.fit[is.na(a.fit)==FALSE])
+    r.fit <- -x*up.betas$r.prop
+    r.fit <- sum(r.fit[is.na(r.fit)==FALSE])
+    return(c(a.fit, r.fit))
+  })
+  total.fit <- apply(out.fit,2, sum)
+  total.fit <- rbind(out.fit, total.fit)
+  rownames(total.fit) <- c("alt.tot","ref.tot","standing")
+  return(total.fit)
+}
+
+n.fit.stand <- add.fit.predict(up.betas=ger.alt.beta)
+s.fit.stand <- add.fit.predict(up.betas=ss.alt.beta)
+g.fit.stand <- add.fit.predict(up.betas=ger.alt.beta)
+
+n.fit.stand <- t(n.fit.stand)
+s.fit.stand <- t(s.fit.stand)
+g.fit.stand <- t(g.fit.stand)
+
+## format so can add to all.fit
+n.fit.s <- melt(n.fit.stand)
+n.fit.s <- n.fit.s[,c(2,1,3)]
+n.fit.s$ad.group <- "N.Swedish"
+n.fit <- n.fit.s[n.fit.s[,1]=="standing",]
+
+s.fit.s <- melt(s.fit.stand)
+s.fit.s <- s.fit.s[,c(2,1,3)]
+s.fit.s$ad.group <- "S.Swedish"
+s.fit <- s.fit.s[s.fit.s[,1]=="standing",]
+
+g.fit.s <- melt(g.fit.stand)
+g.fit.s <- g.fit.s[,c(2,1,3)]
+g.fit.s$ad.group <- "German"
+g.fit <- g.fit.s[g.fit.s[,1]=="standing",]
+
+stand.fit <- rbind(n.fit, s.fit, g.fit)
+colnames(stand.fit) <- colnames(all.fit)
+
+all.fit2 <- rbind(all.fit, stand.fit)
+af2.long<- spread(all.fit2, calc.type, fitness)
+af2.long$total <- af2.long$combined+af2.long$standing
+all.fit2 <- melt(af2.long)
+colnames(all.fit2)[4] <- "fitness"
+colnames(all.fit2)[3] <- "calc.type"
+all.fit2 <- all.fit2[all.fit2$calc.type!="combined",]
+
+```
+
+```{R plot weight fit by all snptype }
+
+all.fit2$ad.group <- factor(all.fit2$ad.group, levels=c("N.Swedish","S.Swedish", "German"))
+all.fit2$year <- substring(all.fit2$site,5,8)
+all.fit2$site.short <- substr(all.fit2$site, 1,3)
+all.fit2$site.short <- gsub("ADA", "N2", all.fit2$site.short)
+all.fit2$site.short <- gsub("RAM", "N1", all.fit2$site.short)
+all.fit2$site.short <- gsub("ULL", "S1", all.fit2$site.short)
+all.fit2$site.short <- gsub("RAT", "S2", all.fit2$site.short)
+all.fit2$site.short <- paste(all.fit2$site.short, all.fit2$year, sep="_")
+all.fit2$site.short <- factor(all.fit2$site.short, levels=c("N1_2011","N1_2012", "N2_2011","N2_2012","S1_2011","S1_2012", "S2_2011", "S2_2012"))
+all.fit2$site <- factor(all.fit2$site, levels=c("ADA_2011","ADA_2012", "RAM_2011","RAM_2012","ULL_2011","ULL_2012", "RAT_2011", "RAT_2012"))
+
+p <- ggplot(all.fit2, aes( x = calc.type, y = fitness , fill=calc.type) ) + 
+      geom_bar(stat = "identity") + 
+      facet_grid(ad.group ~ site.short ) +
+      theme_bw() +
+    theme(strip.background=element_rect(fill=c("red", "white")))+
+      scale_fill_manual(name = "Weighted fitness of", labels = c("derived alleles", "ancestral alleles","standing variation", "all combined"),values = RColorBrewer::brewer.pal(n = 8, name = "RdBu")[c(1,4,6,8)]) +
+    theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank()) +
+  labs(y = "Weighted fitness")
+
+g <- ggplot_gtable(ggplot_build(p))
+
+strips <- which(grepl('strip-', g$layout$name))
+
+pal <- c(ag.colors[3],ag.colors[3],ag.colors[3], ag.colors[3],ag.colors[2], ag.colors[2], ag.colors[2], ag.colors[2],ag.colors[3], ag.colors[2], ag.colors[1])
+
+for (i in seq_along(strips)) {
+  k <- which(grepl('rect', g$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+  g$grobs[[strips[i]]]$grobs[[1]]$children[[k]]$gp$fill <- pal[i]
+}
+
+plot(g)
+
+
+
+pdf("./figures/weighted.fitness.with.standing.pdf", width=10, height=6)
+plot(g)
+dev.off()
+```
+
+

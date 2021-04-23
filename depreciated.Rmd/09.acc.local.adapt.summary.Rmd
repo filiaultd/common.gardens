@@ -1,0 +1,258 @@
+---
+title: "09.acc.local.adapt.summary"
+author: "Daniele Filiault"
+date: "6/27/2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load models from scripts 02-05
+
+
+```{r data prep}
+load("./data/fitness.adapt.models.Rdat")
+load("./data/fecundity.adapt.models.Rdat")
+load("./data/ows.adapt.models.Rdat")
+load("./data/sss.adapt.models.Rdat")
+
+models <- c("ADA_2011","RAM_2011","RAT_2011","ULL_2011","ADA_2012","RAM_2012","RAT_2012","ULL_2012")
+```
+
+## extract pvals, slope, adjR2
+
+
+```{r get values}
+
+### get desired values out of the model
+mod2val <- function(lm.up){
+  lm.vals <- lapply(lm.up, function(x){
+    slope <- x$coefficients[[2]]
+    pval <- anova(x)[5][1,1]
+    rsq <- summary(x)$adj.r.squared
+    output <- c(slope,pval,rsq)
+    return(output)
+    })
+  lm.vals <- do.call(rbind,lm.vals)
+  colnames(lm.vals) <- c("slope","pval","adjR2")
+  rownames(lm.vals) <- models
+  return(lm.vals)
+}
+
+### make a variable that will reflect color of cell
+#1= sig, right direction
+#2= marg. sig, right direction
+#3= not sig
+#4= marg sig, wrong direction
+#5= sig, wrong direction
+sig.col <- function(x){
+  ns <- c("ADA","RAM")
+  ss <- c("RAT","ULL")
+  #significance level
+  sig <- x[,2]<0.05
+  msig <- x[,2]<0.1
+  sig <- sig + msig
+  x <- cbind(x, sig)
+  #0=ns, 1=sig 0.1, 2=sig 0.05
+  #correct direction of slope for local adaptation
+  n.dat <- x[substr(rownames(x),1,3)%in%ns,]
+  n.dir <- n.dat[,1]>0
+  n.dat <- cbind(n.dat,n.dir)
+  #1=correct, 0= not correct
+  s.dat <- x[substr(rownames(x),1,3)%in%ss,]
+  s.dir <- s.dat[,1]<0
+  s.dat <- cbind(s.dat,s.dir)
+  x <- rbind(n.dat, s.dat)
+  col.index <- paste(x[,4],x[,5],sep="")
+  col.index <- gsub("21","1",col.index)
+  col.index <- gsub("11","2",col.index)
+  col.index <- gsub("00","3",col.index)
+  col.index <- gsub("01","3",col.index)
+  col.index <- gsub("10","4",col.index)
+  col.index <- gsub("20","5",col.index)
+  x <- cbind(x,as.numeric(col.index))
+  colnames(x)[6] <- "col.index"
+  return(x)
+}
+
+fit.vals <- sig.col(mod2val(fitness.adapt.models))
+fec.vals <- sig.col(mod2val(fecundity.adapt.models))
+ows.vals <- sig.col(mod2val(ows.adapt.models))
+sss.vals <- sig.col(mod2val(sss.adapt.models))
+
+### make 2 variables: adjR2 for all fit components, col.index for all...
+
+adjR <- cbind(fit.vals[,3],ows.vals[,3],sss.vals[,3],fec.vals[,3])
+colnames(adjR) <- c("fitness","ows","sss","fecundity")
+adjR <- adjR[order(rownames(adjR)),]
+
+col.index <- cbind(fit.vals[,6],ows.vals[,6],sss.vals[,6],fec.vals[,6])
+colnames(col.index) <- c("fitness","ows","sss","fecundity")
+col.index <- col.index[order(rownames(col.index)),]
+```
+
+
+#### make plot
+```{r makeplot}
+library(RColorBrewer)
+col.cols <- colorRampPalette(c("green", "red"))( 5 )
+col.cols <- brewer.pal(n = 5, name = "RdBu")
+col.cols <- col.cols[5:1]
+
+par(mar=c(5,4,4,4))
+plot(1,1,type="n",xlim=c(0,8),ylim=c(0,4),xaxt="n",yaxt="n", ann=FALSE, bty="n")
+rect(0,0,8,4)
+
+col1 <- col.index[grep("2011", rownames(col.index)),]
+col1 <- col1[4:1,]
+rect(0,0,1,1, col=2)
+for(up in 1:nrow(col1)){
+  up.dat <- col1[up,]
+  up.y <- up-1
+  up.yy <- up
+  for(up.obs in 1:length(up.dat)){
+    up.col <- up.dat[up.obs]
+    up.x <- up.obs-1
+    up.xx <-  up.obs
+    rect(up.x,up.y, up.xx, up.yy, col=col.cols[up.col])
+  }
+}
+
+col2 <- col.index[grep("2012", rownames(col.index)),]
+col2 <- col2[4:1,]
+for(up in 1:nrow(col2)){
+  up.dat <- col2[up,]
+  up.y <- up-1
+  up.yy <- up
+  for(up.obs in 1:length(up.dat)){
+    up.col <- up.dat[up.obs]
+    up.x <- up.obs+3
+    up.xx <-  up.obs+4
+    rect(up.x,up.y, up.xx, up.yy, col=col.cols[up.col])
+  }
+}
+axis(1,at=seq(0.5,7.5,1),labels=FALSE, tick=FALSE, line=-1, las=2)
+text(x = seq(0.25,7.25,1), par("usr")[3]-0.2, labels = c(colnames(col.index),colnames(col.index)), srt = 45, pos = 1, xpd = TRUE)
+axis(2,at=seq(0.5,3.5,1),labels=c("Ull","Rat","Ram","Ada"), las=2, tick=FALSE, line=-1)
+axis(3, at=c(2,6),labels=c("2011","2012"),tick=FALSE, font=2,line=0, cex.axis=1.5)
+axis(4, at=c(1,3),labels=c("South","North"),tick=FALSE, las=2, line=-0.5, font=2, cex.axis=1.5)
+rect(0,0,4,4,lwd=3)
+rect(4,0,8,4,lwd=3)
+abline(2,0, lwd=3)
+
+
+#### just need to add rsquared values = adjR
+ar1 <- adjR[grep("2011", rownames(adjR)),]
+ar1 <- ar1[4:1,]
+for(up in 1:nrow(ar1)){
+  up.dat <- ar1[up,]
+  up.y <- up-0.5
+  for(up.obs in 1:length(up.dat)){
+    up.r <- up.dat[up.obs]
+    up.rc <- substr(up.r, 1,5)
+    up.x <- up.obs-0.5
+    if(up.r > 0.01){text(x=up.x,y=up.y, labels=up.rc)}  ### this is a hack to not plot NS values.  to do for reals, would need to check pvals.
+  }
+}
+
+ar2 <- adjR[grep("2012", rownames(adjR)),]
+ar2 <- ar2[4:1,]
+for(up in 1:nrow(ar2)){
+  up.dat <- ar2[up,]
+  up.y <- up-0.5
+  for(up.obs in 1:length(up.dat)){
+    options("scipen"=100, "digits"=4)
+    up.r <- up.dat[up.obs]
+    up.rc <- substr(up.r, 1,5)
+    up.x <- up.obs+3.5
+    if(up.r > 0.01){text(x=up.x,y=up.y, labels=up.rc)} ### same hack as above
+  }
+}
+
+
+```
+
+
+make plot as pdf and change to simple site names
+
+```{r makeplot pdf}
+
+pdf("./figures/accession.fitness.lms.pdf", width=8, height=5)
+
+par(mar=c(5,4,4,4))
+plot(1,1,type="n",xlim=c(0,8),ylim=c(0,4),xaxt="n",yaxt="n", ann=FALSE, bty="n")
+rect(0,0,8,4)
+
+col1 <- col.index[grep("2011", rownames(col.index)),]
+col1 <- col1[c(3,4,1,2),]
+rect(0,0,1,1, col=2)
+for(up in 1:nrow(col1)){
+  up.dat <- col1[up,]
+  up.y <- up-1
+  up.yy <- up
+  for(up.obs in 1:length(up.dat)){
+    up.col <- up.dat[up.obs]
+    up.x <- up.obs-1
+    up.xx <-  up.obs
+    rect(up.x,up.y, up.xx, up.yy, col=col.cols[up.col])
+  }
+}
+
+col2 <- col.index[grep("2012", rownames(col.index)),]
+col2 <- col2[c(3,4,1,2),]
+for(up in 1:nrow(col2)){
+  up.dat <- col2[up,]
+  up.y <- up-1
+  up.yy <- up
+  for(up.obs in 1:length(up.dat)){
+    up.col <- up.dat[up.obs]
+    up.x <- up.obs+3
+    up.xx <-  up.obs+4
+    rect(up.x,up.y, up.xx, up.yy, col=col.cols[up.col])
+  }
+}
+axis(1,at=seq(0.5,7.5,1),labels=FALSE, tick=FALSE, line=-1, las=2)
+text(x = seq(0.25,7.25,1), par("usr")[3]-0.2, labels = c(colnames(col.index),colnames(col.index)), srt = 45, pos = 1, xpd = TRUE)
+axis(2,at=seq(0.5,3.5,1),labels=c("S2","S1","N2","N1"), las=2, tick=FALSE, line=-1)
+axis(3, at=c(2,6),labels=c("2011","2012"),tick=FALSE, font=2,line=0, cex.axis=1.5)
+axis(4, at=c(1,3),labels=c("South","North"),tick=FALSE, las=2, line=-0.75, font=2, cex.axis=1.5)
+rect(0,0,4,4,lwd=3)
+rect(4,0,8,4,lwd=3)
+abline(2,0, lwd=3)
+
+
+#### just need to add rsquared values = adjR
+ar1 <- adjR[grep("2011", rownames(adjR)),]
+ar1 <- ar1[c(3,4,1,2),]
+for(up in 1:nrow(ar1)){
+  up.dat <- ar1[up,]
+  up.y <- up-0.5
+  for(up.obs in 1:length(up.dat)){
+    up.r <- up.dat[up.obs]
+    up.rc <- substr(up.r, 1,5)
+    up.x <- up.obs-0.5
+    if(up.r > 0.01){text(x=up.x,y=up.y, labels=up.rc)}  ### this is a hack to not plot NS values.  to do for reals, would need to check pvals.
+  }
+}
+
+ar2 <- adjR[grep("2012", rownames(adjR)),]
+ar2 <- ar2[c(3,4,1,2),]
+for(up in 1:nrow(ar2)){
+  up.dat <- ar2[up,]
+  up.y <- up-0.5
+  for(up.obs in 1:length(up.dat)){
+    options("scipen"=100, "digits"=4)
+    up.r <- up.dat[up.obs]
+    up.rc <- substr(up.r, 1,5)
+    up.x <- up.obs+3.5
+    if(up.r > 0.01){text(x=up.x,y=up.y, labels=up.rc)} ### same hack as above
+  }
+}
+
+dev.off()
+
+```

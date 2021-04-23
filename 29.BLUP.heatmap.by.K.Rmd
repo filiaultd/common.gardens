@@ -1,0 +1,1223 @@
+---
+title: "29.BLUP.heatmap.by.K"
+author: "Daniele Filiault"
+date: "2/14/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(tidyr)
+library(superheat)
+library(pheatmap)
+library(ggplot2)
+library(maps)
+library(mapdata)
+library(sf)
+library("rnaturalearth")
+library("rnaturalearthdata")
+library("rgeos")
+library(RColorBrewer)
+library(ggpubr)
+library(pgirmess)
+library(ape)
+library(multcompView)
+```
+
+## Introduction
+
+In 27.fitness.BLUPs.Rmd, I generated BLUPs for each line by year/exp combos.
+What patterns are there in these BLUPs?  Can these suggest local adaptation and/or a genetic basis of fitness differences?
+Goal is to try to explain BLUP patterns between experiments by genetic relatedness (K matrix)
+
+## 1. load and normalize blups
+```{r normalize blups}
+blups <- read.csv(file="./data/marginal.blups.csv", stringsAsFactors=FALSE)
+blups$exp <- gsub("ADA","NA", blups$exp)
+blups$exp <- gsub("RAM", "NM", blups$exp)
+blups$exp <- gsub("ULL", "SU", blups$exp)
+blups$exp <- gsub("RAT", "SR", blups$exp)
+blups.l <- blups %>% pivot_wider(id_cols=id,names_from=c(exp,year),values_from=fb)%>%as.data.frame()
+hm.blups <- blups.l[,2:9]
+rownames(hm.blups) <- blups.l[,1]
+
+## z-score normalize the blups in each experiment
+znorm <- function(x){(x-mean(x, na.rm=TRUE))/sd(x, na.rm=TRUE)}
+norm.blups <- apply(hm.blups, 2,znorm)
+```
+
+
+## 2. Clustering/analysis of K matrix
+
+```{R Kmatrix grouping}
+K <- read.table("./data/K.matrix.200Swedes.txt")
+## need accession names
+pref="./GWA/snps/sweden_200_MAF10.bimbam"
+acclist=scan(paste(pref, ".acclist", sep=""), sep=",")
+rownames(K) <- acclist
+colnames(K) <- acclist
+K <- as.matrix(K)
+# write this K matrix with row and col names so can use in limix
+#write.table(K, file="./data/K.matrix.200Swedes.labels.txt")
+
+## heatmap of K
+k.dist <- dist(K)
+k.clust <- hclust(k.dist)
+## get the order of accessions in this clustering
+k.order.acc <- k.clust$labels[k.clust$order]
+
+### put K matrix in this order
+K.order <- K[match(k.order.acc, rownames(K)),match(k.order.acc, rownames(K))]
+superheat(K.order, row.dendrogram=FALSE, col.dendrogram=TRUE)
+
+### test number of groups for K matrix
+mydata <- K
+wss <- (nrow(mydata)-1)*sum(apply(mydata,2,var))
+  for (i in 2:15) wss[i] <- sum(kmeans(mydata,
+                                       centers=i)$withinss)
+plot(1:15, wss, type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares")
+## looks like 6 groups would be appropriate
+## by eye, we also picked out 6, so let's go with that for the time being.
+
+### get groups from this dendrogram
+ng <-6
+kcl <- cutree(k.clust, k=ng)
+kcl.order <- kcl[match(k.order.acc,names(kcl))]
+
+### add K group names to data
+ki <- data.frame(matrix(c("1","S1","2","S2","3","C","4","N1","5","N2","6","B"),ncol=2,byrow=TRUE))
+colnames(ki) <- c("K.group","K.name")
+kcl <- as.data.frame(kcl)
+kcl$acc <- rownames(kcl)
+colnames(kcl)[1] <- c("K.group")
+kcl <- merge(kcl, ki)
+kcl$K.name <- factor(kcl$K.name, levels=c("B","S1","S2","C","N1","N2"))
+rownames(kcl) <- kcl$acc
+kcl.order <- kcl[match(k.order.acc,rownames(kcl)),]
+
+
+## output these groups
+write.table(kcl, file="./data/K.groups.txt")
+
+```
+
+## 3. Generate heatmap
+```{r Kclustered heatmap}
+
+## put normalized blups into K clustering order
+k.order.norm.blup <- norm.blups[match(k.order.acc,rownames(norm.blups)),]
+
+## make in pheatmap so can add breaks and annotations
+bk <- c(seq(-max(norm.blups,na.rm=TRUE),max(norm.blups,na.rm=TRUE),by=0.5))
+#colors (one less than breaks) - centered on 0, using grey as zero so can see breaks
+mycols <- c(colorRampPalette(colors = c("red","grey80","blue"))(length(bk)-1))
+#pheatmap(K.order,cluster_rows=FALSE, cluster_cols=FALSE)
+#pheatmap(k.order.norm.blup, cluster_rows=FALSE,color=mycols,breaks=bk,cutree_col=3,annotation_row=as.data.frame(kcl.order))
+
+### where should we place gaps?
+gap.coord <- sapply(1:(nrow(kcl.order)-1), function(x){
+  kcl.order[x,3]==kcl.order[x+1,3]
+  })
+gap.coord <- which(gap.coord==FALSE)
+gap.co <- c(1,3,5)
+
+### add K-matrix group annotation
+kcl.order.fact <- as.data.frame(kcl.order$K.name)
+rownames(kcl.order.fact) <- rownames(kcl.order)
+colnames(kcl.order.fact) <- "K.name"
+ann.colors <- list(K.name=c(B = "#E31A1C", S1 = "#A6CEE3", S2 = "#1F78B4", C = "#FB9A99", N1 = "#B2DF8A", N2 = "#33A02C")) 
+## these colors are from brewer.pal(6, "Paired").  Hard to generate this list automatically!
+
+### make heatmap
+pdf(file="./figures/29.figures/heatmap.fitness.by.Kgroup.pdf")
+pheatmap(k.order.norm.blup, cluster_rows=FALSE, color=mycols, breaks=bk, annotation_row=kcl.order.fact, gaps_row=gap.coord, cutree_cols=5, annotation_colors=ann.colors, show_rownames = FALSE)
+dev.off()
+
+pheatmap(k.order.norm.blup, cluster_rows=FALSE, color=mycols, breaks=bk, annotation_row=kcl.order.fact, gaps_row=gap.coord, cutree_cols=5, annotation_colors=ann.colors, show_rownames = FALSE)
+
+```
+
+
+```{r heatmap with clustering on both axes}
+
+pheatmap(k.order.norm.blup, cluster_rows=TRUE, color=mycols, breaks=bk, annotation_row=kcl.order.fact, cutree_cols=5, cutree_rows=3, annotation_colors=ann.colors, show_rownames = FALSE)
+
+pdf(file="./figures/29.figures/heatmap.fitness.noRat2011.both.clustered.pdf")
+pheatmap(k.order.norm.blup[,c(1:4,6:8)], cluster_rows=TRUE, color=mycols, breaks=bk, annotation_row=kcl.order.fact, cutree_cols=3, cutree_rows=3, annotation_colors=ann.colors, show_rownames = FALSE)
+dev.off()
+
+```
+
+## 4. Location of K-matrix groups on Sweden map
+```{r maps of group membership}
+library(maps) ## need to reload since mclust also has a map function
+geo.file <- "./data/accs_2029_ids_lat_long.modified_MN_SH.csv"
+geo.dat <- read.csv(geo.file, stringsAsFactors=FALSE, header=TRUE)
+
+kcl.m <- kcl.order
+colnames(kcl.m)[2] <- "id"
+geo.dat <- merge(kcl.m, geo.dat, by.x="id", by.y="tg_ecotypeid")
+geo.dat$K.name <- factor(geo.dat$K.name, levels=c("B","S1","S2","C","N1","N2"))
+kcol <- brewer.pal(6, "Paired")[c(6,1,2,5,3,4)]
+
+theme_set(theme_bw())
+world <- ne_countries(scale = "medium", returnclass = "sf")
+sweden <- map('worldHires','Sweden')
+sweden.map <- ggplot(data = world) +geom_sf() + coord_sf(xlim = c(sweden$range[1], sweden$range[2]), ylim = c(sweden$range[3], sweden$range[4]), expand = FALSE) + scale_x_continuous(breaks=c(12,16,20,24))
+
+Kgroups.map <- sweden.map + geom_point(data=geo.dat, mapping = aes(x = longitude, y = latitude, colour = K.name)) +  scale_color_manual(values = kcol) + labs(colour = "K group \nname")
+
+Kgroups.map
+
+pdf("./figures/29.figures/Kgroup.map.pdf")
+print(Kgroups.map)
+dev.off()
+
+```
+
+
+## 5. K matrix heatmap with group annotation, too.
+
+```{r K heatmap with group annotation}
+pheatmap(K.order, cluster_rows=FALSE, annotation_row=kcl.order.fact, gaps_row=gap.coord, cutree_cols=6, annotation_colors=ann.colors, show_rownames = FALSE, show_colnames=FALSE)
+
+pdf(file="./figures/29.figures/heatmap.K.pdf", width=8, height=8)
+pheatmap(K.order, cluster_rows=FALSE, annotation_row=kcl.order.fact, gaps_row=gap.coord, cutree_cols=6, annotation_colors=ann.colors, show_rownames = FALSE, show_colnames=FALSE)
+dev.off()
+```
+
+### 6. output data to use in other scripts
+```{r output data}
+### K group membership
+write.table(kcl.order.fact, file="./data/Kmatrix.6cluster.membership.txt", quote=FALSE)
+
+### Normalized fitness
+write.table(k.order.norm.blup, file="./data/normalized.BLUPs.txt", quote=FALSE)
+
+
+```
+
+### 7. testing fitness by K group via anova
+```{r anova fit by group 2011}
+nblup <- as.data.frame(k.order.norm.blup)
+#nblup$K.group <- kcl.order.fact[,1]
+nblup$K.group <- kcl.order.fact[,1]
+
+  
+####Adal
+up.b <- "NA_2011"
+aov.a1 <- aov(get(up.b)~K.group, data=nblup)
+summary(aov.a1)
+#aov.a1r <- aov(get(up.b)~K.group, data=blups.l)
+a1.plot <- ggplot(data=nblup, aes(x=K.group, y=NA_2011,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  #scale_fill_brewer(palette="Paired") +
+  scale_fill_manual(values=kcol) +
+  theme_bw() +
+  labs(y=up.b) +
+  theme(legend.position = "none")
+
+#significant so add letters posthoc
+tt1 <- TukeyHSD(aov.a1)
+plot(tt1)
+
+Tukey.levels <- tt1[[1]][, 4]
+Tukey.labels <- data.frame(multcompLetters(Tukey.levels)['Letters'])
+Tukey.labels <- Tukey.labels[match(levels(nblup$K.group),row.names(Tukey.labels)),]
+#Tukey.labels <- Tukey.labels[order(rownames(Tukey.labels)),]
+max.vals <- aggregate(nblup$NA_2011,by=list(nblup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.05*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,Tukey.labels, max.vals[,1])
+colnames(Tukey_test)[1] <- up.b
+colnames(Tukey_test)[3] <- "K.group"
+tt.a1 <- Tukey_test
+
+a1.plot.t <- a1.plot +geom_text(data=tt.a1, aes(label=Tukey.labels))+ ggtitle("NA_2011")
+
+#####Ramsta
+up.b <- "NM_2011"
+aov.r1 <- aov(get(up.b)~K.group, data=nblup)
+summary(aov.r1)
+#aov.a1r <- aov(get(up.b)~K.group, data=blups.l)
+r1.plot <- ggplot(data=nblup, aes(x=K.group, y=NM_2011,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  #scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y=up.b) +
+  theme(legend.position = "none")
+#significant so add letters posthoc
+tt1 <- TukeyHSD(aov.r1)
+plot(tt1)
+
+Tukey.levels <- tt1[[1]][, 4]
+Tukey.labels <- data.frame(multcompLetters(Tukey.levels)['Letters'])
+Tukey.labels <- Tukey.labels[match(levels(nblup$K.group),row.names(Tukey.labels)),]
+#Tukey.labels <- Tukey.labels[order(rownames(Tukey.labels)),]
+max.vals <- aggregate(nblup$NM_2011,by=list(nblup$K.group), max)
+max.buffer <- data.frame(max.vals[,2] + (0.05*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,Tukey.labels, max.vals[,1])
+colnames(Tukey_test)[1] <- up.b
+colnames(Tukey_test)[3] <- "K.group"
+tt.r1 <- Tukey_test
+
+r1.plot.t <- r1.plot +geom_text(data=tt.r1, aes(label=Tukey.labels))+ ggtitle("NM_2011")
+
+#####Ullstorp
+up.b <- "SU_2011"
+aov.u1 <- aov(get(up.b)~K.group, data=nblup)
+summary(aov.u1)
+u1.plot <- ggplot(data=nblup, aes(x=K.group, y=SU_2011,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  #scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y=up.b) +
+  theme(legend.position = "none")
+#significant so add letters posthoc
+
+tt1 <- TukeyHSD(aov.u1)
+plot(tt1)
+Tukey.levels <- tt1[[1]][, 4]
+Tukey.labels <- data.frame(multcompLetters(Tukey.levels)['Letters'])
+Tukey.labels <- Tukey.labels[match(levels(nblup$K.group),row.names(Tukey.labels)),]
+#Tukey.labels <- Tukey.labels[order(rownames(Tukey.labels)),]
+max.vals <- aggregate(nblup$SU_2011,by=list(nblup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.05*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,Tukey.labels, max.vals[,1])
+colnames(Tukey_test)[1] <- up.b
+colnames(Tukey_test)[3] <- "K.group"
+tt.u1 <- Tukey_test
+u1.plot.t <- u1.plot +geom_text(data=tt.u1, aes(label=Tukey.labels))+ ggtitle("SU_2011")
+
+#####Rat
+up.b <- "SR_2011"
+aov.t1 <- aov(get(up.b)~K.group, data=nblup)
+summary(aov.t1)
+t1.plot <- ggplot(data=nblup, aes(x=K.group, y=SR_2011,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  #scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y=up.b) +
+  theme(legend.position = "none")
+# almost significant so add letters posthoc
+
+tt1 <- TukeyHSD(aov.t1)
+plot(tt1)
+Tukey.levels <- tt1[[1]][, 4]
+Tukey.labels <- data.frame(multcompLetters(Tukey.levels)['Letters'])
+#Tukey.labels <- Tukey.labels[order(rownames(Tukey.labels)),]
+Tukey.labels <- Tukey.labels[match(levels(nblup$K.group),row.names(Tukey.labels)),]
+max.vals <- aggregate(nblup$SR_2011,by=list(nblup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.05*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,Tukey.labels, max.vals[,1])
+colnames(Tukey_test)[1] <- up.b
+colnames(Tukey_test)[3] <- "K.group"
+tt.t1 <- Tukey_test
+t1.plot.t <- t1.plot +geom_text(data=tt.t1, aes(label=Tukey.labels)) + ggtitle("SR_2011")
+
+
+### output figures
+pdf("./figures/29.figures/normalized.fitness.blups.2011.by.K.pdf", width=12, height=12)
+figure2011 <- ggarrange(a1.plot.t, r1.plot.t, u1.plot.t, t1.plot.t, 
+          labels = c("A", "B", "C","D"),
+          ncol = 2, nrow = 2)
+annotate_figure(figure2011, top = text_grob("2011 normalized fitness BLUPs", face = "bold", size = 20))
+dev.off()
+
+
+
+```
+
+```{r anova fit by group 2012}
+
+####Adal
+up.b <- "NA_2012"
+aov.a2 <- aov(get(up.b)~K.group, data=nblup)
+summary(aov.a2)
+#aov.a1r <- aov(get(up.b)~K.group, data=blups.l)
+a1.plot <- ggplot(data=nblup, aes(x=K.group, y=NA_2012,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  #scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y=up.b) +
+  theme(legend.position = "none")
+
+#significant so add letters posthoc
+tt1 <- TukeyHSD(aov.a1)
+plot(tt1)
+
+Tukey.levels <- tt1[[1]][, 4]
+Tukey.labels <- data.frame(multcompLetters(Tukey.levels)['Letters'])
+#Tukey.labels <- Tukey.labels[order(rownames(Tukey.labels)),]
+Tukey.labels <- Tukey.labels[match(levels(nblup$K.group),row.names(Tukey.labels)),]
+max.vals <- aggregate(nblup$NA_2012,by=list(nblup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.05*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,Tukey.labels, max.vals[,1])
+colnames(Tukey_test)[1] <- up.b
+colnames(Tukey_test)[3] <- "K.group"
+tt.a2 <- Tukey_test
+
+a2.plot.t <- a1.plot +geom_text(data=tt.a2, aes(label=Tukey.labels))+ ggtitle("NA_2012")
+
+#####Ramsta
+up.b <- "NM_2012"
+aov.r2 <- aov(get(up.b)~K.group, data=nblup)
+summary(aov.r2)
+#aov.a1r <- aov(get(up.b)~K.group, data=blups.l)
+r2.plot <- ggplot(data=nblup, aes(x=K.group, y=NM_2012,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  #scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y=up.b) +
+  theme(legend.position = "none")
+#significant so add letters posthoc
+tt2 <- TukeyHSD(aov.r2)
+plot(tt2)
+
+Tukey.levels <- tt2[[1]][, 4]
+Tukey.labels <- data.frame(multcompLetters(Tukey.levels)['Letters'])
+#Tukey.labels <- Tukey.labels[order(rownames(Tukey.labels)),]
+Tukey.labels <- Tukey.labels[match(levels(nblup$K.group),row.names(Tukey.labels)),]
+max.vals <- aggregate(nblup$NM_2012,by=list(nblup$K.group), max)
+max.buffer <- data.frame(max.vals[,2] + (0.05*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,Tukey.labels, max.vals[,1])
+colnames(Tukey_test)[1] <- up.b
+colnames(Tukey_test)[3] <- "K.group"
+tt.r2 <- Tukey_test
+
+r2.plot.t <- r2.plot +geom_text(data=tt.r2, aes(label=Tukey.labels))+ ggtitle("NM_2012")
+
+#####Ullstorp
+up.b <- "SU_2012"
+aov.u2 <- aov(get(up.b)~K.group, data=nblup)
+summary(aov.u2)
+u2.plot <- ggplot(data=nblup, aes(x=K.group, y=SU_2012,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  #scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y=up.b) +
+  theme(legend.position = "none")
+#significant so add letters posthoc
+
+tt2 <- TukeyHSD(aov.u2)
+plot(tt2)
+Tukey.levels <- tt2[[1]][, 4]
+Tukey.labels <- data.frame(multcompLetters(Tukey.levels)['Letters'])
+Tukey.labels <- Tukey.labels[match(levels(nblup$K.group),row.names(Tukey.labels)),]
+#Tukey.labels <- Tukey.labels[order(rownames(Tukey.labels)),]
+max.vals <- aggregate(nblup$SU_2012,by=list(nblup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.05*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,Tukey.labels, max.vals[,1])
+colnames(Tukey_test)[1] <- up.b
+colnames(Tukey_test)[3] <- "K.group"
+tt.u2 <- Tukey_test
+u2.plot.t <- u2.plot +geom_text(data=tt.u2, aes(label=Tukey.labels))+ ggtitle("SU_2012")
+
+#####Rat
+up.b <- "SR_2012"
+aov.t2 <- aov(get(up.b)~K.group, data=nblup)
+summary(aov.t2)
+t2.plot <- ggplot(data=nblup, aes(x=K.group, y=SR_2012,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  #scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y=up.b) +
+  theme(legend.position = "none")
+# almost significant so add letters posthoc
+
+tt2 <- TukeyHSD(aov.t2)
+plot(tt2)
+Tukey.levels <- tt2[[1]][, 4]
+Tukey.labels <- data.frame(multcompLetters(Tukey.levels)['Letters'])
+Tukey.labels <- Tukey.labels[match(levels(nblup$K.group),row.names(Tukey.labels)),]
+#Tukey.labels <- Tukey.labels[order(rownames(Tukey.labels)),]
+max.vals <- aggregate(nblup$SR_2012,by=list(nblup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.05*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,Tukey.labels, max.vals[,1])
+colnames(Tukey_test)[1] <- up.b
+colnames(Tukey_test)[3] <- "K.group"
+tt.t2 <- Tukey_test
+t2.plot.t <- t2.plot +geom_text(data=tt.t2, aes(label=Tukey.labels)) + ggtitle("SR_2012")
+
+
+### output figures
+pdf("./figures/29.figures/normalized.fitness.blups.2012.by.K.pdf", width=12, height=12)
+figure2012 <- ggarrange(a2.plot.t, r2.plot.t, u2.plot.t, t2.plot.t, 
+          labels = c("A", "B", "C","D"),
+          ncol = 2, nrow = 2)
+annotate_figure(figure2012, top = text_grob("2012 normalized fitness BLUPs", face = "bold", size = 20))
+dev.off()
+
+
+
+
+```
+
+### Nonparametric tests
+
+```{R nonpara tests K group}
+
+### get labels for multiple testing
+get.tuk.lab <- function(up.kmc){
+  tlab <- up.kmc[[3]][,3]
+  names(tlab) <- rownames(up.kmc[[3]])
+  tlab <- data.frame(multcompLetters(tlab)['Letters'])
+  return(tlab)
+}
+
+
+kw.normfit <- as.list(rep(NA,8)) 
+ph.normfit <- as.list(rep(NA,8))
+
+for(up in 1:8){
+  up.exp <- colnames(nblup[up])
+  up.kt <- kruskal.test(get(up.exp)~K.group, data=nblup)
+  up.ph <- kruskalmc(get(up.exp)~K.group, data=nblup)
+  out.ph <- get.tuk.lab(up.ph)
+  kw.normfit[[up]] <- up.kt
+  ph.normfit[[up]] <- out.ph
+}  
+
+ph.normfit <- do.call(cbind,ph.normfit)
+colnames(ph.normfit) <- colnames(nblup)[1:8]
+ph.normfit$K.group <- rownames(ph.normfit)
+```
+
+  
+### Plot boxplots with nonparametric letters
+
+```{R nonparam plots 2011}
+############
+### ADA_2011
+max.vals <- aggregate(nblup$NA_2011,by=list(nblup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.1*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normfit$NA_2011, max.vals[,1])
+colnames(Tukey_test) <- c("NA_2011","Tukey_labels","K.group")
+tt.a1 <- Tukey_test
+
+a1.plot <- ggplot(data=nblup, aes(x=K.group, y=NA_2011,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  #scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized fitness") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.a1, aes(label=Tukey_labels)) + ggtitle("NA_2011")
+
+############
+### RAM_2011
+max.vals <- aggregate(nblup$NM_2011,by=list(nblup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.1*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normfit$NM_2011, max.vals[,1])
+colnames(Tukey_test) <- c("NM_2011","Tukey_labels","K.group")
+tt.r1 <- Tukey_test
+
+r1.plot <- ggplot(data=nblup, aes(x=K.group, y=NM_2011,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  #scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized fitness") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.r1, aes(label=Tukey_labels)) + ggtitle("NM_2011")
+
+############
+### ULL_2011
+max.vals <- aggregate(nblup$SU_2011,by=list(nblup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.1*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normfit$SU_2011, max.vals[,1])
+colnames(Tukey_test) <- c("SU_2011","Tukey_labels","K.group")
+tt.u1 <- Tukey_test
+
+u1.plot <- ggplot(data=nblup, aes(x=K.group, y=SU_2011,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  #scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized fitness") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.u1, aes(label=Tukey_labels)) + ggtitle("SU_2011")
+
+############
+### RAT_2011
+max.vals <- aggregate(nblup$SR_2011,by=list(nblup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.1*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normfit$SR_2011, max.vals[,1])
+colnames(Tukey_test) <- c("SR_2011","Tukey_labels","K.group")
+tt.t1 <- Tukey_test
+
+t1.plot <- ggplot(data=nblup, aes(x=K.group, y=SR_2011,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  #scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized fitness") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.t1, aes(label=Tukey_labels)) + ggtitle("SR_2011")
+```
+
+```{R nonparam plots 2012}
+############
+### ADA_2012
+max.vals <- aggregate(nblup$NA_2012,by=list(nblup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.1*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normfit$NA_2012, max.vals[,1])
+colnames(Tukey_test) <- c("NA_2012","Tukey_labels","K.group")
+tt.a2 <- Tukey_test
+
+a2.plot <- ggplot(data=nblup, aes(x=K.group, y=NA_2012,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  #scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized fitness") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.a2, aes(label=Tukey_labels)) + ggtitle("NA_2012")
+
+############
+### RAM_2012
+max.vals <- aggregate(nblup$NM_2012,by=list(nblup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.1*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normfit$NM_2012, max.vals[,1])
+colnames(Tukey_test) <- c("NM_2012","Tukey_labels","K.group")
+tt.r2 <- Tukey_test
+
+r2.plot <- ggplot(data=nblup, aes(x=K.group, y=NM_2012,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  #scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized fitness") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.r2, aes(label=Tukey_labels)) + ggtitle("NM_2012")
+
+############
+### ULL_2012
+max.vals <- aggregate(nblup$SU_2012,by=list(nblup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.1*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normfit$SU_2012, max.vals[,1])
+colnames(Tukey_test) <- c("SU_2012","Tukey_labels","K.group")
+tt.u2 <- Tukey_test
+
+u2.plot <- ggplot(data=nblup, aes(x=K.group, y=SU_2012,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  #scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized fitness") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.u2, aes(label=Tukey_labels)) + ggtitle("SU_2012")
+
+############
+### RAT_2012
+max.vals <- aggregate(nblup$SR_2012,by=list(nblup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.1*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normfit$SR_2012, max.vals[,1])
+colnames(Tukey_test) <- c("SR_2012","Tukey_labels","K.group")
+tt.t2 <- Tukey_test
+
+t2.plot <- ggplot(data=nblup, aes(x=K.group, y=SR_2012,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  #scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized fitness") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.t2, aes(label=Tukey_labels)) + ggtitle("SR_2012")
+
+#t2.plot <- ggplot(data=nblup, aes(x=K.group, y=SR_2012,fill=K.group)) +
+#  geom_boxplot() +
+#  geom_jitter(width=0.1) +
+#  scale_fill_manual(values=kcol) +
+#  #scale_fill_brewer(palette="Paired") +
+#  theme_bw() +
+#  labs(y="normalized fitness in SR 2012", x="relatedness group") +
+#  theme(legend.position = "none") +
+#  geom_text(data=tt.t2, aes(label=Tukey_labels)) #+ ggtitle("SR_2012")
+```
+
+```{R nonparam plot generate}
+pdf("./figures/29.figures/normalized.fitness.blups.nonparametric.both.years.by.K.pdf", width=18, height=12)
+figure.nonparam <- ggarrange(a1.plot, r1.plot, u1.plot, t1.plot,a2.plot, r2.plot, u2.plot, t2.plot, 
+          labels = c("A", "B", "C","D","E","F","G","H"),
+          ncol = 4, nrow = 2)
+annotate_figure(figure.nonparam, top = text_grob("normalized fitness BLUPs - KW tests", face = "bold", size = 20))
+dev.off()
+
+pdf("./figures/29.figures/normalized.fitness.blups.nonparamentric.2011.by.K.pdf",width=10, height=8)
+figure.nonparam <- ggarrange(a1.plot, r1.plot, u1.plot, t1.plot,
+          ncol = 2, nrow = 2)
+annotate_figure(figure.nonparam, top = text_grob("normalized fitness BLUPs - KW tests", face = "bold", size = 20))
+dev.off()
+
+pdf("./figures/29.figures/normalized.fitness.blups.nonparamentric.2012.by.K.pdf",width=10, height=8)
+figure.nonparam <- ggarrange(a2.plot, r2.plot, u2.plot, t2.plot,
+          ncol = 2, nrow = 2)
+annotate_figure(figure.nonparam, top = text_grob("normalized fitness BLUPs - KW tests", face = "bold", size = 20))
+dev.off()
+```
+
+### 6. Location of K-matrix groups in Rahul's 1001g tree
+```{r 1001g tree}
+#kcl.order is kgroup memberships
+## load Rahul's tree, his index, and the 1001g metadata
+
+at.tree <- read.tree("./data/nj_10001g_kin.nwk")
+at.index <- read.table("./data/the1001accessions.list.txt",stringsAsFactors=FALSE)
+colnames(at.index) <- "ecotypeID"
+at.index$tree.index <- rownames(at.index)
+### add K.groups to this
+at.index <- merge(at.index,kcl.order.fact, all.x=TRUE, by.x="ecotypeID", by.y="row.names")
+
+geo.file <- "./data/accs_2029_ids_lat_long.modified_MN_SH.csv"
+geo.index <- read.csv(geo.file, stringsAsFactors=FALSE, header=TRUE)
+at.index <- merge(at.index, geo.index, all.x=TRUE, by.x="ecotypeID", by.y="tg_ecotypeid")
+at.index$tree.index <- as.numeric(at.index$tree.index)
+at.index <- at.index[order(at.index$tree.index),]
+
+plot(at.tree, adj=0, label.offset=0.75, lwd=2)
+tiplabels(pch=21, col="black", adj=1, bg=mycol, cex=2)
+
+plot.phylo(at.tree,use.edge.length = FALSE,edge.color = "red", cex=0.25)
+
+k.colors <- cbind(kcol, levels(at.index$K.name))
+colnames(k.colors)[2] <- "K.name"
+at.index <- merge(at.index,k.colors, all.x=TRUE)
+tips <- at.tree$tip.label
+at.index <- at.index[match(tips, at.index$tree.index),]
+
+tip.col <- as.character(at.index$kcol)
+tip.col[is.na(tip.col)==TRUE] <- "black"
+plot.phylo(at.tree,use.edge.length = FALSE,tip.color = tip.col, cex=0.25, type="radial", node.depth=1)
+
+at.tree.accid <- at.tree
+at.tree.accid$tip.label <- at.index$ecotypeID
+
+pdf(file="./figures/29.figures/1001g.nj.phylo.with.Kgroups.pdf", width=12, height=12)
+plot.phylo(at.tree.accid,use.edge.length = FALSE,tip.color = tip.col, cex=0.25, type="radial", node.depth=1)
+dev.off()
+
+
+### I give up.  just output index table in correct tree order and check manually
+write.table(at.index, "./data/phylogenetic.meta.index.txt")
+```
+
+
+######################################
+# ONLY REDONE UP TO HERE WITH NEW EXPERIMENTS AND K GROUP NAMES
+# CONSIDER THE REST DEPRECIATED
+#####################################
+
+
+
+## 7. What is the fitness of each line across experiments/years?  Use only blups that are significantly different from zero.
+
+```{r sig heatmaps, eval=FALSE}
+fit.sig <- read.table(file="./data/line.fitness.estimate.significance.txt")
+fit.sig.w <- fit.sig[,c(10,13,14)]
+fit.sig.w <- spread(fit.sig.w, exp, mean.sig)
+rownames(fit.sig.w) <- fit.sig.w$id
+fit.sig.w <- fit.sig.w[,2:9]
+
+#K groups for annotation
+ugh <- kcl[match(rownames(fit.sig.w), names(kcl))]
+kg <- as.data.frame(ugh, rownames=names(ugh))
+colnames(kg) <- "k.group"
+kg$k.group <- paste("K", kg$k.group, sep="")
+kg$k.group <- as.factor(kg$k.group)
+
+ann.colors <- list(k.group=c(K1 = "#A6CEE3", K2 = "#1F78B4", K3 = "#B2DF8A", K4 = "#33A02C", K5 = "#FB9A99", K6 = "#E31A1C")) 
+
+mycols <- c(colorRampPalette(colors = c("red","grey80","blue"))(length(bk)-1))
+
+## get color scale so 0=grey
+test <- fit.sig.w
+paletteLength <- 50
+myColor <- colorRampPalette(c("red", "grey80", "blue"))(paletteLength)
+# length(breaks) == length(paletteLength) + 1
+# use floor and ceiling to deal with even/odd length pallettelengths
+myBreaks <- c(seq(min(test, na.rm=TRUE), 0, length.out=ceiling(paletteLength/2) + 1), 
+              seq(max(test, na.rm=TRUE)/paletteLength, max(test, na.rm=TRUE), length.out=floor(paletteLength/2)))
+
+
+pheatmap(fit.sig.w, cluster_rows=TRUE, cluster_cols=TRUE, show_rownames = FALSE,color=myColor, breaks=myBreaks,annotation_row=kg, annotation_colors=ann.colors)
+
+pdf(file="./figures/heatmap.fitness.sig.only.noRat2011.both.clustered.pdf")
+pheatmap(fit.sig.w[,c(1:4,6:8)], cluster_rows=TRUE, cluster_cols=TRUE, show_rownames = FALSE,color=myColor, breaks=myBreaks,annotation_row=kg, annotation_colors=ann.colors)
+dev.off()
+```
+
+```{r non normalized heatmaps, eval=FALSE}
+fit <- read.table(file="./data/line.fitness.estimate.significance.txt")
+fit.w <- fit[,c(4,13,14)]
+fit.w <- spread(fit.w, exp, mean)
+rownames(fit.w) <- fit.w$id
+fit.w <- fit.w[,2:9]
+
+#K groups for annotation
+kg <- as.data.frame(kcl, rownames=names(kcl))
+colnames(kg) <- "k.group"
+kg$k.group <- paste("K", kg$k.group, sep="")
+kg$k.group <- as.factor(kg$k.group)
+ann.colors <- list(k.group=c(K1 = "#A6CEE3", K2 = "#1F78B4", K3 = "#B2DF8A", K4 = "#33A02C", K5 = "#FB9A99", K6 = "#E31A1C")) 
+
+# set color palette so zero is grey
+mycols <- c(colorRampPalette(colors = c("red","grey80","blue"))(length(bk)-1))
+test <- fit.w
+paletteLength <- 50
+myColor <- colorRampPalette(c("red", "grey80", "blue"))(paletteLength)
+# length(breaks) == length(paletteLength) + 1
+# use floor and ceiling to deal with even/odd length pallettelengths
+myBreaks <- c(seq(min(test, na.rm=TRUE), 0, length.out=ceiling(paletteLength/2) + 1), 
+              seq(max(test, na.rm=TRUE)/paletteLength, max(test, na.rm=TRUE), length.out=floor(paletteLength/2)))
+
+
+pheatmap(fit.w, cluster_rows=TRUE, cluster_cols=TRUE, show_rownames = FALSE,color=myColor, breaks=myBreaks, annotation_row=kg, annotation_colors=ann.colors)
+
+pheatmap(fit.w[,5:8], cluster_rows=TRUE, cluster_cols=FALSE, show_rownames = FALSE,color=myColor, breaks=myBreaks, annotation_row=kg, annotation_colors=ann.colors)
+pheatmap(fit.w[,1:4], cluster_rows=TRUE, cluster_cols=FALSE, show_rownames = FALSE,color=myColor, breaks=myBreaks, annotation_row=kg, annotation_colors=ann.colors)
+```
+This doesn't exactly tell me what I want to see, though.  How about asking explicitly pairwise about accession fitness (colored by k.group)
+
+```{r pairwise blups by k with significance - between years, significant only, eval=FALSE}
+## add k group colors
+ko <- kcl[match(rownames(fit.sig.w), names(kcl))]
+sig.k <- cbind(fit.sig.w, ko)
+sig.k$K.group <- factor(sig.k$ko)
+
+all.k <- cbind(fit.w, ko)
+all.k$ko <- factor(all.k$ko)
+colnames(all.k)[9] <- "K.group"
+
+## get axis limits so plots are square
+max.blup <- max(sig.k[,1:8], na.rm=TRUE)
+min.blup <- min(sig.k[,1:8], na.rm=TRUE)
+###max.blup is bigger
+
+ups <- ggplot(sig.k, aes(x=ULL_2011, y=ULL_2012, colour=K.group)) +
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+tps <- ggplot(sig.k, aes(x=RAT_2011, y=RAT_2012, colour=K.group)) +
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+aps <- ggplot(sig.k, aes(x=ADA_2011, y=ADA_2012, colour=K.group)) +
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+rps <- ggplot(sig.k, aes(x=RAM_2011, y=RAM_2012, colour=K.group)) + 
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+### plot composite figure
+pdf("./figures/pairwise.blups.between.years.sig.values.pdf", width=8, height=6)
+figure.year.pairwise <- ggarrange(aps, rps, ups, tps, 
+          labels = c("A", "B", "C","D"),
+          ncol = 2, nrow = 2)
+annotate_figure(figure.year.pairwise, top = text_grob("fitness BLUPs - pairwise between years", face = "bold", size = 15))
+dev.off()
+```
+
+```{r pairwise blups by k all values - between years, regardless of significance, eval=FALSE}
+## add k group colors
+
+upa <- ggplot(all.k, aes(x=ULL_2011, y=ULL_2012, colour=K.group)) +
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+tpa <- ggplot(all.k, aes(x=RAT_2011, y=RAT_2012, colour=K.group)) +
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+apa <- ggplot(all.k, aes(x=ADA_2011, y=ADA_2012, colour=K.group)) +
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+rpa <- ggplot(all.k, aes(x=RAM_2011, y=RAM_2012, colour=K.group)) + 
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+### plot composite figure
+pdf("./figures/pairwise.blups.between.years.all.values.pdf", width=8, height=6)
+figure.year.pairwise <- ggarrange(apa, rpa, upa, tpa, 
+          labels = c("A", "B", "C","D"),
+          ncol = 2, nrow = 2)
+annotate_figure(figure.year.pairwise, top = text_grob("fitness BLUPs - pairwise between years", face = "bold", size = 15))
+dev.off()
+```
+
+
+
+
+
+
+```
+``` {r pairwise fitness between sites 2011 - sig only, eval=FALSE}
+
+uts <- ggplot(sig.k, aes(x=ULL_2011, y=RAT_2011, colour=K.group)) +
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+ars <- ggplot(sig.k, aes(x=ADA_2011, y=RAM_2011, colour=K.group)) +
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+uas <- ggplot(sig.k, aes(x=ULL_2011, y=ADA_2011, colour=K.group)) +
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+tas <- ggplot(sig.k, aes(x=RAT_2011, y=ADA_2011, colour=K.group)) + 
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+urs <- ggplot(sig.k, aes(x=ULL_2011, y=RAM_2011, colour=K.group)) + 
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+
+trs <- ggplot(sig.k, aes(x=RAT_2011, y=RAM_2011, colour=K.group)) + 
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+### plot composite figure
+pdf("./figures/pairwise.blups.between.2011.sig.values.pdf", width=12, height=6)
+figure.2011.pairwise <- ggarrange(uts, uas, urs, ars, tas, trs, 
+          labels = c("A", "B", "C","D","E","F"),
+          ncol = 3, nrow = 2)
+annotate_figure(figure.2011.pairwise, top = text_grob("fitness BLUPs - pairwise in 2011", face = "bold", size = 15))
+dev.off()
+
+```
+
+
+
+
+``` {r pairwise fitness between sites 2011 - all values, eval=FALSE}
+
+uts <- ggplot(all.k, aes(x=ULL_2011, y=RAT_2011, colour=K.group)) +
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+ars <- ggplot(all.k, aes(x=ADA_2011, y=RAM_2011, colour=K.group)) +
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+uas <- ggplot(all.k, aes(x=ULL_2011, y=ADA_2011, colour=K.group)) +
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+tas <- ggplot(all.k, aes(x=RAT_2011, y=ADA_2011, colour=K.group)) + 
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+urs <- ggplot(all.k, aes(x=ULL_2011, y=RAM_2011, colour=K.group)) + 
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+
+trs <- ggplot(all.k, aes(x=RAT_2011, y=RAM_2011, colour=K.group)) + 
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+### plot composite figure
+pdf("./figures/pairwise.blups.between.2011.all.values.pdf", width=12, height=6)
+figure.2011.pairwise <- ggarrange(uts, uas, urs, ars, tas, trs, 
+          labels = c("A", "B", "C","D","E","F"),
+          ncol = 3, nrow = 2)
+annotate_figure(figure.2011.pairwise, top = text_grob("fitness BLUPs (all) - pairwise in 2011", face = "bold", size = 15))
+dev.off()
+
+
+``` {r pairwise fitness between sites 2012 - sig only}
+
+uts <- ggplot(sig.k, aes(x=ULL_2012, y=RAT_2012, colour=K.group)) +
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+ars <- ggplot(sig.k, aes(x=ADA_2012, y=RAM_2012, colour=K.group)) +
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+uas <- ggplot(sig.k, aes(x=ULL_2012, y=ADA_2012, colour=K.group)) +
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+tas <- ggplot(sig.k, aes(x=RAT_2012, y=ADA_2012, colour=K.group)) + 
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+urs <- ggplot(sig.k, aes(x=ULL_2012, y=RAM_2012, colour=K.group)) + 
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+
+trs <- ggplot(sig.k, aes(x=RAT_2012, y=RAM_2012, colour=K.group)) + 
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+### plot composite figure
+pdf("./figures/pairwise.blups.between.2012.sig.values.pdf", width=12, height=6)
+figure.2011.pairwise <- ggarrange(uts, uas, urs, ars, tas, trs, 
+          labels = c("A", "B", "C","D","E","F"),
+          ncol = 3, nrow = 2)
+annotate_figure(figure.2011.pairwise, top = text_grob("fitness BLUPs - pairwise in 2012", face = "bold", size = 15))
+dev.off()
+```
+
+
+``` {r pairwise fitness between sites 2012 - all values, eval=FALSE}
+
+uts <- ggplot(all.k, aes(x=ULL_2012, y=RAT_2012, colour=K.group)) +
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+ars <- ggplot(all.k, aes(x=ADA_2012, y=RAM_2012, colour=K.group)) +
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+uas <- ggplot(all.k, aes(x=ULL_2012, y=ADA_2012, colour=K.group)) +
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+tas <- ggplot(all.k, aes(x=RAT_2012, y=ADA_2012, colour=K.group)) + 
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+urs <- ggplot(all.k, aes(x=ULL_2012, y=RAM_2012, colour=K.group)) + 
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+
+trs <- ggplot(all.k, aes(x=RAT_2012, y=RAM_2012, colour=K.group)) + 
+  geom_hline(yintercept=0, color="grey70") +
+  geom_vline(xintercept=0, color="grey70") +
+  geom_point() +
+  scale_color_brewer(palette="Paired")+
+  xlim(min.blup, max.blup) + 
+  ylim(min.blup, max.blup) +
+  theme_bw()
+
+### plot composite figure
+pdf("./figures/pairwise.blups.between.2012.all.values.pdf", width=12, height=6)
+figure.2011.pairwise <- ggarrange(uts, uas, urs, ars, tas, trs, 
+          labels = c("A", "B", "C","D","E","F"),
+          ncol = 3, nrow = 2)
+annotate_figure(figure.2011.pairwise, top = text_grob("fitness BLUPs (all) - pairwise in 2012", face = "bold", size = 15))
+dev.off()
+```
+
+
+
+#### want to get counts of accessions in each part of these figures
+```{r quad counts, eval=FALSE}
+#up1 <- "ULL_2011"
+#up2 <- "ULL_2012"
+
+q.counts <- function(up1, up2){up.dat <- sig.k[colnames(sig.k)%in%c(up1, up2)]
+  up.sign <- as.data.frame(apply(up.dat,2, sign))
+  up.sign[,1] <- factor(up.sign[,1], levels=c(-1,0,1))
+  up.sign[,2] <- factor(up.sign[,2], levels=c(-1,0,1))
+  up.table <- with(up.sign, table(get(up1), get(up2), dnn=c(up1, up2)))
+  return(list(up.table))}
+
+#q.counts(up1="ULL_2011","ULL_2012")
+
+pw.combos <- combn(colnames(sig.k)[1:8],2)
+
+pw.counts <- apply(pw.combos, 2, function(x){q.counts(up1=x[1], up2=x[2])})
+
+save(pw.counts, file="./data/pw.counts.Rdata")
+
+pdf("./figures/quadrant.tables.pdf", width=12, height=6)
+par(mfrow=c(4,7),mar=c(2,2,1,1))
+lapply(pw.counts, function(x){
+  up.t <- x[[1]]
+  up.t <- up.t[,c(3,2,1)]
+  #up.t <- up.t[c(3,2,1),]
+  plot(up.t, main="")})
+dev.off()
+
+
+```
+

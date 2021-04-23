@@ -1,0 +1,253 @@
+---
+title: "35.composite.normalized.BLUP.GWAS"
+author: "Daniele Filiault"
+date: "10 March 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE)
+read_chunk("./scripts/GWA_functions.R")
+
+library(dplyr)
+library(tidyr)
+
+setwd("/groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens")
+```
+
+## Running GWAS for both composite fitness measures (30.composite.fitness.estimates.Rmd) AND for normalized fitness BLUPs (29.BLUP.heatmap.by.K.Rmd)
+## Want to check differences between normalized and non-normalized GWAS results
+## Uses gemma and the setup thereof in markdown 01.CG.DLF.initial.Rmd
+
+
+### 1a. Make phenotype file for composite and normalized blups of fitness
+```{r make pheno files for GWAS}
+### read in composite fitness
+comp.dat <- read.csv("./data/all.composite.fitness.csv")
+
+## read in normalized BLUPs
+norm.dat <- read.table("./data/normalized.BLUPs.txt")
+norm.dat$X <- rownames(norm.dat)
+
+## merge two datasets
+cn.dat <- merge(comp.dat,norm.dat, by="X",all=TRUE)
+
+##make a phenotype file
+pref="./GWA/snps/sweden_200_MAF10.bimbam"
+dat <- cn.dat
+row.names(dat)=dat[,1]
+dat=dat[,-1]
+acclist=scan(paste(pref, ".acclist", sep=""), sep=",")
+
+##make a table of phenos in the same order as the genotype
+phen=dat[paste(acclist), ]
+phenfile=paste(pref, ".composite.marginal.phen.txt", sep="")
+
+#write.table(phen, phenfile, sep="\t", row.names=F, col.names=F)
+```
+
+### 1b. Run marginal GWAS with gemma
+```{r eval=FALSE, results='hide'}
+
+##run gemma using gemma-wrapper
+## to get system() to work in .Rstudio, you need to open .RStudio in the commmand line to inhert setup.  
+## command is:
+## open -a RStudio
+
+#system("mkdir ./GWA/output_gemma_marginal/")
+#system(paste("/Users/daniele.filiault/.gem/ruby/2.0.0/bio-gemma-wrapper-0.98.1/bin/gemma-wrapper --loco --json --cache-dir ./GWA/.gemma-cache -- -gk -g ", pref, ".geno.gz -a ", pref, ".map -p ", phenfile, " > ./GWA/output_gemma_marginal/K.json", sep=""))
+
+#Show in New WindowClear OutputExpand/Collapse Output
+#Read 200 items
+#Show in New WindowClear OutputExpand/Collapse Output
+##Read 10 items
+#Show in New WindowClear OutputExpand/Collapse Output
+#Read 10 items
+
+for(n in 1:ncol(phen)){
+    pheno=colnames(phen)[n]
+    print(pheno)
+    system(paste("/Users/daniele.filiault/.gem/ruby/2.0.0/bio-gemma-wrapper-0.98.1/bin/gemma-wrapper --loco --json --cache-dir ./GWA/.gemma-cache --input ./GWA/output_gemma_marginal/K.json -- -lmm 4 -g ", pref, ".geno.gz -a ", pref, ".map -p ", phenfile, " -n ", n , " > ./GWA/output_gemma_marginal/out_marginal_", pheno, sep=""))
+}
+```
+
+
+### 1c. Make manhattan plots and output 
+
+```{r eval=FALSE, include=TRUE}
+source("./scripts/GWA_functions.R")
+ph2=data.frame(phen=colnames(phen), ph2=NA)
+gwsignif=list()
+for(n in 1:ncol(phen)){
+    pheno=colnames(phen)[n]
+    print(pheno)
+    x=unlist(strsplit(scan(paste("./GWA/output_gemma_marginal/out_marginal_", pheno,sep=""), what="character")[10], ","))[7]  ### had to play with this a bit to deal with a warning message that made my output different from Ben's
+    f=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+    f2=gsub("assoc", "log", f)
+    ph2$ph2[n]=ph2gemma(f2)
+    p=read.delim(f, header=T, sep="\t")
+    saveRDS(p, paste("./res/gemma_marginal/gemma_lmm_", pheno,".rds", sep=""))
+    ##make a manhattan plot
+    colnames(p)[3]="pos"
+    colnames(p)=gsub("p_lrt", "pval", colnames(p))
+    p$score=-log10(p$pval)
+    p=p[p$af>=0.1,]
+    p$fdr_pval=p.adjust(p$pval, "fdr")
+    gwsignif[[pheno]]=p[p$fdr_pval<=0.05,]
+    jpeg(paste("./GWA/manhattans_marginal/lmm_gwa_", pheno, ".jpeg", sep=""),res=600, unit="in", width=8, height=4, pointsize=12)
+    manhattan(p)
+    dev.off()
+    if(n==1){
+        beta=p[, c("rs","beta")]
+        se=p[, c("rs", "se")]
+    }else{
+        beta=merge(p[, c("rs","beta")], beta, by="rs", all=T)
+        se=merge(p[, c("rs","se")], se, by="rs", all=T)
+    }
+}
+```
+
+
+
+#########################################
+#### start here with MVLMM!!!
+#### do for both composite metrics, both regular and normalized
+#### also do normalized BLUPs by year
+####################################
+
+
+
+
+
+## 2.  Mvlmm for composite for all 4 sites (4 phenos total)
+
+Run GWAS
+```{r, eval=FALSE}
+n=c(1:4) ## column numbers of phen file to include
+sel=paste(n, collapse=" ")
+pheno=paste(colnames(phen)[n], collapse="_")
+system(paste("/Users/daniele.filiault/.gem/ruby/2.0.0/bio-gemma-wrapper-0.98.1/bin/gemma-wrapper --loco --json --cache-dir ./GWA/.gemma-cache --input ./GWA/output_gemma_loco/K.json -- -lmm 4 -g ", pref, ".geno.gz -a ", pref, ".map -p ", phenfile, " -n ", sel , " > ./GWA/output_gemma_mvlmm/out_mvlmm_", pheno, sep=""))
+
+```
+
+Make manhattan plot and extract pvals and betas
+```{r}
+##make a manhattan plot
+n=c(1:4)
+pheno=paste(colnames(phen)[n], collapse="_")
+x=unlist(strsplit(scan(paste("./GWA/output_gemma_mvlmm/out_mvlmm_", pheno,sep=""), what="character")[10], ","))[7]
+### had to play with this a bit to deal with a warning message that made my output different from Ben'sf=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+### ulimate output is the corresponding assoc.txt file in the gemma-cache
+f=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+p=read.delim(f, header=T, sep="\t")
+##make a manhattan plot
+colnames(p)[3]="pos"
+colnames(p)=gsub("p_wald", "pval", colnames(p))
+p$score=-log10(p$pval)
+p=p[p$af>=0.1,]
+p$fdr_pval=p.adjust(p$pval, "fdr")
+mlmmsignif=p[p$fdr_pval<=0.1,]
+source("./scripts/GWA_functions.R")
+jpeg(paste("./GWA/manhattans/mvlmm_gwa_", pheno, ".jpeg", sep=""),res=600, unit="in", width=8, height=4, pointsize=12)
+manhattan(p)
+dev.off()
+
+```
+
+Output betas for use elsewhere
+```{r output composite betas, eval=TRUE}
+comp.betas <- p
+save(comp.betas, file="./data/comp.betas.Rdat")
+rm(comp.betas)
+```
+
+## 3.  Mvlmm for SnR relevant all 4 sites (4 phenos total)
+
+Run GWAS
+```{r, eval=TRUE}
+n=c(9:12)  ## column numbers of phen file to include
+sel=paste(n, collapse=" ")
+pheno=paste(colnames(phen)[n], collapse="_")
+system(paste("/Users/daniele.filiault/.gem/ruby/2.0.0/bio-gemma-wrapper-0.98.1/bin/gemma-wrapper --loco --json --cache-dir ./GWA/.gemma-cache --input ./GWA/output_gemma_loco/K.json -- -lmm 4 -g ", pref, ".geno.gz -a ", pref, ".map -p ", phenfile, " -n ", sel , " > ./GWA/output_gemma_mvlmm/out_mvlmm_", pheno, sep=""))
+
+```
+
+
+Make manhattan plot and extract pvals and betas
+```{r}
+##make a manhattan plot
+n=c(9:12)
+pheno=paste(colnames(phen)[n], collapse="_")
+x=unlist(strsplit(scan(paste("./GWA/output_gemma_mvlmm/out_mvlmm_", pheno,sep=""), what="character")[10], ","))[7]
+### had to play with this a bit to deal with a warning message that made my output different from Ben'sf=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+### ulimate output is the corresponding assoc.txt file in the gemma-cache
+f=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+p=read.delim(f, header=T, sep="\t")
+##make a manhattan plot
+colnames(p)[3]="pos"
+colnames(p)=gsub("p_wald", "pval", colnames(p))
+p$score=-log10(p$pval)
+p=p[p$af>=0.1,]
+p$fdr_pval=p.adjust(p$pval, "fdr")
+mlmmsignif=p[p$fdr_pval<=0.1,]
+source("./scripts/GWA_functions.R")
+jpeg(paste("./GWA/manhattans/mvlmm_gwa_", pheno, ".jpeg", sep=""),res=600, unit="in", width=8, height=4, pointsize=12)
+manhattan(p)
+dev.off()
+
+#fig_nums("manhattan2", caption="Manhattan plot - all sites fitness 2012")
+#include_graphics(paste("./GWA/manhattans/mvlmm_gwa_", pheno, ".jpeg", sep=""))
+```
+
+##Output betas for use elsewhere
+```{r output snr betas, eval=TRUE}
+snr.betas <- p
+save(snr.betas, file="./data/snr.betas.Rdat")
+#rm(betas2012)
+```
+
+### QQ plots
+### Do this later - can't do jpg in Rstudio!!
+
+```{r qq plots}
+
+#### make QQ plots of pvalues
+### this should get moved to original GWAS script eventually, but I was thinking of it now
+
+## fitness 2011 and 2012
+load(file="./data/geo.beta.2011.2012.Rdat")
+
+library(lattice)
+
+
+jpeg("./figures/qqplot.fitness2012.jpg",res=600, unit="in", width=5, height=5, pointsize=12)
+qqmath(-log10(geo.beta.2011.2012$pval_2012), distribution=function(x){-log10(qunif(1-x))}, main="QQ plot fitness 2012",panel = function(x, ...) { 
+    panel.qqmathline(x, ...) 
+    panel.qqmath(x, ...) 
+  })
+dev.off()
+
+jpeg("./figures/qqplot.fitness2011.jpg",res=600, unit="in", width=5, height=5, pointsize=12)
+qqmath(-log10(geo.beta.2011.2012$pval_2011), distribution=function(x){-log10(qunif(1-x))},  main="QQ plot fitness 2011", panel = function(x, ...) { 
+    panel.qqmathline(x, ...) 
+    panel.qqmath(x, ...) 
+  })
+dev.off()
+
+# composite fitness
+jpeg("./figures/qqplot.composite.fitness.jpg",res=600, unit="in", width=5, height=5, pointsize=12)
+qqmath(-log10(comp.p$pval), distribution=function(x){-log10(qunif(1-x))},  main="QQ plot composite fitness", panel = function(x, ...) { 
+    panel.qqmathline(x, ...) 
+    panel.qqmath(x, ...) 
+  })
+dev.off()
+
+# SnR fitness
+jpeg("./figures/qqplot.snr.fitness.jpg",res=600, unit="in", width=5, height=5, pointsize=12)
+qqmath(-log10(snr.p$pval), distribution=function(x){-log10(qunif(1-x))},  main="QQ plot SnR fitness", panel = function(x, ...) { 
+    panel.qqmathline(x, ...) 
+    panel.qqmath(x, ...) 
+  })
+dev.off()
+```

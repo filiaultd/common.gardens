@@ -1,0 +1,473 @@
+---
+title: "43.blup.slopesNS"
+author: "Daniele Filiault"
+date: "8/2/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(gridExtra)
+library(multcompView)
+library(corrplot)
+library(heatmaply)
+library(egg)
+library(gplots)
+library(RColorBrewer)
+#setwd("/Volumes/field_experiments/adaptation_sweden/common.gardens")
+setwd("/groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens/")
+```
+
+## Introduction
+
+Part of "local adaptation" would be having different slopes in the reaction norms - i.e. differential fitness
+Let's look at this, broken down by N/S and by year using normalized BLUPs.
+Idea is to use these values in a GWAS to map loci responsible for differential fitness.  
+If seems rational in some way, can go back and try to do GxE GWAS specifically for experiment pairs.  This is just an easy conceptual way to start.
+
+### 1.Prepare data
+```{r load data}
+blups <- read.table("./data/normalized.BLUPs.txt", stringsAsFactors=FALSE)
+
+K.groups <- read.table("./data/K.groups.txt",stringsAsFactors=FALSE)
+colnames(K.groups) <- "K.group"
+K.groups$id <- rownames(K.groups)
+
+kcol <- brewer.pal(6, "Paired")[c(6,1,2,5,3,4)]
+ki <- data.frame(matrix(c("1","S1","2","S2","3","C","4","N1","5","N2","6","B"),ncol=2,byrow=TRUE))
+colnames(ki) <- c("K.group","K.name")
+K.groups <- merge(K.groups, ki, by="K.group")
+K.groups$K.name <- factor(K.groups$K.name, levels=c("B","S1","S2","C","N1","N2"))
+
+sshort <- data.frame(matrix(c("ADA","NA","RAM","NM","RAT","SR","ULL","SU"),ncol=2,byrow=TRUE))
+colnames(sshort) <- c("site","site.s")
+
+blups$id <- rownames(blups)
+blups <- merge(blups, K.groups, by="id")
+
+b11 <- blups[,c(1,10,11, grep("2011",colnames(blups)))]
+b12 <- blups[,c(1,10,11, grep("2012",colnames(blups)))]
+
+blups.l <- blups %>% gather(exp,blup, ADA_2011:ULL_2012)
+sy <- do.call(rbind, strsplit(blups.l$exp, "_"))
+sy <- as.data.frame(sy)
+colnames(sy)=c("site","year")
+blups.l <- cbind(blups.l, sy)
+blups.l <- merge(blups.l, sshort)
+```
+
+### 2. Reaction norms 2011
+```{r reaction norms 2011}
+mr1.rn <- ggplot(blups.l[blups.l$year=="2011" & blups.l$site%in%c("RAM","RAT"),], aes(site.s,blup, group=id)) + geom_line(aes(colour=K.name)) + scale_color_manual(values=kcol,name = "admixture group") + xlab("Site") +ylab("normalized fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+mu1.rn <- ggplot(blups.l[blups.l$year=="2011" & blups.l$site%in%c("RAM","ULL"),], aes(site.s,blup, group=id)) + geom_line(aes(colour=K.name)) + scale_color_manual(values=kcol,name = "admixture group") + xlab("Site") +ylab("normalized fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+ar1.rn <- ggplot(blups.l[blups.l$year=="2011" & blups.l$site%in%c("ADA","RAT"),], aes(site.s,blup, group=id)) + geom_line(aes(colour=K.name)) + scale_color_manual(values=kcol,name = "admixture group") + xlab("Site") +ylab("normalized fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+au1.rn <- ggplot(blups.l[blups.l$year=="2011" & blups.l$site%in%c("ADA","ULL"),], aes(site.s,blup, group=id)) + geom_line(aes(colour=K.name)) + scale_color_manual(values=kcol,name = "admixture group") + xlab("Site") +ylab("normalized fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+grid.arrange(mr1.rn, mu1.rn, ar1.rn, au1.rn, nrow = 2)
+
+pdf(file="./figures/rxn.norms.2011NS.normalized.pdf", width=11, height=7)
+grid.arrange(mr1.rn, mu1.rn, ar1.rn, au1.rn, nrow = 2)
+dev.off()
+```
+
+### 3. Reaction norms 2012
+```{r reaction norms 2012}
+mr2.rn <- ggplot(blups.l[blups.l$year=="2012" & blups.l$site%in%c("RAM","RAT"),], aes(site.s,blup, group=id)) + geom_line(aes(colour=K.name)) + scale_color_manual(values=kcol,name = "admixture group") + xlab("Site") +ylab("normalized fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+mu2.rn <- ggplot(blups.l[blups.l$year=="2012" & blups.l$site%in%c("RAM","ULL"),], aes(site.s,blup, group=id)) + geom_line(aes(colour=K.name)) + scale_color_manual(values=kcol,name = "admixture group") + xlab("Site") +ylab("normalized fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+ar2.rn <- ggplot(blups.l[blups.l$year=="2012" & blups.l$site%in%c("ADA","RAT"),], aes(site.s,blup, group=id)) + geom_line(aes(colour=K.name)) + scale_color_manual(values=kcol,name = "admixture group") + xlab("Site") +ylab("normalized fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+au2.rn <- ggplot(blups.l[blups.l$year=="2012" & blups.l$site%in%c("ADA","ULL"),], aes(site.s,blup, group=id)) + geom_line(aes(colour=K.name)) + scale_color_manual(values=kcol,name = "admixture group") + xlab("Site") +ylab("normalized fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+grid.arrange(mr2.rn, mu2.rn, ar2.rn, au2.rn, nrow = 2)
+
+pdf(file="./figures/rxn.norms.2012NS.normalized.pdf", width=11, height=7)
+grid.arrange(mr2.rn, mu2.rn, ar2.rn, au2.rn, nrow = 2)
+dev.off()
+```
+
+### 4. Get slopes between N-S blups
+```{r blup slopes}
+blups$ar1.sl <- blups$RAT_2011-blups$ADA_2011
+blups$ar2.sl <- blups$RAT_2012-blups$ADA_2012
+blups$au1.sl <- blups$ULL_2011-blups$ADA_2011
+blups$au2.sl <- blups$ULL_2012-blups$ADA_2012
+blups$mr1.sl <- blups$RAT_2011-blups$RAM_2011
+blups$mr2.sl <- blups$RAT_2012-blups$RAM_2012
+blups$mu1.sl <- blups$ULL_2011-blups$RAM_2011
+blups$mu2.sl <- blups$ULL_2012-blups$RAM_2012
+
+
+```
+
+### 5. Nonparametric tests of N/S slope by k group
+
+```{R nonpara tests K group}
+
+### get labels for multiple testing
+get.tuk.lab <- function(up.kmc){
+  tlab <- up.kmc[[3]][,3]
+  names(tlab) <- rownames(up.kmc[[3]])
+  tlab <- data.frame(multcompLetters(tlab)['Letters'])
+  return(tlab)
+}
+
+
+## do tests
+nblup <- blups[,c(grep("sl",colnames(blups)),1,10,11)]
+kw.normfit <- as.list(rep(NA,8)) 
+ph.normfit <- as.list(rep(NA,8))
+
+for(up in 1:8){
+  up.exp <- colnames(nblup[up])
+  up.kt <- kruskal.test(get(up.exp)~K.name, data=nblup)
+  up.ph <- kruskalmc(get(up.exp)~K.name, data=nblup)
+  out.ph <- get.tuk.lab(up.ph)
+  kw.normfit[[up]] <- up.kt
+  ph.normfit[[up]] <- out.ph
+}  
+
+ph.normfit <- do.call(cbind,ph.normfit)
+colnames(ph.normfit) <- colnames(nblup)[1:8]
+ph.normfit$K.group <- rownames(ph.normfit)
+```
+
+### 6. Plot boxplots with nonparametric letters 2011
+
+```{R nonparam plots 2011}
+############
+### ar1.sl
+max.vals <- aggregate(nblup$ar1.sl,by=list(nblup$K.name), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.1*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normfit$ar1.sl, max.vals[,1])
+colnames(Tukey_test) <- c("ar1.sl","Tukey_labels","K.name")
+tt.ar1 <- Tukey_test
+
+ar1.plot <- ggplot(data=nblup, aes(x=K.name, y=ar1.sl,fill=K.name)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  theme_bw() +
+  labs(y="normalized fitness slope",x="K group name") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.ar1, aes(label=tt.ar1$Tukey_labels)) + ggtitle("NA-SR slope 2011")
+
+############
+### au1.sl
+max.vals <- aggregate(nblup$au1.sl,by=list(nblup$K.name), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.1*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normfit$au1.sl, max.vals[,1])
+colnames(Tukey_test) <- c("au1.sl","Tukey_labels","K.name")
+tt.au1 <- Tukey_test
+
+au1.plot <- ggplot(data=nblup, aes(x=K.name, y=au1.sl,fill=K.name)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  theme_bw() +
+  labs(y="normalized fitness slope",x="K group name") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.au1, aes(label=tt.au1$Tukey_labels)) + ggtitle("NA-SU slope 2011")
+
+############
+### mr1.sl
+max.vals <- aggregate(nblup$mr1.sl,by=list(nblup$K.name), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.1*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normfit$mr1.sl, max.vals[,1])
+colnames(Tukey_test) <- c("mr1.sl","Tukey_labels","K.name")
+tt.mr1 <- Tukey_test
+
+mr1.plot <- ggplot(data=nblup, aes(x=K.name, y=mr1.sl,fill=K.name)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  theme_bw() +
+  labs(y="normalized fitness slope",x="K group name") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.mr1, aes(label=tt.mr1$Tukey_labels)) + ggtitle("NM-SR slope 2011")
+
+############
+### mu1.sl
+max.vals <- aggregate(nblup$mu1.sl,by=list(nblup$K.name), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.1*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normfit$mu1.sl, max.vals[,1])
+colnames(Tukey_test) <- c("mu1.sl","Tukey_labels","K.name")
+tt.mu1 <- Tukey_test
+
+mu1.plot <- ggplot(data=nblup, aes(x=K.name, y=mu1.sl,fill=K.name)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  theme_bw() +
+  labs(y="normalized fitness slope",x="K group name") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.mu1, aes(label=tt.mu1$Tukey_labels)) + ggtitle("NM-SU slope 2011")
+```
+
+```{R generate 2011 slope plot}
+pdf("./figures/normalized.fitness.blup.NSslope.nonparametric.2011.by.K.pdf",width=10, height=8)
+figure.nonparam <- ggarrange(ar1.plot, au1.plot, mr1.plot, mu1.plot,
+          ncol = 2, nrow = 2)
+annotate_figure(figure.nonparam, top = text_grob("normalized fitness BLUP slopes - KW tests", face = "bold", size = 20))
+dev.off()
+```
+
+### 6. Plot boxplots with nonparametric letters 2011
+
+```{R nonparam plots 2012}
+############
+### ar2.sl
+max.vals <- aggregate(nblup$ar2.sl,by=list(nblup$K.name), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.1*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normfit$ar2.sl, max.vals[,1])
+colnames(Tukey_test) <- c("ar2.sl","Tukey_labels","K.name")
+tt.ar2 <- Tukey_test
+
+ar2.plot <- ggplot(data=nblup, aes(x=K.name, y=ar2.sl,fill=K.name)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  theme_bw() +
+  labs(y="normalized fitness slope",x="K group name") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.ar2, aes(label=tt.ar2$Tukey_labels)) + ggtitle("NA-SR slope 2012")
+
+############
+### au2.sl
+max.vals <- aggregate(nblup$au2.sl,by=list(nblup$K.name), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.1*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normfit$au2.sl, max.vals[,1])
+colnames(Tukey_test) <- c("au2.sl","Tukey_labels","K.name")
+tt.au2 <- Tukey_test
+
+au2.plot <- ggplot(data=nblup, aes(x=K.name, y=au2.sl,fill=K.name)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  theme_bw() +
+  labs(y="normalized fitness slope",x="K group name") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.au2, aes(label=tt.au2$Tukey_labels)) + ggtitle("NA-SU slope 2012")
+
+############
+### mr2.sl
+max.vals <- aggregate(nblup$mr2.sl,by=list(nblup$K.name), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.1*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normfit$mr2.sl, max.vals[,1])
+colnames(Tukey_test) <- c("mr2.sl","Tukey_labels","K.name")
+tt.mr2 <- Tukey_test
+
+mr2.plot <- ggplot(data=nblup, aes(x=K.name, y=mr2.sl,fill=K.name)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  theme_bw() +
+  labs(y="normalized fitness slope",x="K group name") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.mr2, aes(label=tt.mr2$Tukey_labels)) + ggtitle("NM-SR slope 2012")
+
+############
+### mu2.sl
+max.vals <- aggregate(nblup$mu2.sl,by=list(nblup$K.name), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.1*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normfit$mu2.sl, max.vals[,1])
+colnames(Tukey_test) <- c("mu2.sl","Tukey_labels","K.name")
+tt.mu2 <- Tukey_test
+
+mu2.plot <- ggplot(data=nblup, aes(x=K.name, y=mu2.sl,fill=K.name)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  theme_bw() +
+  labs(y="normalized fitness slope",x="K group name") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.mu2, aes(label=tt.mu2$Tukey_labels)) + ggtitle("NM-SU slope 2012")
+```
+
+```{R generate 2012 slope plot}
+pdf("./figures/normalized.fitness.blup.NSslope.nonparametric.2012.by.K.pdf",width=10, height=8)
+figure.nonparam <- ggarrange(ar2.plot, au2.plot, mr2.plot, mu2.plot,
+          ncol = 2, nrow = 2)
+annotate_figure(figure.nonparam, top = text_grob("normalized fitness BLUP slopes - KW tests", face = "bold", size = 20))
+dev.off()
+```
+### 7. correlations between slope phenotypes
+```{R slope correlations}
+my_cor <- cor(nblup[,1:8], use="na.or.complete")
+colfunc<-colorRampPalette(c("red","white","royalblue"))
+heatmaply_cor(my_cor, colors= colfunc(100),cellnote=my_cor,cellnote_textposition="middle center",k_col = 4, k_row = 4, file="./figures/pairwise.correlations.normalizes.blups.slopesNS.pdf")
+
+```
+
+### 8. output slopes for GWAS
+```{R output slopes}
+out.blups <- nblup[,c(9,1:8)]
+write.csv(out.blups, file="./data/slopeNS.blups.csv", row.names=FALSE,quote=FALSE)
+write.table(out.blups, file="./data/slopeNS.blups.txt", quote=FALSE)
+```
+
+### 9. GWAS done in limix with standard marginal GWAS script
+
+### 10. Parse GWAS to get top significant SNPs 2011 and 2012
+```{R top slope candidates}
+
+setwd("/groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens/data/limix")
+fs <- dir()
+fs <- fs[grep("sl.limix.results.csv",fs)]
+fs <- fs[-grep("png",fs)]
+
+sig.snps <- as.list(rep(NA,length(fs)))
+for(up in 1:length(fs)){
+  up.f <- fs[up]
+  up.d <- read.csv(file=up.f, stringsAsFactors=FALSE)
+  od4 <- up.d[-log10(up.d$pv)>4,]
+  #od5 <- up.d[-log10(up.d$pv)>5,] very few SNPs pass this criteria...
+  up.s <- strsplit(up.f,".", fixed=TRUE)[[1]][1]
+  od4$pheno <- up.s
+  sig.snps[[up]] <- od4
+}
+
+sig.snps <- do.call(rbind, sig.snps)
+sig.snps$year <- substr(sig.snps$pheno,3,3)
+sig.snps$exps <- substr(sig.snps$pheno,1,2)
+colnames(sig.snps)[1] <- "chr"
+
+write.csv(sig.snps, file="../slope.snps.sig5.all.csv", quote=FALSE,row.names=FALSE)
+
+### 2011 SNPS
+sig1 <- sig.snps[sig.snps$year=="1",]
+sig1 <- sig1[,1:2]
+sig1 <- unique(sig1)
+write.csv(sig1, file="../slope.snps.sig5.2011.csv", quote=FALSE, row.names=FALSE)
+
+### 2012 SNPS
+sig2 <- sig.snps[sig.snps$year=="2",]
+sig2 <- sig2[,1:2]
+sig2 <- unique(sig2)
+write.csv(sig2, file="../slope.snps.sig5.2012.csv", quote=FALSE, row.names=FALSE)
+```
+
+### 11.  Plot mean rxn norms per K group
+```{R plot mean rxn norms 2011}
+km <- blups %>% 
+        group_by(K.name) %>% 
+        summarise(ADA_2011 = mean(ADA_2011, na.rm=TRUE),
+                  ADA_2012 = mean(ADA_2012, na.rm=TRUE),
+                  RAM_2011 = mean(RAM_2011, na.rm=TRUE),
+                  RAM_2012 = mean(RAM_2012, na.rm=TRUE),
+                  ULL_2011 = mean(ULL_2011, na.rm=TRUE),
+                  ULL_2012 = mean(ULL_2012, na.rm=TRUE),
+                  RAT_2011 = mean(RAT_2011, na.rm=TRUE),
+                  RAT_2012 = mean(RAT_2012, na.rm=TRUE)
+        )
+
+km.l <- km %>% gather(exp,km, ADA_2011:RAT_2012)
+sy <- do.call(rbind, strsplit(km.l$exp, "_"))
+sy <- as.data.frame(sy)
+colnames(sy)=c("site","year")
+km.l <- cbind(km.l, sy)
+km.l <- merge(km.l, sshort)
+colnames(km.l)[4] <- "blup"
+
+mr1.rn <- ggplot(km.l[km.l$year=="2011" & km.l$site%in%c("RAM","RAT"),], aes(site.s,blup,group=K.name)) + geom_line(aes(colour=K.name)) + scale_color_manual(values=kcol,name = "K group") + xlab("Site") +ylab("mean normalized fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+mu1.rn <- ggplot(km.l[km.l$year=="2011" & km.l$site%in%c("RAM","ULL"),], aes(site.s,blup,group=K.name)) + geom_line(aes(colour=K.name)) + scale_color_manual(values=kcol,name = "K group") + xlab("Site") +ylab("mean normalized fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+ar1.rn <- ggplot(km.l[km.l$year=="2011" & km.l$site%in%c("ADA","RAT"),], aes(site.s,blup,group=K.name)) + geom_line(aes(colour=K.name)) + scale_color_manual(values=kcol,name = "K group") + xlab("Site") +ylab("mean normalized fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+au1.rn <- ggplot(km.l[km.l$year=="2011" & km.l$site%in%c("ADA","ULL"),], aes(site.s,blup,group=K.name)) + geom_line(aes(colour=K.name)) + scale_color_manual(values=kcol,name = "K group") + xlab("Site") +ylab("mean normalized fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+grid.arrange(mr1.rn, mu1.rn, ar1.rn, au1.rn, nrow = 2)
+
+pdf(file="./figures/rxn.norms.2011NS.normalized.K.means.pdf", width=11, height=7)
+grid.arrange(mr1.rn, mu1.rn, ar1.rn, au1.rn, nrow = 2)
+dev.off()
+```
+
+```{R plot mean rxn norms 2012}
+mr2.rn <- ggplot(km.l[km.l$year=="2012" & km.l$site%in%c("RAM","RAT"),], aes(site.s,blup,group=K.name)) + geom_line(aes(colour=K.name)) + scale_color_manual(values=kcol,name = "K group") + xlab("Site") +ylab("mean normalized fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+mu2.rn <- ggplot(km.l[km.l$year=="2012" & km.l$site%in%c("RAM","ULL"),], aes(site.s,blup,group=K.name)) + geom_line(aes(colour=K.name)) + scale_color_manual(values=kcol,name = "K group") + xlab("Site") +ylab("mean normalized fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+ar2.rn <- ggplot(km.l[km.l$year=="2012" & km.l$site%in%c("ADA","RAT"),], aes(site.s,blup,group=K.name)) + geom_line(aes(colour=K.name)) + scale_color_manual(values=kcol,name = "K group") + xlab("Site") +ylab("mean normalized fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+au2.rn <- ggplot(km.l[km.l$year=="2012" & km.l$site%in%c("ADA","ULL"),], aes(site.s,blup,group=K.name)) + geom_line(aes(colour=K.name)) + scale_color_manual(values=kcol,name = "K group") + xlab("Site") +ylab("mean normalized fitness BLUPs") + scale_x_discrete(expand = c(0.05, 0.05)) + theme_light()
+
+grid.arrange(mr2.rn, mu2.rn, ar2.rn, au2.rn, nrow = 2)
+
+pdf(file="./figures/rxn.norms.2012NS.normalized.K.means.pdf", width=11, height=7)
+grid.arrange(mr2.rn, mu2.rn, ar2.rn, au2.rn, nrow = 2)
+dev.off()
+```
+
+### 12.  Plot fitness versus slope for each experiment by K group means
+```{r plot fit vs slope}
+# get mean slopes by K group
+ksm <- blups %>% 
+        group_by(K.name) %>% 
+        summarise(ar1.sl = mean(ar1.sl, na.rm=TRUE),
+                  ar2.sl = mean(ar2.sl, na.rm=TRUE),
+                  au1.sl = mean( au1.sl, na.rm=TRUE),
+                  au2.sl = mean(au2.sl, na.rm=TRUE),
+                  mr1.sl = mean(mr1.sl, na.rm=TRUE),
+                  mr2.sl = mean(mr2.sl, na.rm=TRUE),
+                  mu1.sl = mean(mu1.sl, na.rm=TRUE),
+                  mu2.sl = mean(mu2.sl, na.rm=TRUE)
+        )
+k.means <- merge(ksm, km)
+k.means <- k.means[order(k.means$K.name),]
+
+kssd <- blups %>% 
+        group_by(K.name) %>% 
+        summarise(ar1.sl = sd(ar1.sl, na.rm=TRUE),
+                  ar2.sl = sd(ar2.sl, na.rm=TRUE),
+                  au1.sl = sd(au1.sl, na.rm=TRUE),
+                  au2.sl = sd(au2.sl, na.rm=TRUE),
+                  mr1.sl = sd(mr1.sl, na.rm=TRUE),
+                  mr2.sl = sd(mr2.sl, na.rm=TRUE),
+                  mu1.sl = sd(mu1.sl, na.rm=TRUE),
+                  mu2.sl = sd(mu2.sl, na.rm=TRUE))
+
+ksd <- blups %>% 
+        group_by(K.name) %>% 
+        summarise(ADA_2011 = sd(ADA_2011, na.rm=TRUE),
+                  ADA_2012 = sd(ADA_2012, na.rm=TRUE),
+                  RAM_2011 = sd(RAM_2011, na.rm=TRUE),
+                  RAM_2012 = sd(RAM_2012, na.rm=TRUE),
+                  ULL_2011 = sd(ULL_2011, na.rm=TRUE),
+                  ULL_2012 = sd(ULL_2012, na.rm=TRUE),
+                  RAT_2011 = sd(RAT_2011, na.rm=TRUE),
+                  RAT_2012 = sd(RAT_2012, na.rm=TRUE)
+        )
+
+
+## step one: scatter plot colored by K group of all obvs
+up.exp <- "ULL_2011"
+up.s <- "u"
+up.y <- 1
+
+up.slopes <- colnames(blups)[grep(up.s, colnames(blups))]
+up.slopes <- up.slopes[grep("sl", up.slopes)]
+
+up.dat <- blups[,c(1,10,11, which(colnames(blups)%in%c(up.exp,up.slopes)))]
+
+up <- 1
+up.s <- up.slopes[up]
+
+scat.p <- ggplot(up.dat, aes(x=get(up.s), y=get(up.exp), color=K.name)) +
+  geom_point() +
+  scale_color_manual(values=kcol,name = "K group")+
+  xlab(up.s) +
+  ylab(up.exp) + 
+  geom_point(data=k.means,colour=kcol,size=10)
+
+
+## step three: add error bars
+

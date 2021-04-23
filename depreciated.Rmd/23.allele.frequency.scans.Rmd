@@ -1,0 +1,300 @@
+---
+title: "23.allele.frequency.scans"
+author: "Daniele Filiault"
+date: "11/17/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("99.geo.helper.fxns.R")
+```
+
+## making joint SFS, eventually for various allele types, between admixture groups.
+## the overall question is whether adaptation is by large fixed effects or accumulated small effects.
+
+```{r prep admix data}
+### done in script ./scripts/admix.count.all.snps.R
+### ran this on the cluster with ./scripts/submit.admix.count.all.snps.sh
+### output is admixture group of reference and alt alleles for the 1001g data
+### so a few of our experimental lines are missing from this.  I think that's OK, but I will need to think about it more...
+### this gives the number of acessions determined to be in each admixture group that have the reference(R) and alt(A) allele.
+
+load("./data/admix.count.Rdat")
+
+### subset to SNPs that were used for GWAS
+load("./data/betas2011.Rdat")
+load("./data/betas2012.Rdat")
+b.pos <- unique(c(as.character(betas2011$rs), as.character(betas2012$rs))) #760264
+admix.count <- admix.count[row.names(admix.count)%in%b.pos,]  #755744
+
+### remove non-polymorphic (1 or 2 calls)
+a.sums <- apply(admix.count, 1, sum)
+admix.prop.pol <- admix.count[a.sums>1,]
+
+## which admixture group is which (from 0-8)
+group.names <- c("W.Europe","Relicts","Germany","N.Sweden","Iberia","Asia","S.Sweden","Italy/E.Europe","C.Europe")
+```
+
+```{r prep histories}
+## allele histories
+### ancestral and derived alleles were determined in /projects/field_experiments/001.common.reference.files/004.genus.vcfs
+
+p.snps <- read.table("./data/Polarized.snps.txt",colClasses="character")
+rownames(p.snps) <- gsub("Chr", "", rownames(p.snps))
+p.snps$rs <- rownames(p.snps)
+p.snps <- p.snps[p.snps$rs%in%b.pos,]
+
+### 000 is cases without calls in either ref or alt species 71950
+### 100 is reference ancestral  271785 (ie alt is derived allele)
+### 010 is alt ancestral  60617 
+### 001 is both ref and alt alleles occur in species 155840
+```
+
+# start with "normal" SFS of alternate allele (with usual caveats about what that means - but it's a baseline)
+
+```{r freq alt allele}
+
+admix.group <- 2
+prop.dat <- admix.prop.pol
+
+alt.freq <- function(admix.group, prop.dat){
+  up.dat <- prop.dat[,grep(admix.group, colnames(prop.dat))]
+  up.tot <- apply(up.dat, 1, sum)
+  up.prop <- up.dat[,grep("A", colnames(up.dat))]/up.tot
+  return(up.prop)
+}
+
+ger.altf <- alt.freq(admix.group=2, prop.dat=admix.prop.pol)
+ns.altf <- alt.freq(admix.group=3, prop.dat=admix.prop.pol)
+ss.altf <- alt.freq(admix.group=6, prop.dat=admix.prop.pol)
+
+par(mfrow=c(1,3))
+hist(ger.altf)
+hist(ss.altf)
+hist(ns.altf)
+```
+
+```{r joint SFS}
+### these are all in the same order.
+pdf(file="./figures/joint.SFS.alt.allele.pdf", width=12, height=5)
+par(mfrow=c(1,3), pty="s")
+smoothScatter(ns.altf, ss.altf, xlab="alt allele freq North", ylab="alt allele freq South")
+smoothScatter(ns.altf, ger.altf, xlab="alt allele freq North", ylab="alt allele freq German")
+smoothScatter(ss.altf, ger.altf, xlab="alt allele freq South", ylab="alt allele freq German")
+abline(a=0, b=1, lty=3)
+dev.off()
+```
+
+```{r plot alternate allele frequency difference along genome}
+## get position information
+pos <- strsplit(names(ns.altf),"_")
+pos <- do.call(rbind, pos)
+pos <- as.data.frame(pos)
+colnames(pos) <- c("Chromosome", "Position")
+pos[,1] <- as.numeric(as.character(pos[,1]))
+pos[,2] <- as.numeric(as.character(pos[,2]))
+pos <- pos[order(pos$Chromosome, pos$Position),]
+rownames(pos) <- paste(pos$Chromosome, pos$Position, sep="_")
+#rownames(pos)==names(ns.altf) -> ugh
+#table(ugh)
+
+ns.ss.afd <- abs(ns.altf-ss.altf)
+ns.ss.afd <- cbind(pos, ns.ss.afd)
+jpeg(filename="./figures/genome.AFD.ns.ss.jpg", width=1200, height=480)
+genome.plot(updata=ns.ss.afd, plot.var="ns.ss.afd")
+dev.off()
+
+ns.ger.afd <- abs(ns.altf-ger.altf)
+ns.ger.afd <- cbind(pos, ns.ger.afd)
+jpeg(filename="./figures/genome.AFD.ns.ger.jpg", width=1200, height=480)
+genome.plot(updata=ns.ger.afd, plot.var="ns.ger.afd")
+dev.off()
+
+ss.ger.afd <- abs(ss.altf-ger.altf)
+ss.ger.afd <- cbind(pos, ss.ger.afd)
+jpeg(filename="./figures/genome.AFD.ss.ger.jpg", width=1200, height=480)
+genome.plot(updata=ss.ger.afd, plot.var="ss.ger.afd")
+dev.off()
+
+```
+
+```{r chisq test proportions, eval=TRUE}
+#input needs to be a table of counts
+
+#ag1 <- 3
+#ag2 <- 6
+#up.row <- 1
+
+Xsq.test.allele <- function(ag1, ag2, up.row){
+  ac1 <- admix.prop.pol[up.row, grep(ag1, colnames(admix.prop.pol))]
+  ac2 <- admix.prop.pol[up.row, grep(ag2, colnames(admix.prop.pol))]
+  ac.table <- as.table(rbind(ac1, ac2))
+  dimnames(ac.table) <- list(admix.g = c("g1", "g2"),allele = c("R","A"))
+  if(sum(ac.table)==0){p.out <- NA
+  }else{
+    Xsq <- chisq.test(ac.table)
+    p.out <- Xsq$p.value
+  }
+  return(p.out)
+}
+
+ns.Xsq <- rep(NA, nrow(admix.prop.pol))
+for(up.row in 1:nrow(admix.prop.pol)){
+  #print(up.row)
+  up.x <- suppressWarnings(Xsq.test.allele(ag1=3, ag2=6, up.row=up.row))
+  ns.Xsq[up.row] <- up.x
+}
+
+ng.Xsq <- rep(NA, nrow(admix.prop.pol))
+for(up.row in 1:nrow(admix.prop.pol)){
+  #print(up.row)
+  up.x <- suppressWarnings(Xsq.test.allele(ag1=3, ag2=2, up.row=up.row))
+  ng.Xsq[up.row] <- up.x
+}
+
+sg.Xsq <- rep(NA, nrow(admix.prop.pol))
+for(up.row in 1:nrow(admix.prop.pol)){
+  #print(up.row)
+  up.x <- suppressWarnings(Xsq.test.allele(ag1=6, ag2=2, up.row=up.row))
+  sg.Xsq[up.row] <- up.x
+}
+
+```
+
+```{R xsq pval hists}
+par(mfrow=c(1,3))
+hist(-log10(ns.Xsq))
+hist(-log10(ng.Xsq))
+hist(-log10(sg.Xsq))
+```
+
+```{r plot xsq pvals}
+
+## add positions of christian's sweeps
+c.sweeps <- read.csv("./data/christian.intervals.csv")
+colnames(c.sweeps) <- c("Chromosome", "Position","pop")
+
+genome.points.fixed <- function(updata, point.height, point.color){
+	chr.lengths <- c(30427671,19698289,23459830,18585056,26975502)
+	chr.add <- c(0,cumsum(chr.lengths))[1:5]
+	max.bp <- sum(chr.lengths)
+	up.s <- split(updata, updata$Chromosome)
+	for(up.chr in 1:5){
+	  up.c <- up.s[[up.chr]]
+	  up.add <- chr.add[up.chr]
+	  up.c$Position.plot <- up.c$Position + up.add
+	  par(xpd=TRUE)
+	  points(up.c$Position.plot, rep(point.height+2,nrow(up.c)), col=point.color, pch=25, cex=1.2, bg=point.color)
+	}
+}
+
+
+ns.Xp <- cbind(pos,-log10(ns.Xsq))
+jpeg(filename="./figures/Xsq.ns.jpg", width=1250, height=625, pointsize=22)
+genome.plot(updata=ns.Xp, plot.var="-log10(ns.Xsq)")
+mtext("Northern/Southern Swedish differentiation",3,1.5,cex=1.5)
+#genome.points.fixed(updata=c.sweeps, point.height=max(ns.Xp[,3], na.rm=TRUE), point.color="red")
+dev.off()
+
+ng.Xp <- cbind(pos,-log10(ng.Xsq))
+jpeg(filename="./figures/Xsq.ng.jpg", width=1250, height=625, pointsize=22)
+genome.plot(updata=ng.Xp, plot.var="-log10(ng.Xsq)")
+mtext("N.Swedish/German differentiation",3,1.5,cex=1.5)
+#genome.points.fixed(updata=c.sweeps, point.height=max(ng.Xp[,3], na.rm=TRUE), point.color="red")
+dev.off()
+
+sg.Xp <- cbind(pos,-log10(sg.Xsq))
+jpeg(filename="./figures/Xsq.sg.jpg", width=1250, height=625, pointsize=22)
+genome.plot(updata=sg.Xp, plot.var="-log10(sg.Xsq)")
+mtext("S.Swedish/German differentiation",3,1.5,cex=1.5)
+#genome.points.fixed(updata=c.sweeps, point.height=max(sg.Xp[,3], na.rm=TRUE), point.color="red")
+dev.off()
+
+```
+
+Is there a relationship between differentiation and betas?
+
+```{r betas.vs.xsq.pval}
+#betas2011, betas2012
+up.betas <- betas2011
+up.beta.col <- 10
+up.xsq <- ns.Xp
+cutoff.percent <- 1
+column.nos <- c(8:11)
+
+
+
+beta.xpval.plot <- function(b.com, x.com, cutoff.percent, up.beta.col){
+  smoothScatter(abs(b.com[,up.beta.col]), x.com[,3],ylab="",xlab="", main=colnames(b.com)[up.beta.col])
+  ## mark top percentage outliers
+  n <- 1
+  top.p <- quantile(x.com[,3],prob=1-cutoff.percent/100, na.rm=TRUE)
+  abline(h=top.p, lty=2)
+  mtext("fitness effect", side=1, line=2.5, cex=0.77)
+  mtext("-log10 pvalue", side=2, line=2.5,cex=0.77)
+}
+
+beta.xpval.fxn <- function(up.betas, up.xsq, column.nos){
+  b.com <- up.betas[up.betas$rs%in%rownames(up.xsq),]
+  x.com <- up.xsq[rownames(up.xsq)%in%up.betas$rs,] #get xsq pvalue outliers
+  for(up in column.nos){
+    beta.xpval.plot(b.com=b.com, x.com=x.com, cutoff.percent=1, up.beta.col=up)
+  }
+}
+
+## composite betas
+## output from 06.modeled.fitness.GWAS.Rmd
+load("./data/composite.betas.Rdat")
+colnames(composite.betas)[1:3] <- c("Chromosome", "rs", "Position")
+
+simple.sites <- c("N2", "N1", "S1","S2")
+colnames(betas2011)[8:11] <- paste(simple.sites, "2011",sep="_")
+colnames(betas2012)[8:11] <- paste(simple.sites, "2012",sep="_")
+colnames(composite.betas)[4:7] <- paste(simple.sites, "composite", sep="_")
+
+pdf(file="./figures/differentiation.vs.beta.NS.pdf",width=14, height=10)
+par(mfrow=c(3,4))
+beta.xpval.fxn(up.betas=betas2011, up.xsq=ns.Xp, column.nos=c(9,8,10:11))
+beta.xpval.fxn(up.betas=betas2012, up.xsq=ns.Xp, column.nos=c(9,8,10,11))
+beta.xpval.fxn(up.betas=composite.betas, up.xsq=ns.Xp, column.nos=c(5,4,6,7))
+dev.off()
+
+
+pdf(file="./figures/differentiation.vs.beta.NS.only.years.pdf",width=10, height=6)
+par(mfrow=c(2,4), mar=c(4, 4, 3, 1))
+beta.xpval.fxn(up.betas=betas2011, up.xsq=ns.Xp, column.nos=c(9,8,10:11))
+beta.xpval.fxn(up.betas=betas2012, up.xsq=ns.Xp, column.nos=c(9,8,10,11))
+dev.off()
+
+
+
+```
+
+```{r output diff scores}
+diff.Xsq.pvals <- merge(ns.Xp, ng.Xp, all.x=TRUE, all.y=TRUE, by=c("Chromosome","Position"))
+diff.Xsq.pvals <- merge(diff.Xsq.pvals, sg.Xp, all.x=TRUE, all.y=TRUE, by=c("Chromosome","Position"))
+save(diff.Xsq.pvals, file="./data/diff.Xsq.pvals.Rdat")
+
+```
+
+```{r check absolute allele frequency differences of various p-value cutoffs}
+#for the moment, just north/south
+up.p <- ns.Xp
+up.af <- ns.ss.afd
+cutoffs <- c(100,75,50,25,10,5,2.5,1)
+
+get.cutoffs <- function(up.dat,up.col, cutoff.percent){
+  top.p <- quantile(up.dat[,up.col],prob=1-cutoff.percent/100, na.rm=TRUE)
+  return(top.p)
+}
+
+pval.cutoffs <- sapply(cutoffs, function(x){get.cutoffs(up.dat=ns.Xp, up.col=3, cutoff.percent=x)})
+#       0%       25%       50%       75%       90%       95%     97.5%       99% 
+# 0.000000  1.097658  3.098864  6.883593 14.105202 19.432436 24.483817 29.960341 
+afd.cutoffs <- sapply(cutoffs, function(x){get.cutoffs(up.dat=ns.ss.afd, up.col=3, cutoff.percent=x)})
+#       0%       25%       50%       75%       90%       95%     97.5%       99% 
+#0.0000000 0.1107015 0.2129032 0.3699306 0.5454545 0.6470588 0.7249559 0.8052064
+```
+
+

@@ -1,0 +1,473 @@
+---
+title: "25.population.fitness.score"
+author: "Daniele Filiault"
+date: "11/24/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(reshape)
+library(ggplot2)
+library(RColorBrewer)
+```
+
+## Introduction
+
+Using betas from GWAS (fitness effects), the frequency of alleles in admixture groups, the haplotype blocks determined with plink, and differentiation p-value, how well can fitness differences be predicted using successively more significantly differentiated alleles?
+
+```{r load data}
+
+## haplotype blocks with betas - from 24.haplotype.block.thin
+load(file="./data/h.betas2011.Rdat")
+load(file="./data/h.betas2012.Rdat")
+load(file="./data/h.betascomposite.Rdat")
+load(file="./data/h.blocks.Rdat")
+
+## differentiation p-values - from 23.allele.frequency.scans
+load(file="./data/diff.Xsq.pvals.Rdat")
+
+## allele frequencies in admix groups
+### done in script ./scripts/admix.count.all.snps.R
+### ran this on the cluster with ./scripts/submit.admix.count.all.snps.sh
+### output is admixture group of reference and alt alleles for the 1001g data
+### so a few of our experimental lines are missing from this.  I think that's OK, but I will need to think about it more...
+### this gives the number of acessions determined to be in each admixture group that have the reference(R) and alt(A) allele.
+
+load("./data/admix.count.Rdat")
+
+### subset to SNPs that were used for GWAS
+load("./data/betas2011.Rdat")
+load("./data/betas2012.Rdat")
+b.pos <- unique(c(as.character(betas2011$rs), as.character(betas2012$rs))) #760264
+admix.count <- admix.count[row.names(admix.count)%in%b.pos,]  #755744
+
+### remove non-polymorphic (1 or 2 calls)
+a.sums <- apply(admix.count, 1, sum)
+admix.prop.pol <- admix.count[a.sums>1,]
+
+## which admixture group is which (from 0-8)
+group.names <- c("W.Europe","Relicts","Germany","N.Sweden","Iberia","Asia","S.Sweden","Italy/E.Europe","C.Europe")
+```
+
+
+```{r freq alt allele}
+
+#freq in admix groups
+alt.freq <- function(admix.group, prop.dat){
+  up.dat <- prop.dat[,grep(admix.group, colnames(prop.dat))]
+  up.tot <- apply(up.dat, 1, sum)
+  up.prop <- up.dat[,grep("A", colnames(up.dat))]/up.tot
+  return(up.prop)
+}
+
+ger.altf <- alt.freq(admix.group=2, prop.dat=admix.prop.pol)
+ns.altf <- alt.freq(admix.group=3, prop.dat=admix.prop.pol)
+ss.altf <- alt.freq(admix.group=6, prop.dat=admix.prop.pol)
+
+#total freq in all 3 groups
+hap.prop <- admix.prop.pol[,colnames(admix.prop.pol)%in%c("R2","R3","R6","A2","A3","A6")]
+hap.sum <- apply(hap.prop,1, sum)
+alt.sum <- apply(hap.prop[,grep("A", colnames(hap.prop))],1, sum)
+all.altf <- alt.sum/hap.sum
+
+#to one variable
+alt.af <- cbind(ger.altf, ss.altf, ns.altf, all.altf)
+```
+
+
+```{r admix.group.fitness.fxn, eval=FALSE}
+#hb <- h.betas2011
+#af <- alt.af
+#exp.n <- "N2_2011"
+
+get.admix.fitness <- function(hb, af){
+  b.sums <- matrix(NA, nrow=ncol(af), ncol=ncol(hb[[1]]))
+  rownames(b.sums) <- colnames(af)
+  colnames(b.sums) <- colnames(hb[[1]])
+
+  for(exp.n in colnames(b.sums)){
+    print(exp.n)
+    if(exists("out.sum")==TRUE){rm(out.sum)}
+    for(up.h in 1:nrow(hb[[1]])){
+      #print(up.h)
+      up.b <- hb[[1]][up.h,] ## beta alt allele
+      up.snp <- hb[[2]][up.h,] ## snp this betas is for
+      up.b <- up.b[names(up.b)==exp.n]
+      up.snp <- up.snp[names(up.snp)==exp.n]
+      up.aaf <- af[rownames(af)==up.snp,]
+      up.raf <- 1-up.aaf
+      a.beta <- up.aaf*up.b
+      r.beta <- up.raf*(-up.b)
+      both.beta <- rbind(a.beta, r.beta)
+      both.sum <- apply(both.beta,2,sum)
+      both.sum <- sapply(both.sum, function(x){
+        if(is.na(x)==TRUE){x<-0
+        }else{x<-x}
+      })
+      if(exists("out.sum")==FALSE){out.sum <- both.sum
+        }else{out.sum <- out.sum + both.sum}
+    }
+  b.sums[,which(colnames(b.sums)==exp.n)] <- out.sum  
+  }
+  
+  return(b.sums)
+}
+  
+ad.fit2011 <- get.admix.fitness(hb=h.betas2011, af=alt.af)
+ad.fit2012 <- get.admix.fitness(hb=h.betas2012, af=alt.af)
+#ad.fit.composite <- get.admix.fitness(hb=h.betascomposite, af=alt.af)
+
+ad.fit.all <- cbind(ad.fit2011, ad.fit2012) ## eventually add ad.fit.composite when run
+save(ad.fit.all, file="./data/ad.fit.all.Rdat")
+
+```
+
+### So how does this look if you use a range of differentiation cutoffs?
+
+```{r get haploblock of each SNP, eval=FALSE}
+diff.p <- diff.Xsq.pvals
+diff.p <- diff.p[order(diff.p$Chromosome, diff.p$Position),]
+rownames(diff.p) <- paste(diff.p$Chromosome, diff.p$Position, sep="_")
+save(diff.p, file="./data/diff.p.Rdat")
+
+diff.blocks <- apply(diff.p, 1,function(x){
+  x <- as.numeric(x)
+  up.h <- h.blocks[h.blocks$Chromosome==x[1] & x[2]>=h.blocks$Position & x[2]<=h.blocks$BP2,]
+  return(as.character(up.h$block.no))
+})
+
+
+h.block <-unlist(diff.blocks)
+h.block <- as.data.frame(h.block)
+h.block[,1] <- as.character(h.block[,1])
+
+dph <- diff.p[rownames(diff.p)%in%rownames(h.block),]
+dph <- cbind(dph, h.block)
+
+dpn <- diff.p[rownames(diff.p)%in%rownames(h.block)==FALSE,]
+dpn$h.block <- NA
+
+diff.p <- rbind(dpn, dph)
+diff.p <- diff.p[order(diff.p$Chromosome, diff.p$Position),]
+diff.p <- diff.p[is.na(diff.p[,3])==FALSE,] #remove NA p-values for ns differentiation
+```
+
+```{r admix.fit 1percent, eval=FALSE}
+#subset h.betas to top 1% intervals in n/s
+cutoff.percent <- 1
+top.p <- quantile(diff.p[,3],prob=1-cutoff.percent/100, na.rm=TRUE)
+up.diff <- diff.p[diff.p[,3]>=top.p,]
+up.blocks <- unique(up.diff$h.block)
+up.betas <- h.betas2011
+up.betas[[1]] <- up.betas[[1]][h.blocks$block.no%in%up.blocks,]
+up.betas[[2]] <- up.betas[[2]][h.blocks$block.no%in%up.blocks,]
+
+ad.fit2011.1p <- get.admix.fitness(hb=up.betas, af=alt.af)
+
+up.betas <- h.betas2012
+up.betas[[1]] <- up.betas[[1]][h.blocks$block.no%in%up.blocks,]
+up.betas[[2]] <- up.betas[[2]][h.blocks$block.no%in%up.blocks,]
+
+ad.fit2012.1p <- get.admix.fitness(hb=up.betas, af=alt.af)
+
+ad.fit.1p <- cbind(ad.fit2011.1p, ad.fit2012.1p)
+save(ad.fit.1p, file="./data/ad.fit.1p.Rdat")
+```
+
+
+```{R admix.fit 10 percent, eval=FALSE}
+#subset h.betas to top 10% intervals in n/s
+cutoff.percent <- 10
+top.p <- quantile(diff.p[,3],prob=1-cutoff.percent/100, na.rm=TRUE)
+up.diff <- diff.p[diff.p[,3]>=top.p,]
+up.blocks <- unique(up.diff$h.block)
+
+up.betas <- h.betas2011
+up.betas[[1]] <- up.betas[[1]][h.blocks$block.no%in%up.blocks,]
+up.betas[[2]] <- up.betas[[2]][h.blocks$block.no%in%up.blocks,]
+
+ad.fit2011.10p <- get.admix.fitness(hb=up.betas, af=alt.af)
+
+up.betas <- h.betas2012
+up.betas[[1]] <- up.betas[[1]][h.blocks$block.no%in%up.blocks,]
+up.betas[[2]] <- up.betas[[2]][h.blocks$block.no%in%up.blocks,]
+
+ad.fit2012.10p <- get.admix.fitness(hb=up.betas, af=alt.af)
+
+ad.fit.10p <- cbind(ad.fit2011.10p, ad.fit2012.10p)
+save(ad.fit.10p, file="./data/ad.fit.10p.Rdat")
+```
+
+```{R admix.fit 5 percent, eval=FALSE}
+#subset h.betas to top 5% intervals in n/s
+cutoff.percent <- 5
+top.p <- quantile(diff.p[,3],prob=1-cutoff.percent/100, na.rm=TRUE)
+up.diff <- diff.p[diff.p[,3]>=top.p,]
+up.blocks <- unique(up.diff$h.block)
+up.betas <- h.betas2011
+up.betas[[1]] <- up.betas[[1]][h.blocks$block.no%in%up.blocks,]
+up.betas[[2]] <- up.betas[[2]][h.blocks$block.no%in%up.blocks,]
+
+ad.fit2011.5p <- get.admix.fitness(hb=up.betas, af=alt.af)
+
+up.betas <- h.betas2012
+up.betas[[1]] <- up.betas[[1]][h.blocks$block.no%in%up.blocks,]
+up.betas[[2]] <- up.betas[[2]][h.blocks$block.no%in%up.blocks,]
+
+ad.fit2012.5p <- get.admix.fitness(hb=up.betas, af=alt.af)
+
+ad.fit.5p <- cbind(ad.fit2011.5p, ad.fit2012.5p)
+save(ad.fit.5p, file="./data/ad.fit.5p.Rdat")
+
+```
+
+```{R admix.fit 25 percent, eval=FALSE}
+#subset h.betas to top 25% intervals in n/s
+cutoff.percent <- 25
+top.p <- quantile(diff.p[,3],prob=1-cutoff.percent/100, na.rm=TRUE)
+up.diff <- diff.p[diff.p[,3]>=top.p,]
+up.blocks <- unique(up.diff$h.block)
+up.betas <- h.betas2011
+up.betas[[1]] <- up.betas[[1]][h.blocks$block.no%in%up.blocks,]
+up.betas[[2]] <- up.betas[[2]][h.blocks$block.no%in%up.blocks,]
+
+ad.fit2011.25p <- get.admix.fitness(hb=up.betas, af=alt.af)
+
+up.betas <- h.betas2012
+up.betas[[1]] <- up.betas[[1]][h.blocks$block.no%in%up.blocks,]
+up.betas[[2]] <- up.betas[[2]][h.blocks$block.no%in%up.blocks,]
+
+ad.fit2012.25p <- get.admix.fitness(hb=up.betas, af=alt.af)
+
+ad.fit.25p <- cbind(ad.fit2011.25p, ad.fit2012.25p)
+save(ad.fit.25p, file="./data/ad.fit.25p.Rdat")
+
+```
+
+
+```{R admix.fit 2.5 percent, eval=FALSE}
+#subset h.betas to top 2.5% intervals in n/s
+cutoff.percent <- 2.5
+top.p <- quantile(diff.p[,3],prob=1-cutoff.percent/100, na.rm=TRUE)
+up.diff <- diff.p[diff.p[,3]>=top.p,]
+up.blocks <- unique(up.diff$h.block)
+up.betas <- h.betas2011
+up.betas[[1]] <- up.betas[[1]][h.blocks$block.no%in%up.blocks,]
+up.betas[[2]] <- up.betas[[2]][h.blocks$block.no%in%up.blocks,]
+
+ad.fit2011.2.5p <- get.admix.fitness(hb=up.betas, af=alt.af)
+
+up.betas <- h.betas2012
+up.betas[[1]] <- up.betas[[1]][h.blocks$block.no%in%up.blocks,]
+up.betas[[2]] <- up.betas[[2]][h.blocks$block.no%in%up.blocks,]
+
+ad.fit2012.2.5p <- get.admix.fitness(hb=up.betas, af=alt.af)
+
+ad.fit.2.5p <- cbind(ad.fit2011.2.5p, ad.fit2012.2.5p)
+save(ad.fit.2.5p, file="./data/ad.fit.2.5p.Rdat")
+
+```
+
+```{R admix.fit 50 percent, eval=FALSE}
+#subset h.betas to top 50% intervals in n/s
+cutoff.percent <- 50
+top.p <- quantile(diff.p[,3],prob=1-cutoff.percent/100, na.rm=TRUE)
+up.diff <- diff.p[diff.p[,3]>=top.p,]
+up.blocks <- unique(up.diff$h.block)
+up.betas <- h.betas2011
+up.betas[[1]] <- up.betas[[1]][h.blocks$block.no%in%up.blocks,]
+up.betas[[2]] <- up.betas[[2]][h.blocks$block.no%in%up.blocks,]
+
+ad.fit2011.50p <- get.admix.fitness(hb=up.betas, af=alt.af)
+
+up.betas <- h.betas2012
+up.betas[[1]] <- up.betas[[1]][h.blocks$block.no%in%up.blocks,]
+up.betas[[2]] <- up.betas[[2]][h.blocks$block.no%in%up.blocks,]
+
+ad.fit2012.50p <- get.admix.fitness(hb=up.betas, af=alt.af)
+
+ad.fit.50p <- cbind(ad.fit2011.50p, ad.fit2012.50p)
+save(ad.fit.50p, file="./data/ad.fit.50p.Rdat")
+
+```
+
+```{R admix.fit 75 percent, eval=FALSE}
+#subset h.betas to top 75% intervals in n/s
+cutoff.percent <- 75
+top.p <- quantile(diff.p[,3],prob=1-cutoff.percent/75, na.rm=TRUE)
+up.diff <- diff.p[diff.p[,3]>=top.p,]
+up.blocks <- unique(up.diff$h.block)
+up.betas <- h.betas2011
+up.betas[[1]] <- up.betas[[1]][h.blocks$block.no%in%up.blocks,]
+up.betas[[2]] <- up.betas[[2]][h.blocks$block.no%in%up.blocks,]
+
+ad.fit2011.75p <- get.admix.fitness(hb=up.betas, af=alt.af)
+
+up.betas <- h.betas2012
+up.betas[[1]] <- up.betas[[1]][h.blocks$block.no%in%up.blocks,]
+up.betas[[2]] <- up.betas[[2]][h.blocks$block.no%in%up.blocks,]
+
+ad.fit2012.75p <- get.admix.fitness(hb=up.betas, af=alt.af)
+
+ad.fit.75p <- cbind(ad.fit2011.75p, ad.fit2012.75p)
+save(ad.fit.75p, file="./data/ad.fit.75p.Rdat")
+
+```
+
+
+
+```{r reformat these cutoff results}
+load('./data/ad.fit.all.Rdat')
+load("./data/ad.fit.1p.Rdat")
+load("./data/ad.fit.2.5p.Rdat")
+load("./data/ad.fit.5p.Rdat")
+load("./data/ad.fit.10p.Rdat")
+load("./data/ad.fit.25p.Rdat")
+load("./data/ad.fit.50p.Rdat")
+load("./data/ad.fit.75p.Rdat")
+
+fit.var <- ls()
+fit.var <- fit.var[grep("ad.fit.", fit.var)]
+fit.var <- fit.var[-grep("201", fit.var)]
+
+add.diff <- function(up.v){
+  ns.diff <- abs(up.v[2,]-up.v[3,])
+  out.v <- rbind(up.v, ns.diff)
+  return(out.v)
+}
+
+ad.fit.all <- add.diff(ad.fit.all)
+ad.fit.1p <- add.diff(ad.fit.1p)
+ad.fit.2.5p <- add.diff(ad.fit.2.5p)
+ad.fit.5p <- add.diff(ad.fit.5p)
+ad.fit.10p <- add.diff(ad.fit.10p)
+ad.fit.25p <- add.diff(ad.fit.25p)
+ad.fit.50p <- add.diff(ad.fit.50p)
+ad.fit.75p <- add.diff(ad.fit.75p)
+
+#up.dat <- ad.fit.all
+#up.filter <- "all"
+
+reformat.dat <- function(up.dat, up.filter){
+  up.dat <- as.data.frame(up.dat)
+  up.dat$ad.group <- gsub(".altf", "", rownames(up.dat))
+  up.dat$filter <- up.filter
+  rs.dat <- melt(up.dat, id=c("ad.group","filter"))
+  vs <- strsplit(as.character(rs.dat$variable), split="_")
+  vs <- do.call(rbind, vs)
+  colnames(vs) <- c("site", "year")
+  rs.dat <- cbind(rs.dat, vs)
+  return(rs.dat)
+  }
+
+p100.rf <- reformat.dat(up.dat=ad.fit.all, up.filter="100")
+p1.rf <- reformat.dat(up.dat=ad.fit.1p, up.filter="1")
+p2.5.rf <- reformat.dat(up.dat=ad.fit.2.5p, up.filter="2.5")
+p5.rf <- reformat.dat(up.dat=ad.fit.5p, up.filter="5")
+p10.rf <- reformat.dat(up.dat=ad.fit.10p, up.filter="10")
+p25.rf <- reformat.dat(up.dat=ad.fit.25p, up.filter="25")
+p50.rf <- reformat.dat(up.dat=ad.fit.50p, up.filter="50")
+p75.rf <- reformat.dat(up.dat=ad.fit.75p, up.filter="75")
+
+all.pred <- rbind(p100.rf, p1.rf, p2.5.rf, p5.rf, p10.rf, p25.rf, p50.rf, p75.rf)
+#all.pred$filter <- factor(all.pred$filter, levels = c("1", "2.5", "5", "10","25","50","100"))
+all.pred <- all.pred[all.pred$ad.group!="all",]
+all.pred$filter <- as.numeric(as.character(all.pred$filter))
+
+```
+
+```{R plot cutoff results}
+up.dat <- all.pred[all.pred$variable=="N1_2011",]
+up.dat <- up.dat[up.dat$ad.group!="ger",]
+up.dat$ad.group <- factor(up.dat$ad.group, levels=c("ns","ss","ns.diff"))
+
+
+group.colors <- brewer.pal(9, "Paired")
+g.col <- c(group.colors[c(4,3)],"red")
+
+pdf("./figures/pop.fit.by.percent.N1_2011.pdf", width=6, height=4)
+ggplot(data=up.dat, aes(x=filter, y=value, group=ad.group)) +
+  xlab("percent cutoff used") +
+  ylab("population fitness") +
+  geom_line(aes(colour=ad.group, linetype=ad.group), size=1.3)+
+  geom_point()+
+  scale_color_manual(values=g.col,labels=c("N.Swedish","S.Swedish","difference"),name = "admixture \ngroup") +
+  scale_linetype_manual(values=c("solid","solid", "dashed"), guide=FALSE)+
+  theme_bw()+
+  theme(panel.grid.major = element_line(colour = "#d9d9d9", size=0.3))
+dev.off()
+
+## do all site year combos together
+up.dat <- all.pred
+up.dat <- up.dat[up.dat$ad.group!="ger",]
+up.dat$ad.group <- factor(up.dat$ad.group, levels=c("ns","ss","ns.diff"))
+
+
+p <- ggplot(data=up.dat, aes(x=filter, y=value, group=ad.group)) +
+  xlab("percent cutoff used") +
+  ylab("population fitness") +
+  geom_line(aes(colour=ad.group, linetype=ad.group), size=1.3)+
+  scale_color_manual(values=g.col,labels=c("N.Swedish","S.Swedish","difference"),name = "admixture \ngroup") +
+  scale_linetype_manual(values=c("solid","solid", "dashed"), guide=FALSE) +
+  facet_grid(year~site) +
+  theme_bw() +
+  theme(panel.grid.major = element_line(colour = "#d9d9d9", size=0.3))
+
+g <- ggplot_gtable(ggplot_build(p))
+
+strips <- which(grepl('strip-', g$layout$name))
+
+pal <- c(g.col[1],g.col[1],g.col[2], g.col[2],"grey80", "grey80")
+
+for (i in seq_along(strips)) {
+  k <- which(grepl('rect', g$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+  g$grobs[[strips[i]]]$grobs[[1]]$children[[k]]$gp$fill <- pal[i]
+}
+
+plot(g)
+
+pdf("./figures/pop.fit.by.percent.all.ns.pdf",width=10, height=6)
+plot(g)
+dev.off()
+```
+
+### plot the full predicted values of each admixture group (using 100% SNPs)
+
+```{r plot 100% predict by admix group}
+group.colors <- brewer.pal(9, "Paired")
+bp.col <- group.colors[c(7,3,4)]
+up.dat <- all.pred[all.pred$filter==100,]
+up.dat <- up.dat[up.dat$ad.group%in%c("ger", "ss", "ns"),]
+up.dat$ad.group <- factor(up.dat$ad.group, levels = c("ger", "ss", "ns"))
+
+p <- ggplot(data=up.dat, aes(x=ad.group, y=value, fill=ad.group)) +
+  xlab("admixture groups") +
+  ylab("population fitness") +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values=bp.col,labels=c("German", "S.Swedish", "N.Swedish"),name = "admixture \ngroup") +
+  theme_bw() +
+  theme(axis.text.x=element_blank(),axis.ticks.x=element_blank(),panel.grid.major = element_line(colour = "#d9d9d9", size=0.3))+
+  facet_grid(year~site)
+
+g <- ggplot_gtable(ggplot_build(p))
+
+strips <- which(grepl('strip-', g$layout$name))
+
+pal <- c(bp.col[3],bp.col[3],bp.col[2], bp.col[2],"grey80", "grey80")
+
+for (i in seq_along(strips)) {
+  k <- which(grepl('rect', g$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+  g$grobs[[strips[i]]]$grobs[[1]]$children[[k]]$gp$fill <- pal[i]
+}
+
+plot(g)
+
+pdf("./figures/pop.fit.all.snps.all.groups.pdf",width=10, height=6)
+plot(g)
+dev.off()
+
+```
+
+

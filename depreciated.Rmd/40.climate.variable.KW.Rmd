@@ -1,0 +1,151 @@
+---
+title: "40.climate.variable.KW"
+author: "Daniele Filiault"
+date: "7/7/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#setwd("/Volumes/field_experiments/adaptation_sweden/common.gardens/")
+#source("/Volumes/field_experiments/adaptation_sweden/select.and.resequence/002.scripts/00.allele.freq.change.fxns.R")
+
+setwd("/groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens/")
+source("/groups/nordborg/projects/field_experiments/adaptation_sweden/select.and.resequence/002.scripts/00.allele.freq.change.fxns.R")
+```
+
+## Introduction
+
+Do kruskal wallace association tests between 200 Swedish genotypes and associated climate variables
+
+### load data
+```{r load data}
+# genotypes
+# loading SNPs using a script from 00.allele.freq.change.fxns.R
+all.gts.file <- "/groups/nordborg/projects/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/02_2.3M_Swedes220.175k.prior15.gauss4.ts99.5.BIALLELIC.csv"
+#all.gts.file <- "/Volumes/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/02_2.3M_Swedes220.175k.prior15.gauss4.ts99.5.BIALLELIC.csv"
+## this is the data set used for genotyping these samples (from Fernando)
+min.MAF <- 0.1
+max.NAF <- 0.05 ## remove if NA rate is higher than this
+### set these so agree with Ben's GWAS filtering so our SNPs overlap
+gts <- prep.SAF(all.gts.file=all.gts.file, min.MAF=min.MAF, max.NAF=max.NAF)
+# reads in file, recodes to NA, 0 (ref), 0,5 (het), 1 (alt)
+pos <- gts[,1:2]
+gts <- gts[,-c(1:2)]
+
+#experimental lines
+lines <- read.table("./data/acc_list.txt",stringsAsFactors=FALSE, fill=TRUE,sep="\t", header=TRUE, nrows=200)
+exp.lines <- lines$lines
+#exp.lines%in%colnames(gts) looks OK
+
+# climate variables
+# bioclim v2, BIO1 to BIO19
+bioc <- read.table("./data/bioclim.v2.200.experimental.lines.txt", header=TRUE, stringsAsFactors=FALSE)
+
+# PCs of this data
+b.pcs <- read.table("./data/experimental.pcas.txt", header=TRUE, stringsAsFactors=FALSE)
+b.pcs <- b.pcs[rownames(b.pcs)%in%exp.lines,]
+
+bioc <- merge(bioc, b.pcs, by.x="lines", by.y="id", all=TRUE)
+bioc <- bioc[match(colnames(gts), bioc$lines),]  # same order as genotypes
+```
+
+## KW test one SNP
+
+```{r single KW test}
+kw.test <- function(up.cd,up.cv){
+  #up <- 80000
+  up.gt <- as.numeric(gts[up.cd,])
+  d.gt <- gsub("0.5","1.0",up.gt)
+  r.gt <- gsub("0.5","0", up.gt)
+
+  #up.cv <- "BIO1"
+  up.cd <- bioc[,colnames(bioc)==up.cv]
+
+  up.test <-kruskal.test(up.cd~up.gt)
+  up.test.d <- kruskal.test(up.cd~d.gt)
+  up.test.r <- kruskal.test(up.cd~r.gt)
+  out.pval <- c(up.test$p.value, up.test.d$p.value, up.test.r$p.value)
+  return(out.pval)}
+
+kw.test(1,"BIO4")
+```
+
+## KW test all SNPs
+```{r allSNP kw.test}
+#gts <- gts
+#up.cv <- "BIO1"
+kw.cv <- function(gts, up.cv){
+  up.pvals <- matrix(NA, nrow=nrow(gts), ncol=3)
+  for(up in 1:nrow(gts)){
+  #for(up in 1:100){
+    #print(up)
+    up.test <- kw.test(up,up.cv)
+    #print(up.test)
+    up.pvals[up,] <- up.test
+  }
+  colnames(up.pvals) <- c("sep","dom","rec")
+  outfile <- paste("./data/004.KW.climate.variables/",up.cv,".pvals.Rdat",sep="")
+  save(up.pvals, file=outfile)
+  return(up.pvals)
+}
+
+#ugh <- kw.cv(gts=gts, up.cv="BIO1")
+#blah <- kw.cv(gts=gts, up.cv="PC1")
+```
+
+##KW test all SNPs for all climate vars
+```{r allSNP allCV kw.test}
+all.cv <- colnames(bioc)[4:26]
+
+for(up.c in all.cv){
+  print(up.c)
+  cv.krus <- kw.cv(gts=gts, up.cv=up.c)
+}
+
+```
+
+
+
+
+
+
+## QQplots
+
+
+## Manhattan plots
+```{r manhattan plots}
+files <- dir("./data/004.KW.climate.variables/")
+files <- files[grep("Rdat",files)]
+up.file <- files[1]
+load(paste("./data/004.KW.climate.variables/",up.file, sep=""))
+min.pvals <- apply(up.pvals,1,min)
+up.ps <- cbind(pos, min.pvals)
+up.ps$log.p <- -log10(up.ps$min.pvals)
+
+genome.plot(updata=up.ps, plot.var="log.p")
+
+genome.plot <- function(updata, plot.var){
+	chr.lengths <- c(30427671,19698289,23459830,18585056,26975502)
+	chr.add <- c(0,cumsum(chr.lengths))[1:5]
+	max.bp <- sum(chr.lengths)
+	chr.colors <- c("blue","dodgerblue", "blue", "dodgerblue", "blue")
+	chr.mids <- chr.add + (chr.lengths/2)
+	up.s <- split(updata, updata$Chromosome)
+	plot.col <- which(colnames(updata)==plot.var)
+	plot(updata$Position,updata[,plot.col], xlim=c(0,max.bp), type="n", xlab="Chromosome", ylab=plot.var, xaxt="n")
+	axis(1,at=chr.mids,labels=c(1:5))
+	for(up.chr in 1:5){
+	  #print(up.chr)
+	  up.c <- up.s[[up.chr]]
+	  up.add <- chr.add[up.chr]
+	  up.c$Position.plot <- up.c$Position + up.add
+	  points(up.c$Position.plot, up.c[,plot.col], col=chr.colors[up.chr])
+	}
+}
+
+
+library(qqman)
+qq(up.ps$min.pvals)
+```

@@ -1,0 +1,137 @@
+---
+title: "13.syn.nonsyn.content.R"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+I have identified sets of SNPs that seem to show multiple patterns of adaptation (high beta from fitness GWAS, differences in allele distributions between derived and ancestral alleles) and I want to check whether these also show patterns in the proportions of synonymous and non-synonymous SNPs relative to "nonadaptive" variants.  Expectation is that there should be more ns variants among adaptive variants that show directional selection.
+
+```{r data setup}
+
+### both these are calculated in 07.geo.betas.R
+
+load(file="./data/geo.beta.hist.Rdat") ### betas of derived allele with latitude median distance between derived and ancestral (and bins thereof)
+
+load(file="./data/site.cen.pol.Rdat")  ### distance between centroids and experiment site of derived alleles.
+
+### also need snpEff output
+load(file="/Volumes/field_experiments/001.common.reference.files/009.snpEff/effect.dat.parsed.Rdat")  ###effect.dat
+effect.dat$rs <- paste(gsub("Chr", "", effect.dat[,1]), effect.dat[,2], sep="_")
+
+### link distance and effect data
+
+com.dat.lat <- merge(geo.beta.hist,effect.dat[,-c(1:2)])
+
+
+```
+
+## Look for effect size differences between latitude bins
+
+```{R lat snp effects}
+
+nsyn <- with(com.dat.lat, table(lat.bins,nsyn))
+syn <- with(com.dat.lat, table(lat.bins, syn))
+total <- with(com.dat.lat, table(lat.bins))
+
+p.nsyn <- nsyn[,2]/total
+p.syn <- syn[,2]/total
+
+dn.ds <- nsyn[,2]/syn[,1]
+
+xlabs <- c("<-4","-4 to -2", "-2 to 0", "0 to 2", "2 to 4", ">4")
+xlab <- "Latitude difference between derived and ancestral allele centroids"
+barplot(dn.ds, names.arg=xlabs, xlab=xlab, ylab="nonsynonymous/synonymous sites")
+
+pdf(file="./figures/dNdS.by.lat.diff.bin.pdf", width=6, height=5)
+barplot(dn.ds, names.arg=xlabs, xlab=xlab, ylab="nonsynonymous/synonymous sites")
+dev.off()
+```
+
+
+```{R beta diff by nonsyn}
+up.betas <- colnames(com.dat.lat)[c(5:8,10:13)]
+ns.beta.tests <- matrix(NA,nrow=length(up.betas), ncol=3)
+colnames(ns.beta.tests) <- c("N","Y", "pval")
+
+for(up in 1:length(up.betas)){
+  up.b <- up.betas[up]
+  wt.u <- wilcox.test(abs(get(up.b)) ~ nsyn, data=com.dat.lat)
+  means.u <- aggregate(abs(get(up.b))~nsyn, data=com.dat.lat, mean)
+  out.dat <- c(means.u[,2],wt.u$p.value)
+  ns.beta.tests[up,] <- out.dat
+}
+rownames(ns.beta.tests) <- up.betas
+ns.beta.tests
+```
+
+```{R beta diff by syn}
+up.betas <- colnames(com.dat.lat)[c(5:8,10:13)]
+syn.beta.tests <- matrix(NA,nrow=length(up.betas), ncol=3)
+colnames(syn.beta.tests) <- c("N","Y", "pval")
+
+for(up in 1:length(up.betas)){
+  up.b <- up.betas[up]
+  wt.u <- wilcox.test(abs(get(up.b)) ~ syn, data=com.dat.lat)
+  means.u <- aggregate(abs(get(up.b))~syn, data=com.dat.lat, mean)
+  out.dat <- c(means.u[,2],wt.u$p.value)
+  syn.beta.tests[up,] <- out.dat
+}
+rownames(syn.beta.tests) <- up.betas
+syn.beta.tests
+```
+```{R beta diff by high}
+up.betas <- colnames(com.dat.lat)[c(5:8,10:13)]
+high.beta.tests <- matrix(NA,nrow=length(up.betas), ncol=3)
+colnames(high.beta.tests) <- c("N","Y", "pval")
+
+for(up in 1:length(up.betas)){
+  up.b <- up.betas[up]
+  wt.u <- wilcox.test(abs(get(up.b)) ~ high, data=com.dat.lat)
+  means.u <- aggregate(abs(get(up.b))~high, data=com.dat.lat, mean)
+  out.dat <- c(means.u[,2],wt.u$p.value)
+  high.beta.tests[up,] <- out.dat
+}
+rownames(high.beta.tests) <- up.betas
+high.beta.tests
+```
+
+By moderate effect differences (which would be nsyn, among others)
+
+```{R beta diff by moderate}
+up.betas <- colnames(com.dat.lat)[c(5:8,10:13)]
+mod.beta.tests <- matrix(NA,nrow=length(up.betas), ncol=3)
+colnames(mod.beta.tests) <- c("N","Y", "pval")
+
+for(up in 1:length(up.betas)){
+  up.b <- up.betas[up]
+  wt.u <- wilcox.test(abs(get(up.b)) ~ mod, data=com.dat.lat)
+  means.u <- aggregate(abs(get(up.b))~ mod, data=com.dat.lat, mean)
+  out.dat <- c(means.u[,2],wt.u$p.value)
+  mod.beta.tests[up,] <- out.dat
+}
+rownames(mod.beta.tests) <- up.betas
+mod.beta.tests
+```
+
+
+
+```{R beta diff by low}
+up.betas <- colnames(com.dat.lat)[c(5:8,10:13)]
+low.beta.tests <- matrix(NA,nrow=length(up.betas), ncol=3)
+colnames(low.beta.tests) <- c("N","Y", "pval")
+
+for(up in 1:length(up.betas)){
+  up.b <- up.betas[up]
+  wt.u <- wilcox.test(abs(get(up.b)) ~ low, data=com.dat.lat)
+  means.u <- aggregate(abs(get(up.b))~ low, data=com.dat.lat, mean)
+  out.dat <- c(means.u[,2],wt.u$p.value)
+  low.beta.tests[up,] <- out.dat
+}
+rownames(low.beta.tests) <- up.betas
+low.beta.tests
+```

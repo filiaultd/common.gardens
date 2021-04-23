@@ -1,0 +1,61 @@
+---
+title: "15.coalescent.vs.beta"
+author: "Daniele Filiault"
+date: "8/28/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Intro
+
+So we saw in 07 and 14 that the closest allele increases fitness.  In 07, we also saw evidence that these could be primarily derived alleles.  Let's look more broadly (using 1001g data) to see if there is a relationship between coalescent time and beta.  This could not only help understand N/S differences, but also Sweden/Europe adaptation (ie SNPs that seem to have common positive(?) effects on fitness in all experiments).  General idea is to:
+1.  Get admixture groups and 1001g SNPs
+2.  For each SNP, figure out proportion of accessions with each allele in each admixture group.
+3.  Characterize SNPs into bins - how many groups?  High proportion Swedish alleles, etc?
+4.  Are there consistant patterns in beta assuming that the SNP prevalent in Sweden is prevalent because it is adaptive?  Are alleles (more) private to Sweden adaptive?  More NS changes?
+
+## Prep admixture data
+
+```{r prep admixture data}
+### admixture groups for 1001g data - from the paper:
+#We defined nine groups based on these clusters and assigned each individual to a group if more than 60% of its genome
+#derived from the corresponding cluster. The 135 individuals not
+#matching this criterion were labeled ‘‘Admixed.’’
+admix <- read.csv(file="./data/1001genomes-accessionsand1001genomes-admixture.csv", stringsAsFactors=FALSE)
+admix.m <- admix[,grep("K9", colnames(admix))]
+rownames(admix.m) <- admix$id
+max.a <- apply(admix.m,1, function(x)(max(x, na.rm=TRUE)))
+a.group <- rep(NA, nrow(admix.m))
+for(up in 1:nrow(admix.m)){
+  up.dat <- admix.m[up,]
+  a.group[up] <- which(up.dat==max.a[up])
+}
+names(a.group)<- rownames(admix.m)
+a.group <- cbind(admix[,c(1:4)], max.a,a.group)
+
+a.group <- a.group[which(a.group$max.a>0.6),] ##998, which is not what is reported in 1001g paper???
+a.group$a.group <- a.group$a.group-1 #now matches group numbers in original data
+
+blah <- with(a.group, table(country, a.group))
+blah
+ugh <- apply(blah, 2, function(x){table(x>0)})
+save(a.group, file="./data/admixture.groups.Rdat")
+
+# lots of countries in any one group
+```
+
+## Prep 1001g SNPs data
+See script /Volumes/field_experiments/001.common.reference.files/010.1001g.paper.snps/add.field.samples.sh for generating genotyping table of Swedish only SNPs in the 1001genomes data
+
+
+Need to subset to SNPs in Swedish dataset
+```{r prep SNP data}
+#all.merge.PhyAllAth.2.3M_Swedes220.gt.table
+library(data.table)
+snps <- fread("/Volumes/field_experiments/001.common.reference.files/010.1001g.paper.snps/1001genome.sweden.pos.gt.table",stringsAsFactors=FALSE,nrows=100)
+
+```
+

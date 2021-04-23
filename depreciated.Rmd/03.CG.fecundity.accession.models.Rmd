@@ -1,0 +1,1028 @@
+---
+title: "03.CG.fecundity.accession.models"
+author: "Daniele Filiault"
+date: "2/26/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Description and Motivation
+Taking a closer look at fecundity in the common garden experiments.
+Taking same approach as for fecundity
+Look for local adaptation and try to assess which components of fecundity
+vary across sites and years to cause fecundity differences.
+
+Fit models to get fecundity for each site
+First make data variable
+
+## 1. Local adaptation with fecundity values - combined years
+### 1a. prep data
+```{r}
+d11=readRDS(file="./data/d11_for_analysis.rds")
+d12=readRDS(file="./data/d12_for_analysis.rds")
+
+##restrict to fecundity
+traits=c("fecundity")
+
+d11$year=2011
+d12$year=2012
+
+d11=d11[, c("year", "exp", "block", "id", "fecundity")]
+d12=d12[, c("year", "exp", "block", "id", "fecundity")]
+
+d=rbind(d11, d12)
+d$region[d$exp%in%c("ULL", "RAT")]="S"
+d$region[d$exp%in%c("RAM", "ADA")]="N"
+d$year=as.factor(d$year)
+d=d[, c("year", "region", "exp","block", "id", "fecundity")]
+d=na.omit(d)
+
+hist(d$fecundity)
+with(d, boxplot(fecundity~exp+year, ylab="fecundity",las=2))
+```
+So the distribution of the fecundity variable is highly skewed towards zero.  This is not a a case of zero inflation, but rather that there
+simply are a lot of zero fecundity plants here.  Therefore, need a more complicated model.  Also should include block as a random effect.  Therefore...
+
+So distribution of fecundity has zeros, so can't do gamma link.  But only 50 zero observations.
+
+
+Fit glms with Tweedie distributions.
+```{r tweedie_prep}
+library(lme4)
+library(statmod)
+library(tweedie)
+```
+
+###1b. start with Ullstorp
+
+```{r}
+du <- d[d$exp=="ULL",]
+hist(du$fecundity)
+```
+
+determine d for tweedie distribution
+```{r eval=FALSE, include=TRUE}
+### also need to test block in model, but to assess p, use easiest complete model - can't do random effects so just nest block within year
+
+profile.u <- tweedie.profile(fecundity ~ id + year + id*year + year/block, data = du, p.vec = seq(1.1, 1.9, 0.1),do.plot=TRUE, fit.glm = TRUE)
+print(profile.u$p.max)
+
+```
+Now fit models, assess model components
+
+```{r ull_model}
+
+#vp.up <- profile.u$p.max
+vp.up <- 1.720408  ### doing this so i can knit the doc in a reasonable amount of time.  The Tweedie p assessment is slow...
+dat.up <- du
+
+glm.u1 <- glm(fecundity ~ id + year + id*year + year/block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+
+glm.u2 <- glm(fecundity ~ id + year + year/block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.u2, glm.u1, test="Chisq")
+
+glm.u3 <- glm(fecundity ~ id + year/block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.u3, glm.u1, test="Chisq")
+
+glm.u4 <- glm(fecundity ~ id + year + id*year, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.u4, glm.u1, test="Chisq")
+
+glm.u5 <- glm(fecundity ~ year + year/block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.u5, glm.u1, test="Chisq")
+
+#plot(glm.u1)
+
+```
+All terms in full model are significant, so use this one to get fitted fecundity values per line
+
+```{r}
+du.predict <- predict(glm.u1, type="response")
+hist(du.predict, main="predicted values Ullstorp")
+
+du.dat <- cbind(du,du.predict)
+du.means <- aggregate(du.predict~id, data=du.dat, mean)
+hist(du.means$du.predict, main="predicted means Ullstorp", xlab="fecundity")
+
+```
+continue
+
+check local adaptation
+
+```{r}
+clim=read.table("./data/worldclim_swedish_acc.txt", sep="\t", h=T, stringsAsFactor=T)
+clim_exp=read.table("./data/worldclim_swedish_exp.txt", sep="\t", h=T)
+colnames(clim)[1]="id"
+
+du.means <- merge(du.means, clim[,1:6], by="id")
+lm.ufit <- lm(du.predict~long, data=du.means)
+summary(lm.ufit)
+plot(du.means$lat, du.means$du.predict, xlab="latitude of accession origin", ylab="fecundity in Ullstorp")
+abline(lm(du.predict~lat, data=du.means), col="blue")
+```
+Yes, signs of local adaptation in Ullstorp
+
+###1c. Adal East
+
+```{r}
+da <- d[d$exp=="ADA",]
+hist(da$fecundity, main="Adal fecundity", xlab="fecundity")
+```
+
+determine d for tweedie distribution
+
+```{r eval=FALSE, include=TRUE}
+profile.a <- tweedie.profile(fecundity ~ id + year + id*year + year/block, data = da, p.vec = seq(1.1, 1.9, 0.1), fit.glm = TRUE, control=list(maxit=50), do.plot=TRUE)
+print(profile.a$p.max)
+```
+
+Now fit models, assess model components
+
+```{r adal_east_model}
+#vp.up <-profile.a$p.max
+vp.up <- 1.785714
+dat.up <- da
+
+glm.a1 <- glm(fecundity ~ id + year + id*year + year/block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+
+glm.a2 <- glm(fecundity ~ id + year + year/block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.a2, glm.a1, test="Chisq")
+
+glm.a3 <- glm(fecundity ~ id + year/block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.a3, glm.a1, test="Chisq")
+
+glm.a4 <- glm(fecundity ~ id + year + id*year, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.a4, glm.a1, test="Chisq")
+
+glm.a5 <- glm(fecundity ~ year + year/block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.a5, glm.a1, test="Chisq")
+
+#plot(glm.a1)
+### wow, this is ugly!  the point messing everything up is row 1938
+
+```
+
+All terms in full model are significant, so use this one to get fitted fecundity values per line
+
+```{r}
+da.predict <- predict(glm.a1, type="response")
+hist(da.predict)
+
+da.dat <- cbind(da,da.predict)
+da.means <- aggregate(da.predict~id, data=da.dat, mean)
+hist(da.means$da.predict, main="hist of predicted means")
+```
+
+check local adaptation
+
+```{r}
+da.means <- merge(da.means, clim[,1:6], by="id")
+lm.afit <- lm(da.predict~lat, data=da.means)
+summary(lm.afit)
+plot(da.means$lat, da.means$da.predict, xlab="latitude of accession origin", ylab="fecundity in Ådal East")
+abline(lm(da.predict~lat, data=da.means), col="blue")
+```
+
+marginally sig local adaptation Adal East
+
+
+
+###1d. Rathckegarden
+
+```{r}
+dr <- d[d$exp=="RAT",]
+hist(dr$fecundity, main="histogram of Rat fecundity")
+```
+
+determine d for tweedie distribution
+
+```{r eval=FALSE, include=TRUE}
+
+profile.r <- tweedie.profile(fecundity ~ id + year + id*year + year/block, data = dr, p.vec = seq(1.1, 1.9, 0.1), fit.glm = TRUE, control=list(maxit=50), do.plot=TRUE)
+print(profile.r$p.max)
+### use this var.power for the tweedie distribution
+```
+
+Now fit models, assess model components
+
+```{r rathckegarden_model}
+#vp.up <-profile.r$p.max
+vp.up <-  1.742857
+dat.up <- dr
+
+glm.r1 <- glm(fecundity ~ id + year + id*year + year/block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+
+glm.r2 <- glm(fecundity ~ id + year + year/block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.r2, glm.r1, test="Chisq")
+
+glm.r3 <- glm(fecundity ~ id + year/block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.r3, glm.r1, test="Chisq")
+
+glm.r4 <- glm(fecundity ~ id + year + id*year, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.r4, glm.r1, test="Chisq")
+
+glm.r5 <- glm(fecundity ~ year + year/block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.r5, glm.r1, test="Chisq")
+
+#plot(glm.r1)
+
+```
+
+All terms in full model are significant, so use this one to get fitted fecundity values per line
+
+```{r}
+dr.predict <- predict(glm.r1, type="response")
+hist(dr.predict, main="hist of fitted values Rat")
+
+dr.dat <- cbind(dr,dr.predict)
+dr.means <- aggregate(dr.predict~id, data=dr.dat, mean)
+hist(dr.means$dr.predict, main="hist of mean fitted values Rat")
+```
+
+
+
+check local adaptation
+
+```{r}
+dr.means <- merge(dr.means, clim[,1:6], by="id")
+lm.rfit <- lm(dr.predict~lat, data=dr.means)
+summary(lm.rfit)
+plot(dr.means$lat, dr.means$dr.predict, xlab="latitude of accession origin", ylab="fecundity in Ratheckgården")
+abline(lm(dr.predict~lat, data=dr.means), col="blue")
+```
+local adaptation Rathckegarden!
+
+###1e. Ramsta
+
+```{r}
+dm <- d[d$exp=="RAM",]
+hist(dm$fecundity, main="histogram of Ramsta fecundity")
+```
+
+```{r eval=FALSE, include=TRUE}
+
+profile.m <- tweedie.profile(fecundity ~ id + year + id*year + year/block, data = dm, p.vec = seq(1.1, 1.9, 0.1), fit.glm = TRUE, control=list(maxit=50), do.plot=TRUE)
+print(profile.m$p.max)
+### use this var.power for the tweedie distribution
+```
+
+Now fit models, assess model components
+
+```{r ramsta_model}
+#vp.up <-profile.m$p.max
+vp.up <- 1.571429
+dat.up <- dm
+
+glm.m1 <- glm(fecundity ~ id + year + id*year + year/block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up, maxit=50)
+
+glm.m2 <- glm(fecundity ~ id + year + year/block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.m2, glm.m1, test="Chisq")
+
+glm.m3 <- glm(fecundity ~ id + year/block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.m3, glm.m1, test="Chisq")
+
+glm.m4 <- glm(fecundity ~ id + year + id*year, family=tweedie(var.power=vp.up, link.power=0), data=dat.up, maxit=50)
+anova(glm.m4, glm.m1, test="Chisq")
+
+glm.m5 <- glm(fecundity ~ year + year/block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.m5, glm.m1, test="Chisq")
+
+#plot(glm.m1)
+
+```
+
+
+```{r}
+dm.predict <- predict(glm.m1, type="response")
+hist(dm.predict, main="hist of fitted values Ramsta")
+
+dm.dat <- cbind(dm,dm.predict)
+dm.means <- aggregate(dm.predict~id, data=dm.dat, mean)
+hist(dm.means$dm.predict, main="hist of mean fitted values Ramsta")
+```
+
+check local adaptation
+
+```{r}
+dm.means <- merge(dm.means, clim[,1:6], by="id")
+lm.mfit <- lm(dm.predict~lat, data=dm.means)
+summary(lm.mfit)
+plot(dm.means$lat, dm.means$dm.predict, xlab="latitude of accession origin", ylab="fecundity in Ramsta")
+abline(lm(dm.predict~lat, data=dm.means), col="blue")
+```
+No local adaptation in Ramsta
+
+###1f. Combining N/S comparisons
+
+```{r}
+all.means <- merge(da.means, dm.means[,1:2], by="id")
+all.means <- merge(all.means, du.means[,1:2], by="id")
+all.means <- merge(all.means, dr.means[,1:2], by="id")
+all.means <- all.means[,c(1,3,4,5,6,7,2,8,9,10)]
+pairs(all.means[,7:10])
+
+all.means$n.means <- apply(all.means,1,function(x){(as.numeric(x[7])+as.numeric(x[8]))/2})
+all.means$s.means <- apply(all.means,1,function(x){(as.numeric(x[9])+as.numeric(x[10]))/2})
+
+lm.ns.mean <- lm(n.means~s.means, data=all.means)
+lm.ns.mean.loc <- lm(n.means~s.means + region , data=all.means)
+lm.ns.mean.int <- lm(n.means~s.means + region + s.means*region , data=all.means)
+
+summary(lm.ns.mean)
+summary(lm.ns.mean.loc)
+summary(lm.ns.mean.int)
+
+aov.ns.mean.loc <- aov(n.means~s.means + region, data=all.means)
+ns.posthoc <- TukeyHSD(aov.ns.mean.loc, "region")
+plot(ns.posthoc)
+
+with(all.means, plot(s.means, n.means, xlab="mean fecundity in South", ylab="mean fecundity in North"))
+#abline(lm.ns.mean)
+abline(0,1, col="blue")
+
+library(ggplot2)
+
+ns.plot <- ggplot(all.means, aes(s.means, n.means)) + geom_point(aes(colour=region))
+ns.plot + theme_bw() +   geom_smooth( aes(linetype = region, color=region), method = "lm") + labs(x="mean fecundity in Southern experiments", y="mean fecundity in Northern experiments")
+
+lm.nfit <- lm(n.means~lat, data=all.means)
+summary(lm.nfit)
+plot(all.means$lat, all.means$n.means, xlab="latitude of accession origin", ylab=" mean fecundity in Northern sites")
+abline(lm(n.means~lat, data=all.means), col="blue")
+
+lm.sfit <- lm(s.means~lat, data=all.means)
+summary(lm.sfit)
+plot(all.means$lat, all.means$s.means, xlab="latitude of accession origin", ylab=" mean fecundity in Southern sites")
+abline(lm(s.means~lat, data=all.means), col="blue")
+
+```
+1.  Joint years, local adaptation in S, not in N.
+2.  generally higher fecundity in N
+
+## 3. Local adaptation with fecundity values - 2011
+###3a. start with Ullstorp
+
+```{r}
+du1 <- d[d$exp=="ULL" & d$year=="2011" ,]
+hist(du1$fecundity)
+```
+determine d for tweedie distribution
+
+```{r eval=FALSE, include=TRUE}
+
+profile.u1 <- tweedie.profile(fecundity ~ id + block + block*id, data = du1, p.vec = seq(1.1, 1.9, 0.1), fit.glm = TRUE, control=list(maxit=50), do.plot=TRUE)
+print(profile.u1$p.max)
+### use this var.power for the tweedie distribution
+```
+
+Now fit models, assess model components
+
+```{r ullstorp2011_model}
+#vp.up <-profile.u1$p.max
+vp.up <-1.7
+dat.up <- du1
+
+glm.u11 <- glm(fecundity ~ id + block + block*id, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+
+glm.u12 <- glm(fecundity ~ id + block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.u12, glm.u11, test="Chisq")
+
+glm.u13 <- glm(fecundity ~ id , family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.u13, glm.u11, test="Chisq")
+
+
+#plot(glm.u11)
+
+```
+All terms significant
+
+ 
+```{r}
+du1.predict <- predict(glm.u11, type="response")
+hist(du1.predict, main="hist of fitted values Ullstorp 2011")
+
+du1.dat <- cbind(du1,du1.predict)
+du1.means <- aggregate(du1.predict~id, data=du1.dat, mean)
+hist(du1.means$du1.predict, main="hist of mean fitted values Ullstorp 2011")
+```
+
+```{r}
+du1.means <- merge(du1.means, clim[,1:6], by="id")
+lm.u1fit <- lm(du1.predict~lat, data=du1.means)
+summary(lm.u1fit)
+plot(du1.means$lat, du1.means$du1.predict, xlab="latitude of accession origin", ylab="fecundity in Ullstorp 2011")
+abline(lm(du1.predict~lat, data=du1.means), col="blue")
+```
+
+Yes, local adaptation Ull 2011, less effect than combined years
+
+###3b. Adal East 2011
+
+```{r}
+da1 <- d[d$exp=="ADA" & d$year=="2011" ,]
+hist(da1$fecundity)
+```
+determine d for tweedie distribution
+
+```{r eval=FALSE, include=TRUE}
+
+profile.a1 <- tweedie.profile(fecundity ~ id + block + block*id, data = da1, p.vec = seq(1.1, 1.9, 0.1), fit.glm = TRUE, control=list(maxit=50), do.plot=TRUE)
+print(profile.a1$p.max)
+### use this var.power for the tweedie distribution
+```
+
+
+```{r adaleast2011_model}
+#vp.up <-profile.a1$p.max
+vp.up <- 1.818367
+dat.up <- da1
+
+glm.a11 <- glm(fecundity ~ id + block + block*id, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+
+glm.a12 <- glm(fecundity ~ id + block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.a12, glm.a11, test="Chisq")
+
+glm.a13 <- glm(fecundity ~ id , family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.a13, glm.a11, test="Chisq")
+
+
+#plot(glm.a11)
+
+```
+All terms significant
+
+ 
+```{r}
+da1.predict <- predict(glm.a11, type="response")
+hist(da1.predict, main="hist of fitted values Ådal East 2011")
+
+da1.dat <- cbind(da1,da1.predict)
+da1.means <- aggregate(da1.predict~id, data=da1.dat, mean)
+hist(da1.means$da1.predict, main="hist of mean fitted values Ådal East 2011")
+```
+
+```{r}
+da1.means <- merge(da1.means, clim[,1:6], by="id")
+lm.a1fit <- lm(da1.predict~lat, data=da1.means)
+summary(lm.a1fit)
+plot(da1.means$lat, da1.means$da1.predict, xlab="latitude of accession origin", ylab="fecundity in Ådal East 2011")
+abline(lm(da1.predict~lat, data=da1.means), col="blue")
+```
+Nothing Adal East 2011
+
+###3c. Rat 2011
+
+```{r}
+dr1 <- d[d$exp=="RAT" & d$year=="2011" ,]
+hist(dr1$fecundity)
+```
+determine d for tweedie distribution
+
+```{r eval=FALSE, include=TRUE}
+
+profile.r1 <- tweedie.profile(fecundity ~ id + block + block*id, data = dr1, p.vec = seq(1.1, 1.9, 0.1), fit.glm = TRUE, control=list(maxit=75), do.plot=TRUE)
+print(profile.r1$p.max)
+### use this var.power for the tweedie distribution
+```
+
+```{r rat2011_model}
+#vp.up <-profile.r1$p.max
+vp.up <- 1.491837
+dat.up <- dr1
+
+glm.r11 <- glm(fecundity ~ id + block + block*id, family=tweedie(var.power=vp.up, link.power=0), data=dat.up,maxit=100)
+
+glm.r12 <- glm(fecundity ~ id + block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.r12, glm.r11, test="Chisq")
+
+glm.r13 <- glm(fecundity ~ id , family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.r13, glm.r11, test="Chisq")
+
+
+#plot(glm.r11)
+
+```
+
+all terms significant
+
+```{r}
+dr1.predict <- predict(glm.r11, type="response")
+hist(dr1.predict, main="hist of fitted values Rathckegården 2011")
+
+dr1.dat <- cbind(dr1,dr1.predict)
+dr1.means <- aggregate(dr1.predict~id, data=dr1.dat, mean)
+hist(dr1.means$dr1.predict, main="hist of mean fitted values Rathckegården 2011")
+```
+
+
+
+```{r}
+dr1.means <- merge(dr1.means, clim[,1:6], by="id")
+lm.r1fit <- lm(dr1.predict~lat, data=dr1.means)
+summary(lm.r1fit)
+plot(dr1.means$lat, dr1.means$dr1.predict, xlab="latitude of accession origin", ylab="fecundity in Rathckegården 2011")
+abline(lm(dr1.predict~lat, data=dr1.means), col="blue")
+```
+Rat 2011  significant
+
+###3d. Ramsta 2011
+```{r}
+dm1 <- d[d$exp=="RAM" & d$year=="2011" ,]
+hist(dm1$fecundity)
+```
+
+```{r eval=FALSE, include=TRUE}
+
+profile.m1 <- tweedie.profile(fecundity ~ id + block + block*id, data = dm1, p.vec = seq(1.1, 1.9, 0.1), fit.glm = TRUE, control=list(maxit=50), do.plot=TRUE)
+print(profile.m1$p.max)
+### use this var.power for the tweedie distribution
+```
+
+```{r ramsta2011_model}
+#vp.up <-profile.m1$p.max
+vp.up <- 1.638776  ### yes, exactly the same as the p.max for rat.  I double checked, and this seems correct.
+dat.up <- dm1
+
+glm.m11 <- glm(fecundity ~ id + block + block*id, family=tweedie(var.power=vp.up, link.power=0), data=dat.up,maxit=75)
+
+glm.m12 <- glm(fecundity ~ id + block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up, maxit=75)
+anova(glm.m12, glm.m11, test="Chisq")
+
+glm.m13 <- glm(fecundity ~ id , family=tweedie(var.power=vp.up, link.power=0), data=dat.up, maxit=75)
+anova(glm.m13, glm.m11, test="Chisq")
+
+
+#plot(glm.m11)
+
+```
+
+```{r}
+dm1.predict <- predict(glm.m11, type="response")
+hist(dm1.predict, main="hist of fitted values Ramsta 2011")
+
+dm1.dat <- cbind(dm1,dm1.predict)
+dm1.means <- aggregate(dm1.predict~id, data=dm1.dat, mean)
+hist(dm1.means$dm1.predict, main="hist of mean fitted values Ramsta 2011")
+```
+
+
+
+```{r}
+dm1.means <- merge(dm1.means, clim[,1:6], by="id")
+lm.m1fit <- lm(dm1.predict~lat, data=dm1.means)
+summary(lm.m1fit)
+plot(dm1.means$lat, dm1.means$dm1.predict, xlab="latitude of accession origin", ylab="fecundity in Ramsta 2011")
+abline(lm(dm1.predict~lat, data=dm1.means), col="blue")
+```
+Ramsta 2011 very significant!
+
+###3e. N/S combined 2011
+
+```{r}
+all.means1 <- merge(da1.means, dm1.means[,1:2], by="id")
+all.means1 <- merge(all.means1, du1.means[,1:2], by="id")
+all.means1 <- merge(all.means1, dr1.means[,1:2], by="id")
+all.means1 <- all.means1[,c(1,3,4,5,6,7,2,8,9,10)]
+pairs(all.means1[,7:10])
+
+all.means1$n.means <- apply(all.means1,1,function(x){(as.numeric(x[7])+as.numeric(x[8]))/2})
+all.means1$s.means <- apply(all.means1,1,function(x){(as.numeric(x[9])+as.numeric(x[10]))/2})
+
+lm.ns.mean1 <- lm(n.means~s.means, data=all.means1)
+lm.ns.mean.loc1 <- lm(n.means~s.means + region , data=all.means1)
+lm.ns.mean.int1 <- lm(n.means~s.means + region + s.means*region , data=all.means1)
+
+anova(lm.ns.mean1)
+anova(lm.ns.mean.loc1)
+anova(lm.ns.mean.int1)
+
+aov.ns.mean.loc1 <- aov(n.means~s.means + region, data=all.means1)
+ns.posthoc1 <- TukeyHSD(aov.ns.mean.loc1, "region")
+plot(ns.posthoc1)
+
+with(all.means1, plot(s.means, n.means, xlab="mean fecundity in South", ylab="mean fecundity in North"))
+#abline(lm.ns.mean)
+abline(0,1, col="blue")
+
+library(ggplot2)
+
+ns.plot2011 <- ggplot(all.means1, aes(s.means, n.means)) + geom_point(aes(colour=region))
+ns.plot2011 + theme_bw() +   geom_smooth( aes(linetype = region, color=region), method = "lm") + labs(x="mean fecundity in Southern experiments 2011", y="mean fecundity in Northern experiments 2011")
+```
+
+Do "classic" local adaptation on these means
+
+```{r}
+
+lm.n1 <- lm(n.means~lat, data=all.means1)
+summary(lm.n1)
+plot(all.means1$lat, all.means1$n.means, xlab="latitude of accession origin", ylab="mean fecundity in North 2011")
+abline(lm(n.means~lat, data=all.means1), col="blue")
+
+lm.s1 <- lm(s.means~lat, data=all.means1)
+summary(lm.s1)
+plot(all.means1$lat, all.means1$s.means, xlab="latitude of accession origin", ylab="mean fecundity in South 2011")
+abline(lm(s.means~lat, data=all.means1), col="blue")
+
+```
+South is  significant, North is not
+
+
+## 4. Local adaptation with fecundity values - 2012
+###4a. start with Ullstorp
+
+```{r}
+du2 <- d[d$exp=="ULL" & d$year=="2012" ,]
+hist(du2$fecundity)
+```
+determine d for tweedie distribution
+
+```{r eval=FALSE, include=TRUE}
+
+profile.u2 <- tweedie.profile(fecundity ~ id + block + block*id, data = du2, p.vec = seq(1.1, 1.9, 0.1), fit.glm = TRUE, control=list(maxit=50), do.plot=TRUE)
+print(profile.u2$p.max)
+### use this var.power for the tweedie distribution
+```
+
+Now fit models, assess model components
+
+```{r ullstorp2012_model}
+#vp.up <-profile.u2$p.max
+vp.up <- 1.622449
+dat.up <- du2
+
+glm.u21 <- glm(fecundity ~ id + block + block*id, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+
+glm.u22 <- glm(fecundity ~ id + block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.u22, glm.u21, test="Chisq")
+
+glm.u23 <- glm(fecundity ~ id , family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.u23, glm.u21, test="Chisq")
+
+
+#plot(glm.u21)
+
+```
+all significant.  Use glm.u21
+
+
+ 
+```{r}
+du2.predict <- predict(glm.u21, type="response")
+hist(du2.predict, main="hist of fitted values Ullstorp 2012")
+
+du2.dat <- cbind(du2,du2.predict)
+du2.means <- aggregate(du2.predict~id, data=du2.dat, mean)
+hist(du2.means$du2.predict, main="hist of mean fitted values Ullstorp 2012")
+```
+
+```{r}
+du2.means <- merge(du2.means, clim[,1:6], by="id")
+lm.u2fit <- lm(du2.predict~lat, data=du2.means)
+summary(lm.u2fit)
+plot(du2.means$lat, du2.means$du2.predict, xlab="latitude of accession origin", ylab="fecundity in Ullstorp 2012")
+abline(lm(du2.predict~lat, data=du2.means), col="blue")
+```
+
+Yes, strong local adaptation Ull 2012
+
+###4b. Adal East
+```{r}
+da2 <- d[d$exp=="ADA" & d$year=="2012" ,]
+hist(da2$fecundity)
+```
+determine d for tweedie distribution
+
+```{r eval=FALSE, include=TRUE}
+
+profile.a2 <- tweedie.profile(fecundity ~ id + block + block*id, data = da2, p.vec = seq(1.1, 1.9, 0.1), fit.glm = TRUE, control=list(maxit=50), do.plot=TRUE)
+print(profile.a2$p.max)
+### use this var.power for the tweedie distribution
+```
+
+
+```{r adaleast2012_model}
+#vp.up <-profile.a2$p.max
+vp.up <-  1.459184
+dat.up <- da2
+
+glm.a21 <- glm(fecundity ~ id + block + block*id, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+
+glm.a22 <- glm(fecundity ~ id + block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.a22, glm.a21, test="Chisq")
+
+glm.a23 <- glm(fecundity ~ id , family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.a23, glm.a21, test="Chisq")
+
+
+#plot(glm.a22)
+
+```
+
+Use model 1
+ 
+```{r}
+da2.predict <- predict(glm.a21, type="response")
+hist(da2.predict, main="hist of fitted values Ådal East 2012")
+
+da2.dat <- cbind(da2,da2.predict)
+da2.means <- aggregate(da2.predict~id, data=da2.dat, mean)
+hist(da2.means$da2.predict, main="hist of mean fitted values Ådal East 2012")
+```
+
+```{r}
+da2.means <- merge(da2.means, clim[,1:6], by="id")
+lm.a2fit <- lm(da2.predict~lat, data=da2.means)
+summary(lm.a2fit)
+plot(da2.means$lat, da2.means$da2.predict, xlab="latitude of accession origin", ylab="fecundity in Ådal East 2012")
+abline(lm(da2.predict~lat, data=da2.means), col="blue")
+```
+Adal East 2012  significant 
+
+
+### 4c. Rathckegarden
+
+
+```{r}
+dr2 <- d[d$exp=="RAT" & d$year=="2012" ,]
+hist(dr2$fecundity)
+```
+determine d for tweedie distribution
+
+```{r eval=FALSE, include=TRUE}
+
+profile.r2 <- tweedie.profile(fecundity ~ id + block + block*id, data = dr2, p.vec = seq(1.1, 1.9, 0.1), fit.glm = TRUE, control=list(maxit=75), do.plot=TRUE)
+print(profile.r2$p.max)
+### use this var.power for the tweedie distribution
+```
+
+
+```{r rat2012_model}
+#vp.up <-profile.r2$p.max
+vp.up <- 1.638776
+dat.up <- dr2
+
+glm.r21 <- glm(fecundity ~ id + block + block*id, family=tweedie(var.power=vp.up, link.power=0), data=dat.up,maxit=100)
+
+glm.r22 <- glm(fecundity ~ id + block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.r22, glm.r21, test="Chisq")
+
+glm.r23 <- glm(fecundity ~ id , family=tweedie(var.power=vp.up, link.power=0), data=dat.up)
+anova(glm.r23, glm.r21, test="Chisq")
+
+
+#plot(glm.r21)
+
+```
+
+all terms significant
+
+```{r}
+dr2.predict <- predict(glm.r21, type="response")
+hist(dr2.predict, main="hist of fitted values Rathckegården 2012")
+
+dr2.dat <- cbind(dr2,dr2.predict)
+dr2.means <- aggregate(dr2.predict~id, data=dr2.dat, mean)
+hist(dr2.means$dr2.predict, main="hist of mean fitted values Rathckegården 2012")
+```
+
+
+
+```{r}
+dr2.means <- merge(dr2.means, clim[,1:6], by="id")
+lm.r2fit <- lm(dr2.predict~lat, data=dr2.means)
+summary(lm.r2fit)
+plot(dr2.means$lat, dr2.means$dr2.predict, xlab="latitude of accession origin", ylab="fecundity in Rathckegården 2012")
+abline(lm(dr2.predict~lat, data=dr2.means), col="blue")
+```
+### Rat 2012 v.significant local adaptation
+
+
+### 4d. Ramsta
+
+```{r}
+dm2 <- d[d$exp=="RAM" & d$year=="2012" ,]
+hist(dm2$fecundity)
+```
+
+```{r eval=FALSE, include=TRUE}
+
+profile.m2 <- tweedie.profile(fecundity ~ id + block + block*id, data = dm2, p.vec = seq(1.1, 1.9, 0.1), fit.glm = TRUE, control=list(maxit=50), do.plot=TRUE)
+print(profile.m2$p.max)
+### use this var.power for the tweedie distribution
+```
+
+```{r ramsta2012_model}
+#vp.up <-profile.m2$p.max
+vp.up <- 1.457143
+dat.up <- dm2
+
+glm.m21 <- glm(fecundity ~ id + block + block*id, family=tweedie(var.power=vp.up, link.power=0), data=dat.up,maxit=75)
+
+glm.m22 <- glm(fecundity ~ id + block, family=tweedie(var.power=vp.up, link.power=0), data=dat.up, maxit=75)
+anova(glm.m22, glm.m21, test="Chisq")
+
+glm.m23 <- glm(fecundity ~ id , family=tweedie(var.power=vp.up, link.power=0), data=dat.up, maxit=75)
+anova(glm.m23, glm.m21, test="Chisq")
+
+glm.m24 <- glm(fecundity~ 1 , family=tweedie(var.power=vp.up, link.power=0), data=dat.up, maxit=75)
+anova(glm.m23, glm.m24, test="Chisq")
+
+#plot(glm.m23)
+
+```
+
+## neither block nor block interaction is significant.  Use model 3
+
+
+```{r}
+dm2.predict <- predict(glm.m23, type="response")
+hist(dm2.predict, main="hist of fitted values Ramsta 2012")
+
+dm2.dat <- cbind(dm2,dm2.predict)
+dm2.means <- aggregate(dm2.predict~id, data=dm2.dat, mean)
+hist(dm2.means$dm2.predict, main="hist of mean fitted values Ramsta 2012")
+```
+
+
+
+```{r}
+dm2.means <- merge(dm2.means, clim[,1:6], by="id")
+lm.m2fit <- lm(dm2.predict~lat, data=dm2.means)
+summary(lm.m2fit)
+plot(dm2.means$lat, dm2.means$dm2.predict, xlab="latitude of accession origin", ylab="fecundity in Ramsta 2012")
+abline(lm(dm2.predict~lat, data=dm2.means), col="blue")
+```
+Ramsta 2012 significant
+
+### 4e. Combining N/S comparisons
+
+```{r}
+all.means2 <- merge(da2.means, dm2.means[,1:2], by="id")
+all.means2 <- merge(all.means2, du2.means[,1:2], by="id")
+all.means2 <- merge(all.means2, dr2.means[,1:2], by="id")
+all.means2 <- all.means2[,c(1,3,4,5,6,7,2,8,9,10)]
+pairs(all.means2[,7:10])
+
+all.means2$n.means <- apply(all.means2,1,function(x){(as.numeric(x[7])+as.numeric(x[8]))/2})
+all.means2$s.means <- apply(all.means2,1,function(x){(as.numeric(x[9])+as.numeric(x[10]))/2})
+
+lm.ns.mean2 <- lm(n.means~s.means, data=all.means1)
+lm.ns.mean.loc2 <- lm(n.means~s.means + region , data=all.means2)
+lm.ns.mean.int2 <- lm(n.means~s.means + region + s.means*region , data=all.means2)
+
+anova(lm.ns.mean2)
+anova(lm.ns.mean.loc2)
+anova(lm.ns.mean.int2)
+
+aov.ns.mean.loc2 <- aov(n.means~s.means + region, data=all.means2)
+ns.posthoc2 <- TukeyHSD(aov.ns.mean.loc2, "region")
+plot(ns.posthoc2)
+
+with(all.means2, plot(s.means, n.means, xlab="mean fecundity in South", ylab="mean fecundity in North"))
+#abline(lm.ns.mean)
+abline(0,1, col="blue")
+
+library(ggplot2)
+
+ns.plot2012 <- ggplot(all.means2, aes(s.means, n.means)) + geom_point(aes(colour=region))
+ns.plot2012 + theme_bw() +   geom_smooth( aes(linetype = region, color=region), method = "lm") + labs(x="mean fecundity in Southern experiments 2012", y="mean fecundity in Northern experiments 2012")
+```
+fecundity much higher in the North than the South, N and S accessions fecundity the same
+
+
+
+```{r}
+lm.n2 <- lm(n.means~lat, data=all.means2)
+summary(lm.n2)
+plot(all.means2$lat, all.means2$n.means, xlab="latitude of accession origin", ylab="mean fecundity in North 2012")
+abline(lm(n.means~lat, data=all.means2), col="blue")
+
+lm.s2 <- lm(s.means~lat, data=all.means2)
+summary(lm.s2)
+plot(all.means2$lat, all.means2$s.means, xlab="latitude of accession origin", ylab="mean fecundity in South 2012")
+abline(lm(s.means~lat, data=all.means2), col="blue")
+```
+So, relationship between latitude and fecundity is significant in both N and S, but in N, it goes the wrong direction!
+Northern accessions don't make as many seeds in the North as the Southerns.
+Does this mean that survival is more important in the Northern sites?
+
+
+
+## 5. combining 2011 and 2012
+From the above, it looks like fecundity patterns are different for the two years, as well as between sites so I want to look at this more closely.
+First step is put variables together
+
+```{r}
+
+fit1 <- as.list(1:4)
+means1 <-c("du1.means","dr1.means","da1.means","dm1.means")
+sites <- c("ULL","RAT","ADA","RAM")
+
+for(up in 1:4){
+  up.m <- means1[[up]]
+  up.dat <- get(up.m)
+  colnames(up.dat)[2] <- "fecundity"
+  up.dat$site <- sites[[up]]
+  fit1[[up]] <- up.dat
+}
+fit1 <- do.call(rbind, fit1)
+### no observations for line 9336 in Ullstorp in 2011
+### no observations 6109 in Adal East in 2011
+fit1$year <- 2011
+
+fit2 <- as.list(1:4)
+means2 <-c("du2.means","dr2.means","da2.means","dm2.means")
+for(up in 1:4){
+  up.m <- means2[[up]]
+  up.dat <- get(up.m)
+  colnames(up.dat)[2] <- "fecundity"
+  up.dat$site <- sites[[up]]
+  fit2[[up]] <- up.dat
+}
+fit2 <- do.call(rbind, fit2)
+### no observations for line 9336 in Ullstorp in 2011
+### no observations 6109 in Adal East in 2011
+fit2$year <- 2012
+
+### these observations are complete
+
+acc.fit <- rbind(fit1, fit2)
+
+hist(acc.fit$fecundity, main="predicted mean fecundity, all sites, both years")
+with(acc.fit, boxplot(fecundity~year+site, xlab="year and site",ylab="fecundity", las=2))
+```
+This isn't totally normal, but I'll take it.
+Next step is to fit some models to look at year and site effects and interactions
+
+```{r}
+lm.b1 <- lm(fecundity~id + year + site + year*site, data=acc.fit)
+anova(lm.b1)
+
+lm.b2 <- lm(fecundity~id + year + id*year + site + id*site + year*site, data=acc.fit)
+anova(lm.b2)
+
+
+
+```
+
+So there are year difference, site differences, and interaction differences. This interaction is actually really, really big.
+
+
+```{r}
+
+all.means1$year <- "2011"
+all.means2$year <- "2012"
+all.means.both <- rbind(all.means1[,c(1:6,11:13)], all.means2[,c(1:6,11:13)])
+
+ns.plot.both <- ggplot(all.means.both, aes(s.means, n.means)) + geom_point(aes(colour=region))
+ns.plot.both + theme_bw() +   geom_smooth( aes(linetype = year, color= region), method = "lm") + labs(x="mean fecundity in Southern experiments", y="mean fecundity in Northern experiments")
+```
+
+## 6.  Output fitted values
+Combine all.means, all.means1, all.means2
+accessions in rows, phenotypes in columns
+
+```{r}
+all.min <- all.means[,c(1,7:12)]
+colnames(all.min) <- c("id","ADA_both","RAM_both","ULL_both","RAT_both","N_both", "S_both")
+
+all1.min <- all.means1[,c(1,7:12)]
+colnames(all1.min) <- c("id","ADA_2011","RAM_2011","ULL_2011","RAT_2011","N_2011", "S_2011")
+
+all2.min <- all.means2[,c(1,7:12)]
+colnames(all2.min) <- c("id","ADA_2012","RAM_2012","ULL_2012","RAT_2012","N_2012", "S_2012")
+
+fecund.fitted.values <- merge(all.min, all1.min, by="id", all=TRUE)
+fecund.fitted.values <- merge(fecund.fitted.values, all2.min, by="id", all=TRUE)
+write.table(fecund.fitted.values, file="./data/fecund.fitted.values.txt", quote=FALSE)
+```
+
+
+### 7. Output linear model summaries
+output to generate summary figure
+```{r}
+#need pvalue, slope, adjr2 for all four sites for both years- easiest is to just output all models together
+
+models <- c("lm.a1fit","lm.m1fit","lm.r1fit","lm.u1fit","lm.a2fit","lm.m2fit","lm.r2fit","lm.u2fit")
+fecundity.adapt.models <- as.list(1:8)
+for(up in 1:8){fecundity.adapt.models[[up]] <- get(models[up])}
+save(fecundity.adapt.models, file="./data/fecundity.adapt.models.Rdat")
+```
+
+
+
+## 8.  Summary
+
+Fecundity shows local adaptation at all sites and years in the South.
+In the North, almost all nonsig or sig with the effect going in the opposite direction
+(i.e. Southern accessions more fecund than Northern)
+Only exception is Ramsta 2011.
+
+So does this mean that survival is what impacts fitness in the North?
+Is this overwinter survival or survival from winter to seed set?
+And does this make sense with the year effects (i.e. stronger in 2012 in North)?
+
+Evidence of a tradeoff fecundity/survival?

@@ -1,0 +1,304 @@
+---
+title: "18.sss.by.admixture"
+author: "Daniele Filiault"
+date: "9/19/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(RColorBrewer)
+library(reshape)
+library(ggplot2)
+
+
+```
+
+## Introduction
+
+running script 16 with survival to seed set to look for relationship between proportion of genome and overwinter survival
+
+```{r prep admixture data}
+### admixture groups for 1001g data - from the paper:
+#We defined nine groups based on these clusters and assigned each individual to a group if more than 60% of its genome
+#derived from the corresponding cluster. The 135 individuals not
+#matching this criterion were labeled ‘‘Admixed.’’
+admix <- read.csv(file="./data/1001genomes-accessionsand1001genomes-admixture.csv", stringsAsFactors=FALSE)
+admix.m <- admix[,grep("K9", colnames(admix))]
+rownames(admix.m) <- admix$id
+#admix.m$id <- rownames(admix.m)
+
+max.a <- apply(admix.m,1, function(x)(max(x, na.rm=TRUE)))
+a.group <- rep(NA, nrow(admix.m))
+for(up in 1:nrow(admix.m)){
+  up.dat <- admix.m[up,]
+  a.group[up] <- which(up.dat==max.a[up])-1
+}
+names(a.group)<- rownames(admix.m)
+a.group <- cbind(admix[,c(1:4)], max.a,a.group, admix.m)
+
+
+## subset for experiment accessions.  Some will be missing.  Should rerun admixture with expanded data?
+fit.dat <- read.table("./data/sss.fitted.values.txt", stringsAsFactors=FALSE)
+fit.dat <- fit.dat[,c(1,8:11,14:17)]
+
+a.fit <- merge(a.group,fit.dat)  ### only 186 out of 200 accessions have admixture info
+
+## get info about N/C/S accession
+acc.list <- read.table("./data/acc_list.txt", sep="\t", header=TRUE)
+colnames(acc.list)[1] <- "id"
+a.fit <- merge(a.fit, acc.list[,c(1,3)])
+a.fit$region <- droplevels(a.fit$region)
+
+group.names <- c("W.Europe","Relicts","Germany","N.Sweden","Iberia","Asia","S.Sweden","Italy/E.Europe","C.Europe")
+
+```
+
+
+
+### Effect of Proportion of admixture group
+```{R fitness by admixture proportion}
+fit.columns <- colnames(a.fit)[16:23]
+
+plot.fit.prop <- function(fit.col){
+  par(mfcol=c(2,2))
+  with(a.fit, plot(K9.ChrAll.3, get(fit.col), type="n", xlab="proportion genome N.Swedish", ylab=paste("sss",fit.col, sep=" ")))
+  with(a.fit[a.fit$region=="N Sweden",], points(K9.ChrAll.3, get(fit.col), col="cadetblue", pch=19))
+  with(a.fit[a.fit$region=="S Sweden",], points(K9.ChrAll.3, get(fit.col), col="green", pch=19))
+  with(a.fit[a.fit$region=="C Sweden",], points(K9.ChrAll.3, get(fit.col), col="purple", pch=19))
+  abline(lm(get(fit.col)~K9.ChrAll.3, data=a.fit))
+  abline(lm(get(fit.col)~K9.ChrAll.3, data=a.fit[a.fit$region=="C Sweden",]), col="purple", lty=4)
+
+  with(a.fit, plot(K9.ChrAll.6, get(fit.col), type="n", xlab="proportion of genome S.Swedish", ylab=paste("sss",fit.col, sep=" ")))
+  with(a.fit[a.fit$region=="S Sweden",], points(K9.ChrAll.6, get(fit.col), col="green", pch=19))
+  with(a.fit[a.fit$region=="N Sweden",], points(K9.ChrAll.6, get(fit.col), col="cadetblue", pch=19))
+  with(a.fit[a.fit$region=="C Sweden",], points(K9.ChrAll.6, get(fit.col), col="purple", pch=19))
+  abline(lm(get(fit.col)~K9.ChrAll.6, data=a.fit))
+  abline(lm(get(fit.col)~K9.ChrAll.6, data=a.fit[a.fit$region=="C Sweden",]), col="purple", lty=4)
+
+  with(a.fit, plot(K9.ChrAll.2, get(fit.col),type="n", xlab="proportion of genome German", ylab=paste("sss",fit.col, sep=" ")))
+  with(a.fit[a.fit$region=="S Sweden",], points(K9.ChrAll.2, get(fit.col), col="green", pch=19))
+  with(a.fit[a.fit$region=="N Sweden",], points(K9.ChrAll.2, get(fit.col), col="cadetblue", pch=19))
+  with(a.fit[a.fit$region=="C Sweden",], points(K9.ChrAll.2, get(fit.col), col="purple", pch=19))
+  abline(lm(get(fit.col)~K9.ChrAll.2, data=a.fit))
+  abline(lm(get(fit.col)~K9.ChrAll.2, data=a.fit[a.fit$region=="C Sweden",]), col="purple", lty=4)
+
+  with(a.fit, plot(1-(K9.ChrAll.3+K9.ChrAll.6), get(fit.col), type="n", xlab="proportion of genome other groups", ylab=paste("sss",fit.col, sep=" ")))
+  with(a.fit[a.fit$region=="N Sweden",], points(1-(K9.ChrAll.3+K9.ChrAll.6+K9.ChrAll.2), get(fit.col), col="cadetblue", pch=19))
+  with(a.fit[a.fit$region=="S Sweden",], points(1-(K9.ChrAll.3+K9.ChrAll.6+K9.ChrAll.2), get(fit.col), col="green", pch=19))
+  with(a.fit[a.fit$region=="C Sweden",], points(1-(K9.ChrAll.3+K9.ChrAll.6+K9.ChrAll.2), get(fit.col), col="purple", pch=19))
+  p.nsw <- 1-(a.fit$K9.ChrAll.3+a.fit$K9.ChrAll.6+a.fit$K9.ChrAll.2)
+  abline(lm(get(fit.col)~p.nsw, data=a.fit))
+  p.nsw.c <- 1-(a.fit[a.fit$region=="C Sweden",]$K9.ChrAll.3+a.fit[a.fit$region=="C Sweden",]$K9.ChrAll.6+a.fit[a.fit$region=="C Sweden",]$K9.ChrAll.2)
+  abline(lm(get(fit.col)~p.nsw.c, data=a.fit[a.fit$region=="C Sweden",]), col="purple", lty=4)
+  legend(x="topright", legend=c("North","Central", "South"), col=c("cadetblue","purple","green"), pch=19)
+}
+
+for(up.c in fit.columns){
+  pdf(file=paste("./figures/sss.by.admix.prop.", up.c, ".pdf", sep=""), width=8, height=6)
+  par(mar=c(5,4,1,1))
+  plot.fit.prop(fit.col=up.c)
+  dev.off()
+}
+
+```
+
+What's most important in determining fitness, prop N, prop S, or prop non-Swedish?
+
+These proportions are weird variables (high correlation), and there is probably a better way to do this, but let's just start with plain old linear models like in the above figures
+
+```{R lm fit by prop}
+
+prop.lm <- function(fit.col){
+  out.dat <- as.list(1:4)
+  out.dat[[1]] <- lm(get(fit.col)~K9.ChrAll.3, data=a.fit)
+  out.dat[[2]] <- lm(get(fit.col)~K9.ChrAll.6, data=a.fit)
+  out.dat[[3]] <- lm(get(fit.col)~K9.ChrAll.2, data=a.fit)
+  p.nsw <- 1-(a.fit$K9.ChrAll.3+a.fit$K9.ChrAll.6+a.fit$K9.ChrAll.2)
+  out.dat[[4]] <- lm(get(fit.col)~p.nsw, data=a.fit)
+  return(out.dat)
+}
+
+### 2011 first
+fit.columns <- colnames(a.fit)[grep("2011",colnames(a.fit))]
+ada1 <- prop.lm(fit.col=fit.columns[1])
+ram1 <- prop.lm(fit.col=fit.columns[2])
+ull1 <- prop.lm(fit.col=fit.columns[3])
+rat1 <- prop.lm(fit.col=fit.columns[4])
+
+### 2012 second
+fit.columns <- colnames(a.fit)[grep("2012",colnames(a.fit))]
+ada2 <- prop.lm(fit.col=fit.columns[1])
+ram2 <- prop.lm(fit.col=fit.columns[2])
+ull2 <- prop.lm(fit.col=fit.columns[3])
+rat2 <- prop.lm(fit.col=fit.columns[4])
+
+###### slopes ######
+### 2011
+ada1.s <- unlist(lapply(ada1, function(x){summary(x)$coefficients[2,1]}))
+ram1.s <- unlist(lapply(ram1, function(x){summary(x)$coefficients[2,1]}))
+ull1.s <- unlist(lapply(ull1, function(x){summary(x)$coefficients[2,1]}))
+rat1.s <- unlist(lapply(rat1, function(x){summary(x)$coefficients[2,1]}))
+slope1 <- rbind(ada1.s, ram1.s, ull1.s, rat1.s)
+colnames(slope1) <- c("n.swedish", "s.swedish", "german", "other")
+
+### 2012
+ada2.s <- unlist(lapply(ada2, function(x){summary(x)$coefficients[2,1]}))
+ram2.s <- unlist(lapply(ram2, function(x){summary(x)$coefficients[2,1]}))
+ull2.s <- unlist(lapply(ull2, function(x){summary(x)$coefficients[2,1]}))
+rat2.s <- unlist(lapply(rat2, function(x){summary(x)$coefficients[2,1]}))
+slope2 <- rbind(ada2.s, ram2.s, ull2.s, rat2.s)
+colnames(slope2) <- c("n.swedish", "s.swedish", "german", "other")
+
+######### pvals #############
+### 2011
+ada1.p <- unlist(lapply(ada1, function(x){summary(x)$coefficients[2,4]}))
+ram1.p <- unlist(lapply(ram1, function(x){summary(x)$coefficients[2,4]}))
+ull1.p <- unlist(lapply(ull1, function(x){summary(x)$coefficients[2,4]}))
+rat1.p <- unlist(lapply(rat1, function(x){summary(x)$coefficients[2,4]}))
+pval1 <- rbind(ada1.p, ram1.p, ull1.p, rat1.p)
+colnames(pval1) <- c("n.swedish", "s.swedish", "german", "other")
+
+### 2012
+ada2.p <- unlist(lapply(ada2, function(x){summary(x)$coefficients[2,4]}))
+ram2.p <- unlist(lapply(ram2, function(x){summary(x)$coefficients[2,4]}))
+ull2.p <- unlist(lapply(ull2, function(x){summary(x)$coefficients[2,4]}))
+rat2.p <- unlist(lapply(rat2, function(x){summary(x)$coefficients[2,4]}))
+pval2 <- rbind(ada2.p, ram2.p, ull2.p, rat2.p)
+colnames(pval2) <- c("n.swedish", "s.swedish", "german", "other")
+
+
+
+```
+
+
+```{R plot slopes}
+### plot these slopes
+ad.colors <- brewer.pal(9, "Paired")[c(4,7,3,6)]  ### numbers are one higher than admixture group because groups start at 0!
+ad.names <- c("N.Swedish", "S.Swedish", "German", "Other")
+p.pch <-c(17, 19)
+
+plot.slope <- function(up.s, up.p, up.t){
+  up.s <- up.s[4:1,]
+  up.p <- up.p[4:1,]
+  par(mar=c(4,4,2,2))
+  plot(0,0, xlim=c(min(up.s), max(up.s)), ylim=c(0.5,nrow(up.s)), yaxt="n", ylab="", xlab="slope sss~admix proportion", main=up.t)
+  abline(v=0, col="grey70")
+  for(up.r in c(1:4)){
+    up.dat <- up.s[up.r,]
+    up.pv <- up.p[up.r,]
+    up.pv <- sapply(up.pv, function(x){x<0.05})
+    up.pv <- as.numeric(up.pv)+1
+    up.pv <- p.pch[up.pv]
+    points(x=up.dat, y=rep(up.r,length(up.dat)), col=ad.colors, pch=up.pv, cex=1.7)
+  }
+  axis(2, at=1:4, labels=substr(rownames(up.s),1,3), las=2)
+  legend(x="bottom",legend=c(ad.names, "sig", "not sig"), col=c(ad.colors, "black", "black"), pch=c(rep(19,4),19,17), ncol=3, bg="white")
+}
+
+par(mfcol=c(1,2))
+plot.slope(up.s=slope1, up.p=pval1, up.t="2011")
+plot.slope(up.s=slope2, up.p=pval2, up.t="2012")
+
+pdf("./figures/slope.sss.admixture.pdf", width=10, height=6)
+par(mfcol=c(1,2))
+plot.slope(up.s=slope1, up.p=pval1, up.t="2011")
+plot.slope(up.s=slope2, up.p=pval2, up.t="2012")
+dev.off()
+```
+
+
+```{R fitness rank}
+
+#Is a pattern in proportion when accessions are ranked by beta?
+
+pdf(file="./figures/sss.rank.by.admix.prop.pdf", width=18, height=8)
+par(mfcol=c(4,3), mar=c(0.2,4,1.5,0.2))
+for(up.c in 16:23){
+  p.dat <- a.fit[order(a.fit[,up.c]),]
+  barplot(t(as.matrix(p.dat[,7:15])), col=brewer.pal(9, "Paired"), xaxt="n",space=0, ylab="genome proportion")
+  mtext(colnames(a.fit)[up.c],side=3, line=0)
+}
+plot(0,type='n',axes=FALSE,ann=FALSE)
+legend(legend=group.names, fill=brewer.pal(9, "Paired"), title="admixture group",bg="white",x="left")
+#barplot(0, plot=FALSE, axes=FALSE, ann=FALSE,col=brewer.pal(9, "Paired"), legend.text=group.names, xaxt="n",space=0, args.legend=list(title="admixture group",bg="white",x="left") )
+
+dev.off()
+```
+#### Test for simple effect of admixture group on sss, using lines that are "well-assigned" to admixture groups (i.e. not considered admixed in 1001g data)
+
+```{R admixture group ows diffs}
+ga.fit <- a.fit[a.fit$max.a>=0.60,]
+ga.fit <- ga.fit[ga.fit$a.group%in%c(2,3,6),]
+table(ga.fit$a.group)
+
+
+#### 2011 first
+ag1.aov <- as.list(1:4)
+ag1.tukey <- as.list(1:4
+                     )
+col1 <- colnames(ga.fit)[grep("2011",colnames(ga.fit))]
+
+for(up in 1:4){
+  aov.up <- aov(get(col1[up])~as.factor(a.group), data=ga.fit)
+  tt.up <- TukeyHSD(aov.up)
+  ag1.aov[[up]] <- aov.up
+  ag1.tukey[[up]] <- tt.up
+}
+
+par(mfrow=c(2,2))
+lapply(ag1.tukey, plot)
+
+lapply(ag1.aov,summary)
+
+
+#### 2012 second
+ag2.aov <- as.list(1:4)
+ag2.tukey <- as.list(1:4
+                     )
+col2 <- colnames(ga.fit)[grep("2012",colnames(ga.fit))]
+
+for(up in 1:4){
+  aov.up <- aov(get(col2[up])~as.factor(a.group), data=ga.fit)
+  tt.up <- TukeyHSD(aov.up)
+  ag2.aov[[up]] <- aov.up
+  ag2.tukey[[up]] <- tt.up
+}
+
+par(mfrow=c(2,2))
+lapply(ag2.tukey, plot)
+
+lapply(ag2.aov,summary)
+
+```
+
+```{R plot by means rxn norm}
+##reshape data
+ga.long <- ga.fit[,c(1,6,grep("2011", colnames(ga.fit)), grep("2012", colnames(ga.fit)))]
+mdata <- melt(ga.long, id=c("id","a.group"))
+var.s <- strsplit(as.character(mdata$variable), split="_")
+var.s <- do.call(rbind, var.s)
+colnames(var.s) <- c("site", "year")
+ga.long <- cbind(mdata, var.s)
+colnames(ga.long)[4] <- "sss"
+ga.long$site = factor(ga.long$site,levels(ga.long$site)[c(1,2,4,3)])
+
+
+ag.colors <- brewer.pal(9, "Paired")[c(3,4,7)]
+
+ad.group.boxplot <- ggplot(ga.long, aes(x=as.factor(a.group), y=sss, fill=as.factor(a.group))) +
+  geom_violin() +
+  geom_boxplot(width=0.1, show.legend=FALSE)+
+  xlab("admixture group")+ 
+  facet_grid(year~site) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(name = "admixture group", labels = c("Germany", "N.Sweden", "S.Sweden"), values=ag.colors) +
+  scale_x_discrete(labels=c("Germany", "N.Sweden", "S.Sweden"))
+
+print(ad.group.boxplot)
+
+pdf(file="./figures/sss.by.admix.group.pdf", width=8, height=6)
+print(ad.group.boxplot)
+dev.off()
+
+```

@@ -1,0 +1,598 @@
+---
+title: "30.composite.fitness.estimates"
+author: "Daniele Filiault"
+date: "2/24/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(lme4)
+library(corrplot)
+library(heatmaply)
+library(RColorBrewer)
+library(pheatmap)
+library(ggpubr)
+library(pgirmess)
+library(multcompView)
+```
+
+## Motivation
+
+To compare with SnR experiments, I need to calculate the composite fitness of lines over 1.5 years (will also do 2 years).  This will be messy - need to calcuate BLUPs for each year/experiment combo and multiply out.
+
+```{r load data}
+d11=readRDS(file="./data/d11_for_analysis.rds")
+d11=d11[, c("exp", "block", "id", "ows","sss","fecundity")]
+d11$year=2011
+
+d12=readRDS(file="./data/d12_for_analysis.rds")
+d12=d12[, c("exp", "block", "id", "ows","sss","fecundity")]
+d12$year=2012
+
+d=rbind(d11, d12)
+
+```
+
+## 1. I have already calculated predicted values in scripts 02-05.  I think the analyses for ows and ss are correct (using glm with binomial), but I am concerned about fecundity (which I did as a tweedie model).  Look at the distributions
+
+```{r ows dist plot}
+ows.dist <- ggplot(d, aes(x=ows)) +
+  geom_histogram() +
+  facet_grid(exp ~ year)
+
+print(ows.dist)
+
+sss.dist <- ggplot(d, aes(x=sss)) +
+  geom_histogram() +
+  facet_grid(exp ~ year)
+
+print(sss.dist)
+
+fec.dist.log <- ggplot(d, aes(x=log(fecundity))) +
+  geom_histogram() +
+  facet_grid(exp ~ year)
+
+fec.dist <- ggplot(d, aes(x=fecundity)) +
+  geom_histogram() +
+  facet_grid(exp ~ year)
+
+fec.dist.sqrt <- ggplot(d, aes(x=sqrt(fecundity))) +
+  geom_histogram() +
+  facet_grid(exp ~ year)
+
+print(fec.dist)
+print(fec.dist.log)
+print(fec.dist.sqrt)
+```
+
+
+##2.  Redo fecundity models
+I will redo the individual experiment models for fecundity using sqrt transformation
+
+
+```{r fecundity models 2011}
+year="2011"
+
+site = "ULL"
+up.dat <- d[d$exp==site & d$year==year,]
+u1.lm <- lm(sqrt(fecundity)~ block + id, data=up.dat)
+# Multiple R-squared:  0.2412,	Adjusted R-squared:  0.194 
+# F-statistic: 5.115 on 200 and 3219 DF,  p-value: < 2.2e-16
+# block significant
+anova(u1.lm)
+
+### function to get predicted means per accession
+pred.means <- function(up.lm, up.dat){
+  up.predict <- (predict(up.lm, type="response")^2)#undo square root transformation
+  up.predict <- cbind(up.dat[names(up.predict),], up.predict) #undo square root transformation
+  out.means <- aggregate(up.predict~id, data=up.predict, mean)
+  return(out.means)
+}
+u1.p <- pred.means(up.lm=u1.lm, up.dat=up.dat)
+colnames(u1.p)[2] <- "ULL_2011"
+
+
+site = "RAT"
+up.dat <- d[d$exp==site & d$year==year,]
+t1.lmb <- lm(sqrt(fecundity)~ block + id, data=up.dat) #block not sig
+t1.lm <- lm(sqrt(fecundity)~ id, data=up.dat)
+anova(t1.lm, t1.lmb) # but with block is significantly better p=0.03297, so keep full model
+t1.lm  <- lm(sqrt(fecundity) ~ block + id, data=up.dat)
+#Multiple R-squared:  0.1784,	Adjusted R-squared:  0.111 
+#F-statistic: 2.647 on 200 and 2439 DF,  p-value: < 2.2e-16
+anova(t1.lm)
+t1.p <- pred.means(up.lm=t1.lm, up.dat=up.dat)
+colnames(t1.p)[2] <- "RAT_2011"
+
+site = "ADA"
+up.dat <- d[d$exp==site & d$year==year,]
+a1.lm <- lm(sqrt(fecundity)~ block + id, data=up.dat)
+#Multiple R-squared:  0.1723,	Adjusted R-squared:  0.1066 
+#F-statistic: 2.625 on 199 and 2509 DF,  p-value: < 2.2e-16
+anova(a1.lm)
+a1.p <- pred.means(up.lm=a1.lm, up.dat=up.dat)
+colnames(a1.p)[2] <- "ADA_2011"
+
+site = "RAM"
+up.dat <- d[d$exp==site & d$year==year,]
+r1.lm <- lm(sqrt(fecundity)~ block + id, data=up.dat)
+#Multiple R-squared:  0.1829,	Adjusted R-squared:  0.1036 
+#F-statistic: 2.308 on 199 and 2052 DF,  p-value: < 2.2e-16
+anova(r1.lm)
+r1.p <- pred.means(up.lm=r1.lm, up.dat=up.dat)
+colnames(r1.p)[2] <- "RAM_2011"
+
+
+pred2011 <- merge(u1.p, t1.p, all=TRUE)
+pred2011 <- merge(pred2011, a1.p, all=TRUE)
+pred2011 <- merge(pred2011, r1.p, all=TRUE)
+```
+
+```{r fecundity models 2012}
+year="2012"
+
+site = "ULL"
+up.dat <- d[d$exp==site & d$year==year,]
+u2.lm <- lm(sqrt(fecundity)~ block + id, data=up.dat)
+#Multiple R-squared:  0.3139,	Adjusted R-squared:  0.2509 
+#F-statistic: 4.977 on 201 and 2186 DF,  p-value: < 2.2e-16
+# block significant
+anova(u2.lm)
+u2.p <- pred.means(up.lm=u2.lm, up.dat=up.dat)
+colnames(u2.p)[2] <- "ULL_2012"
+
+site = "RAT"
+up.dat <- d[d$exp==site & d$year==year,]
+t2.lm  <- lm(sqrt(fecundity) ~ block + id, data=up.dat)
+#Multiple R-squared:  0.2676,	Adjusted R-squared:  0.1888 
+#F-statistic: 3.394 on 200 and 1858 DF,  p-value: < 2.2e-16
+anova(t2.lm)
+t2.p <- pred.means(up.lm=t2.lm, up.dat=up.dat)
+colnames(t2.p)[2] <- "RAT_2012"
+
+site = "ADA"
+up.dat <- d[d$exp==site & d$year==year,]
+a2.lm <- lm(sqrt(fecundity)~ block + id, data=up.dat)
+#Multiple R-squared:  0.326,	Adjusted R-squared:  0.2695 
+#F-statistic: 5.777 on 201 and 2401 DF,  p-value: < 2.2e-16
+anova(a2.lm)
+a2.p <- pred.means(up.lm=a2.lm, up.dat=up.dat)
+colnames(a2.p)[2] <- "ADA_2012"
+
+site = "RAM"
+up.dat <- d[d$exp==site & d$year==year,]
+r2.lm <- lm(sqrt(fecundity)~ block + id, data=up.dat)
+## block not significant
+r2.lm.nb <- lm(sqrt(fecundity)~ id, data=up.dat)
+anova(r2.lm, r2.lm.nb) ## nope, not different.  Use the model without block
+r2.lm <- lm(sqrt(fecundity)~ id, data=up.dat)
+#Multiple R-squared:  0.1892,	Adjusted R-squared:  0.1198 
+#F-statistic: 2.727 on 199 and 2326 DF,  p-value: < 2.2e-16
+anova(r2.lm)
+r2.p <- pred.means(up.lm=r2.lm, up.dat=up.dat)
+colnames(r2.p)[2] <- "RAM_2012"
+
+pred2012 <- merge(u2.p, t2.p, all=TRUE)
+pred2012 <- merge(pred2012, a2.p, all=TRUE)
+pred2012 <- merge(pred2012, r2.p, all=TRUE)
+
+pred.fec <- merge(pred2011, pred2012, all=TRUE)
+```
+
+## 3. Load ows and ss predicted means
+
+```{r load other predicted }
+
+ows <- read.table(file="./data/ows.fitted.values.txt", stringsAsFactors=FALSE)
+ows <- ows[, colnames(ows)%in%colnames(pred.fec)]
+sss <- read.table(file="./data/sss.fitted.values.txt", stringsAsFactors=FALSE)
+sss <- sss[, colnames(sss)%in%colnames(pred.fec)]
+
+# just make sure all three in same order
+
+ows <- ows[order(ows$id),]
+sss <- sss[order(sss$id),]
+fec <- pred.fec[order(as.numeric(as.character((pred.fec$id)))),]
+fec$id <- as.numeric(as.character(fec$id))
+fec <- fec[,match(colnames(fec), colnames(ows))]
+```
+
+## 4.  Calculate composite fitness
+
+```{r composite fitness}
+comp.fit <- matrix(NA, nrow=nrow(fec), ncol=4)
+
+sites <- c("ADA","RAM","ULL","RAT")
+
+for(up in 1:length(sites)){
+  up.site <- sites[up]
+  up.sss <- sss[,grep(up.site,colnames(sss))]
+  up.fec <- fec[,grep(up.site, colnames(fec))]
+  out.fit <- up.sss[,1]*up.sss[,2]*up.fec[,1]*up.fec[,2]
+  comp.fit[,up] <- out.fit
+}
+
+colnames(comp.fit) <- sites
+rownames(comp.fit) <- sss$id
+```
+
+```{r composite pairwise}
+### plot pairwise correlations
+my_cor <- cor(comp.fit, use="na.or.complete")
+colfunc<-colorRampPalette(c("red","white","royalblue"))
+#heatmaply_cor(my_cor, colors= colfunc(100),cellnote=my_cor,cellnote_textposition="middle center")
+### since these are interactive plots in plotly, they are hard to save statically, so I saved this one manually from the window
+#file="./figures/correlation.dendrogram.composite.fitness.jpeg"
+```
+
+## 5.  Normalize composite fitness
+```{r normalize composite fitness}
+## z-score normalize the blups in each experiment
+znorm <- function(x){(x-mean(x, na.rm=TRUE))/sd(x, na.rm=TRUE)}
+norm.cfit <- apply(comp.fit, 2,znorm)
+```
+
+```{r normalized fitness by K groups heatmap}
+## similar to in 29.BLUP.heatmap.by.K
+### K group membership
+k.groups <- read.table(file="./data/Kmatrix.6cluster.membership.txt")
+
+## put normalized blups into K clustering order
+k.order.cfit <- norm.cfit[match(rownames(k.groups),rownames(norm.cfit)),]
+
+## make in pheatmap so can add breaks and annotations
+bk <- c(seq(-max(k.order.cfit,na.rm=TRUE),max(k.order.cfit,na.rm=TRUE),by=0.5))
+#colors (one less than breaks) - centered on 0, using grey as zero so can see breaks
+mycols <- c(colorRampPalette(colors = c("red","grey80","blue"))(length(bk)-1))
+#pheatmap(K.order,cluster_rows=FALSE, cluster_cols=FALSE)
+#pheatmap(k.order.norm.blup, cluster_rows=FALSE,color=mycols,breaks=bk,cutree_col=3,annotation_row=as.data.frame(kcl.order))
+
+### where should we place gaps?
+gap.coord <- sapply(1:(nrow(k.groups)-1), function(x){
+  k.groups[x,1]==k.groups[x+1,1]
+  })
+gap.coord <- which(gap.coord==FALSE)
+gap.co <- c(2)
+
+### add K-matrix group annotation
+kcl.order.fact <- k.groups
+ann.colors <- list(K.group=c(K1 = "#A6CEE3", K2 = "#1F78B4", K3 = "#B2DF8A", K4 = "#33A02C", K5 = "#FB9A99", K6 = "#E31A1C")) 
+## these colors are from brewer.pal(6, "Paired").  Hard to generate this list automatically!
+
+### make heatmap
+pdf(file="./figures/heatmap.composite.fitness.by.Kgroup.pdf")
+pheatmap(k.order.cfit, cluster_rows=FALSE, color=mycols, breaks=bk, annotation_row=kcl.order.fact, gaps_row=gap.coord, cutree_cols=2, annotation_colors=ann.colors, show_rownames = FALSE)
+dev.off()
+
+pheatmap(k.order.cfit, cluster_rows=FALSE, color=mycols, breaks=bk, annotation_row=kcl.order.fact, gaps_row=gap.coord, cutree_cols=2, annotation_colors=ann.colors, show_rownames = FALSE)
+```
+
+## 6.  Nonparametric test composite fitness by group
+```{R nonpara tests K group}
+#k.order.cfit
+
+norm.comp.blup <- cbind(k.order.cfit,k.groups)
+
+
+### get labels for multiple testing
+get.tuk.lab <- function(up.kmc){
+  tlab <- up.kmc[[3]][,3]
+  names(tlab) <- rownames(up.kmc[[3]])
+  tlab <- data.frame(multcompLetters(tlab)['Letters'])
+  return(tlab)
+}
+
+kw.normcomp <- as.list(rep(NA,4)) 
+ph.normcomp <- as.list(rep(NA,4))
+
+for(up in 1:4){
+  up.exp <- colnames(norm.comp.blup)[up]
+  up.kt <- kruskal.test(get(up.exp)~K.group, data=norm.comp.blup)
+  up.ph <- kruskalmc(get(up.exp)~K.group, data=norm.comp.blup)
+  out.ph <- get.tuk.lab(up.ph)
+  kw.normcomp[[up]] <- up.kt
+  ph.normcomp[[up]] <- out.ph
+}  
+
+ph.normcomp <- do.call(cbind,ph.normcomp)
+colnames(ph.normcomp) <- colnames(norm.comp.blup)[1:4]
+ph.normcomp$K.group <- rownames(ph.normcomp)
+```
+
+
+```{R nonparam plots composite}
+############
+### ADA
+max.vals <- aggregate(norm.comp.blup$ADA,by=list(norm.comp.blup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.05*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normcomp$ADA, max.vals[,1])
+colnames(Tukey_test) <- c("ADA","Tukey_labels","K.group")
+tt.a <- Tukey_test
+
+ac.plot <- ggplot(data=norm.comp.blup, aes(x=K.group, y=ADA,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized fitness") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.a, aes(label=tt.a$Tukey_labels)) + ggtitle("ADA composite")
+
+############
+### RAM
+max.vals <- aggregate(norm.comp.blup$RAM,by=list(norm.comp.blup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.05*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normcomp$RAM, max.vals[,1])
+colnames(Tukey_test) <- c("RAM","Tukey_labels","K.group")
+tt.r <- Tukey_test
+
+rc.plot <- ggplot(data=norm.comp.blup, aes(x=K.group, y=RAM,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized fitness") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.r, aes(label=tt.r$Tukey_labels)) + ggtitle("RAM composite")
+
+############
+### ULL
+max.vals <- aggregate(norm.comp.blup$ULL,by=list(norm.comp.blup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.05*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normcomp$ULL, max.vals[,1])
+colnames(Tukey_test) <- c("ULL","Tukey_labels","K.group")
+tt.u <- Tukey_test
+
+uc.plot <- ggplot(data=norm.comp.blup, aes(x=K.group, y=ULL,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized fitness") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.u, aes(label=tt.u$Tukey_labels)) + ggtitle("ULL composite")
+
+############
+### RAT
+max.vals <- aggregate(norm.comp.blup$RAT,by=list(norm.comp.blup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.05*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.normcomp$RAT, max.vals[,1])
+colnames(Tukey_test) <- c("RAT","Tukey_labels","K.group")
+tt.t <- Tukey_test
+
+tc.plot <- ggplot(data=norm.comp.blup, aes(x=K.group, y=RAT,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized fitness") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.t, aes(label=tt.t$Tukey_labels)) + ggtitle("RAT composite")
+```
+
+```{R nonparam plot generate}
+pdf("./figures/normalized.composite.fitness.blups.nonparametric.by.K.pdf", width=9, height=9)
+figure.nonparam <- ggarrange(ac.plot, rc.plot, uc.plot, tc.plot, 
+          labels = c("A", "B", "C","D"),
+          ncol = 2, nrow = 2)
+annotate_figure(figure.nonparam, top = text_grob("normalized composite fitness BLUPs - KW tests", face = "bold", size = 20))
+dev.off()
+```
+
+
+## 7.  Calculate select and resequence fitness
+
+```{r SnR fitness}
+snr.fit <- matrix(NA, nrow=nrow(fec), ncol=4)
+
+sites <- c("ADA","RAM","ULL","RAT")
+
+for(up in 1:length(sites)){
+  up.site <- sites[up]
+  up.sss <- sss[,grep(up.site,colnames(sss))]
+  up.fec <- fec[,grep(up.site, colnames(fec))]
+  up.ows <- ows[,grep(up.site, colnames(ows))]
+  out.fit <- up.sss[,1]*up.fec[,1]*up.ows[,2]
+  snr.fit[,up] <- out.fit
+}
+
+colnames(snr.fit) <- sites
+rownames(snr.fit) <- sss$id
+```
+
+```{r snr fitness pairwise}
+### plot pairwise correlations
+my_cor <- cor(snr.fit, use="na.or.complete")
+colfunc<-colorRampPalette(c("red","white","royalblue"))
+#heatmaply_cor(my_cor, colors= colfunc(100),cellnote=my_cor,cellnote_textposition="middle center")
+### since these are interactive plots in plotly, they are hard to save statically, so I saved this one manually from the window
+#file="./figures/correlation.dendrogram.snr.fitness.jpeg"
+```
+
+## 8.  Normalize SnR fitness
+```{r normalize snr fitness}
+## z-score normalize the blups in each experiment
+znorm <- function(x){(x-mean(x, na.rm=TRUE))/sd(x, na.rm=TRUE)}
+norm.sfit <- apply(snr.fit, 2,znorm)
+```
+
+```{r normalized snr fitness by K groups heatmap}
+## similar to in 29.BLUP.heatmap.by.K
+### K group membership
+k.groups <- read.table(file="./data/Kmatrix.6cluster.membership.txt")
+
+## put normalized blups into K clustering order
+k.order.sfit <- norm.sfit[match(rownames(k.groups),rownames(norm.sfit)),]
+
+## make in pheatmap so can add breaks and annotations
+bk <- c(seq(-max(k.order.sfit,na.rm=TRUE),max(k.order.sfit,na.rm=TRUE),by=0.5))
+#colors (one less than breaks) - centered on 0, using grey as zero so can see breaks
+mycols <- c(colorRampPalette(colors = c("red","grey80","blue"))(length(bk)-1))
+
+### where should we place gaps?
+gap.coord <- sapply(1:(nrow(k.groups)-1), function(x){
+  k.groups[x,1]==k.groups[x+1,1]
+  })
+gap.coord <- which(gap.coord==FALSE)
+gap.co <- c(2)
+
+### add K-matrix group annotation
+kcl.order.fact <- k.groups
+ann.colors <- list(K.group=c(K1 = "#A6CEE3", K2 = "#1F78B4", K3 = "#B2DF8A", K4 = "#33A02C", K5 = "#FB9A99", K6 = "#E31A1C")) 
+## these colors are from brewer.pal(6, "Paired").  Hard to generate this list automatically!
+
+### make heatmap
+pdf(file="./figures/heatmap.snr.fitness.by.Kgroup.pdf")
+pheatmap(k.order.sfit, cluster_rows=FALSE, color=mycols, breaks=bk, annotation_row=kcl.order.fact, gaps_row=gap.coord, cutree_cols=2, annotation_colors=ann.colors, show_rownames = FALSE)
+dev.off()
+
+snr.heatmap <- pheatmap(k.order.sfit, cluster_rows=FALSE, color=mycols, breaks=bk, annotation_row=kcl.order.fact, gaps_row=gap.coord, cutree_cols=2, annotation_colors=ann.colors, show_rownames = FALSE)
+
+print(snr.heatmap)
+```
+
+## 9.  Nonparametric test SnR fitness by K group
+```{R nonpara tests K group SnR}
+#k.order.sfit
+
+norm.snr.blup <- cbind(k.order.sfit,k.groups)
+
+### get labels for multiple testing
+get.tuk.lab <- function(up.kmc){
+  tlab <- up.kmc[[3]][,3]
+  names(tlab) <- rownames(up.kmc[[3]])
+  tlab <- data.frame(multcompLetters(tlab)['Letters'])
+  return(tlab)
+}
+
+kw.snrcomp <- as.list(rep(NA,4)) 
+ph.snrcomp <- as.list(rep(NA,4))
+
+for(up in 1:4){
+  up.exp <- colnames(norm.snr.blup)[up]
+  up.kt <- kruskal.test(get(up.exp)~K.group, data=norm.snr.blup)
+  up.ph <- kruskalmc(get(up.exp)~K.group, data=norm.snr.blup)
+  out.ph <- get.tuk.lab(up.ph)
+  kw.snrcomp[[up]] <- up.kt
+  ph.snrcomp[[up]] <- out.ph
+}  
+
+ph.snrcomp <- do.call(cbind,ph.snrcomp)
+colnames(ph.snrcomp) <- colnames(norm.snr.blup)[1:4]
+ph.snrcomp$K.group <- rownames(ph.snrcomp)
+```
+
+
+```{R nonparam plots composite}
+############
+### ADA
+max.vals <- aggregate(norm.snr.blup$ADA,by=list(norm.snr.blup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.05*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.snrcomp$ADA, max.vals[,1])
+colnames(Tukey_test) <- c("ADA","Tukey_labels","K.group")
+tt.a <- Tukey_test
+
+ac.plot <- ggplot(data=norm.snr.blup, aes(x=K.group, y=ADA,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized fitness") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.a, aes(label=tt.a$Tukey_labels)) + ggtitle("ADA composite")
+
+############
+### RAM
+max.vals <- aggregate(norm.snr.blup$RAM,by=list(norm.snr.blup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.05*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.snrcomp$RAM, max.vals[,1])
+colnames(Tukey_test) <- c("RAM","Tukey_labels","K.group")
+tt.r <- Tukey_test
+
+rc.plot <- ggplot(data=norm.snr.blup, aes(x=K.group, y=RAM,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized fitness") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.r, aes(label=tt.r$Tukey_labels)) + ggtitle("RAM composite")
+
+############
+### ULL
+max.vals <- aggregate(norm.snr.blup$ULL,by=list(norm.snr.blup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.05*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.snrcomp$ULL, max.vals[,1])
+colnames(Tukey_test) <- c("ULL","Tukey_labels","K.group")
+tt.u <- Tukey_test
+
+uc.plot <- ggplot(data=norm.snr.blup, aes(x=K.group, y=ULL,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized fitness") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.u, aes(label=tt.u$Tukey_labels)) + ggtitle("ULL composite")
+
+############
+### RAT
+max.vals <- aggregate(norm.snr.blup$RAT,by=list(norm.snr.blup$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.05*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.snrcomp$RAT, max.vals[,1])
+colnames(Tukey_test) <- c("RAT","Tukey_labels","K.group")
+tt.t <- Tukey_test
+
+tc.plot <- ggplot(data=norm.snr.blup, aes(x=K.group, y=RAT,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized fitness") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.t, aes(label=tt.t$Tukey_labels)) + ggtitle("RAT composite")
+```
+
+```{R nonparam plot generate}
+pdf("./figures/normalized.snr.fitness.blups.nonparametric.by.K.pdf", width=9, height=9)
+figure.nonparam <- ggarrange(ac.plot, rc.plot, uc.plot, tc.plot, 
+          labels = c("A", "B", "C","D"),
+          ncol = 2, nrow = 2)
+annotate_figure(figure.nonparam, top = text_grob("normalized composite fitness BLUPs - KW tests", face = "bold", size = 20))
+dev.off()
+```
+
+
+
+
+
+## 6. output composite fitness mesures
+
+```{r output composite fitness, eval=FALSE}
+
+## comp.fit, norm.cfit
+## snr.fit, norm.sfit
+
+cf <- comp.fit
+colnames(cf) <- paste(colnames(comp.fit),".comp", sep="")
+ncf <- norm.cfit
+colnames(ncf) <- paste(colnames(norm.cfit),".comp.norm", sep="")
+sf <- snr.fit
+colnames(sf) <- paste(colnames(snr.fit),".snr", sep="")
+nsf <- norm.sfit
+colnames(nsf) <- paste(colnames(norm.sfit),".snr.norm", sep="")
+
+all.cfit <- cbind(cf, ncf, sf, nsf)
+write.csv(all.cfit, file="./data/all.composite.fitness.csv", quote=FALSE,row.names=TRUE)
+
+## 01Sept20 need this as a txt format for GWAS in limix
+all.cfit <- read.csv("./data/all.composite.fitness.csv",stringsAsFactors=FALSE)
+colnames(all.cfit)[1] <- "id"
+all.cfit$id <- as.character(all.cfit$id)
+all.cfit <- all.cfit[order(all.cfit$id),]
+write.table(all.cfit, file="./data/all.composite.fitness.txt", quote=FALSE, row.names=FALSE)
+```
+
+

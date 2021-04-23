@@ -1,0 +1,138 @@
+---
+title: "37.climate.associations.mantel"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ecodist)
+source("/groups/nordborg/projects/field_experiments/adaptation_sweden/select.and.resequence/002.scripts/00.allele.freq.change.fxns.R")
+```
+
+## Introduction
+Goal here is to run Hancock-style associations with WorldClim v2 data and the snp data of our 200
+Swedish lines.
+This is a partial Mantel test using Spearman correlations with the ecodist package.
+Dep.var - distance matrix of a variant
+predictor - distance matrix of climate variable
+covariate - distance matrix of Kmatrix
+
+## 1. load data
+```{r load data}
+# genotypes
+# loading SNPs using a script from 00.allele.freq.change.fxns.R
+all.gts.file <- "/groups/nordborg/projects/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/02_2.3M_Swedes220.175k.prior15.gauss4.ts99.5.BIALLELIC.csv"
+## this is the data set used for genotyping these samples (from Fernando)
+min.MAF <- 0.1
+max.NAF <- 0.05 ## remove if NA rate is higher than this
+### set these so agree with Ben's GWAS filtering so our SNPs overlap
+gts <- prep.SAF(all.gts.file=all.gts.file, min.MAF=min.MAF, max.NAF=max.NAF)
+# reads in file, recodes to NA, 0 (ref), 0,5 (het), 1 (alt)
+
+#experimental lines
+lines <- read.table("./data/acc_list.txt",stringsAsFactors=FALSE, fill=TRUE,sep="\t", header=TRUE, nrows=200)
+exp.lines <- lines$lines
+#exp.lines%in%colnames(gts) looks OK
+
+# K.matrix
+# as calculated in plink from these data
+K <- read.table("./data/K.matrix.200Swedes.txt")
+## need accession names
+pref="./GWA/snps/sweden_200_MAF10.bimbam"
+acclist=scan(paste(pref, ".acclist", sep=""), sep=",")
+rownames(K) <- acclist
+colnames(K) <- acclist
+K <- as.matrix(K)
+K.dist <- dist(K)
+## distance matrix from K
+
+# climate variables
+# bioclim v2, BIO1 to BIO19
+bioc <- read.table("./data/bioclim.v2.200.experimental.lines.txt", header=TRUE, stringsAsFactors=FALSE)
+
+# PCs of this data
+b.pcs <- read.table("./data/experimental.pcas.txt", header=TRUE, stringsAsFactors=FALSE)
+b.pcs <- b.pcs[rownames(b.pcs)%in%exp.lines,]
+
+
+bioc <- merge(bioc, b.pcs, by.x="lines", by.y="id", all=TRUE)
+bioc.o <- bioc
+colnames(bioc.o)[1] <- "id"
+#put in order so matches K matrix accession order
+bioc.o <- bioc.o[match(acclist, bioc.o$id),]
+### write this as output txt format to do limix GWAS
+write.table(bioc.o, file="./data/all.bioclim.v2.PC.txt",quote=FALSE)
+
+### how many unique values are there per climate variable?
+### I think repeated measures are messing up limix GWAS
+### length(unique(bioc.o$BIO1))
+### from 26 to 103 (119 for long and lat)
+```
+
+## 2. Test one Mantel test
+```{r test Mantel}
+snp.no <- 1000
+bc.no <- 4
+
+pm.test <- function(snp.no, bc.no){
+  # get distance matrices
+  gt.up <- t(gts[snp.no,])
+  up.pos <- gt.up[1:2,]
+  gt.up <- gt.up[-(1:2),]
+  gt.d <- dist(gt.up)
+
+  bc.up <- bioc[,bc.no]
+  #names(bc.up)==names(gt.up)  looks ok.
+  names(bc.up) <- bioc$lines
+  bc.d <- dist(bc.up)
+
+  #rownames(K)==names(bc.up) also looks OK
+
+  # run test
+  test.mt <- mantel(gt.d ~ bc.d + K.dist, mrank=TRUE, nboot=0)
+  return(test.mt)
+}
+
+# output of test
+#mantelr = Mantel coefficient.
+#pval1 = one-tailed p-value (null hypothesis: r <= 0).
+#pval2 = one-tailed p-value (null hypothesis: r >= 0).
+#pval3 = two-tailed p-value (null hypothesis: r = 0).
+#llim  = lower confidence limit.
+#ulim  =  upper confidence limit.
+```
+## 3. Mantel test scan climate vars
+```{r mantel scan}
+bc.no <- 4
+
+Sys.time()
+test.m <- sapply(1:1000, function(x){pm.test(snp.no=x, bc.no=bc.no)})
+Sys.time()
+
+### can this be faster as a direct write rather than an apply?  Currently would take about 4 days
+### to run one climate variable
+
+out.dat <- matrix(NA, nrow=nrow(gts), ncol=4)
+Sys.time()
+for(up.snp in 1:1000){
+  up.mt <- pm.test(snp.no=up.snp, bc.no=bc.no)
+  out.dat[up.snp,] <- up.mt[1:4]
+}
+Sys.time()
+
+### yes, it is faster (5.96 min per 1000 for sapply, 5.04 min per 1000 for indexed)
+### another option would be to omit bootstrapping (saves another 1:03 per 1000), but would need to go back and do for sig. SNPs.
+### total time for indexed, bootstrapped, and 760k SNPS estimated to be 64h per climate variable
+### run by chromosome so have some intermediate output?
+
+
+
+### what happens when NA in gts??? distance fxn should fail...need test case
+### it doesn't fail!
+### turn this into a script to do on cluster
+### partial.mantel.climate.R
+### submit.partial.mantel.climate.sh
+
+```
+
+

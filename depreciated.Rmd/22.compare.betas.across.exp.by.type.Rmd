@@ -1,0 +1,509 @@
+---
+title: "22.compare.betas.across.exp.by.type"
+author: "Daniele Filiault"
+date: "11/4/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+The goal here is to compare the betas of the most common allele in each haplotype group at each site/year combination.  Questions:
+
+1.  common versus opposing effects between admixture groups that "match" with local adaptation and/or general fitness.  This can be local adaptation to N/S or to Sweden in general.
+2.  Patterns when same or different allele is most common in N and S admixture group?
+3.  Is there any difference by the evolutionary history type (ancestral, derived, standing)?
+
+## Data prep
+```{r prep betas}
+## individual betas
+## summary data from 07.geo.betas.Rmd - betas of alt alleles
+load("./data/geo.beta.2011.2012.Rdat")
+betas <- geo.beta.2011.2012[,c(1:7,23:26)]
+## composite betas
+## output from 06.modeled.fitness.GWAS.Rmd
+load("./data/composite.betas.Rdat")
+colnames(composite.betas)[1:3] <- c("Chromosome", "rs", "Position")
+
+betas <- merge(betas, composite.betas)
+colnames(betas) <- gsub("beta_1", "N2",colnames(betas))
+colnames(betas) <- gsub("beta_2", "N1",colnames(betas))
+colnames(betas) <- gsub("beta_3", "S1",colnames(betas))
+colnames(betas) <- gsub("beta_4", "S2",colnames(betas))
+```
+
+```{r prep admix data}
+### done in script ./scripts/admix.count.all.snps.R
+### ran this on the cluster with ./scripts/submit.admix.count.all.snps.sh
+### output is admixture group of reference and alt alleles for the 1001g data
+### so a few of our experimental lines are missing from this.  I think that's OK, but I will need to think about it more...
+### this gives the number of acessions determined to be in each admixture group that have the reference(R) and alt(A) allele.
+
+load("./data/admix.count.Rdat")
+
+### subset to SNPs that were used for GWAS
+admix.count <- admix.count[row.names(admix.count)%in%betas$rs,]  #735745
+
+### remove non-polymorphic (1 or 2 calls)
+a.sums <- apply(admix.count, 1, sum)
+admix.prop.pol <- admix.count[a.sums>1,]
+
+## which admixture group is which (from 0-8)
+group.names <- c("W.Europe","Relicts","Germany","N.Sweden","Iberia","Asia","S.Sweden","Italy/E.Europe","C.Europe")
+```
+
+```{r prep histories}
+## allele histories
+### ancestral and derived alleles were determined in /projects/field_experiments/001.common.reference.files/004.genus.vcfs
+
+p.snps <- read.table("./data/Polarized.snps.txt",colClasses="character")
+rownames(p.snps) <- gsub("Chr", "", rownames(p.snps))
+p.snps$rs <- rownames(p.snps)
+p.snps <- p.snps[p.snps$rs%in%betas$rs,]
+
+### 000 is cases without calls in either ref or alt species 71950
+### 100 is reference ancestral  271785 (ie alt is derived allele)
+### 010 is alt ancestral  60617 
+### 001 is both ref and alt alleles occur in species 155840
+```
+
+## get most frequent alleles in N and S admixture groups
+```{R common allele in admix group}
+
+pos.line <- admix.prop.pol[100,]
+ad.group <- "3"
+
+com.ad.group <- function(pos.line,ad.group){
+  up.dat <- pos.line[grep(ad.group,names(pos.line))]
+  if(up.dat[1]==up.dat[2]){
+    #print(up.dat)
+    out.dat <- c(2,0.5)
+    }else{
+      max.allele <- names(up.dat)[which(up.dat==max(up.dat))]
+      if(substr(max.allele,1,1)=="A"){bi.allele <- 1}
+      if(substr(max.allele,1,1)=="R"){bi.allele <- -1}
+      max.prop <- up.dat[which(up.dat==max(up.dat))]/sum(up.dat)
+      out.dat <- c(bi.allele, max.prop)
+    }
+  return(out.dat)
+}
+
+ger.allele <- apply(admix.prop.pol, 1, function(x){com.ad.group(pos.line=x, ad.group="2")})
+ger.allele <- t(ger.allele)
+colnames(ger.allele) <- c("mc.allele","prop")
+
+ss.allele <- apply(admix.prop.pol, 1, function(x){com.ad.group(pos.line=x, ad.group="6")})
+ss.allele <- t(ss.allele)
+colnames(ss.allele) <- c("mc.allele","prop")
+
+ns.allele <- apply(admix.prop.pol, 1, function(x){com.ad.group(pos.line=x, ad.group="3")})
+ns.allele <- t(ns.allele)
+colnames(ns.allele) <- c("mc.allele","prop")
+```
+
+
+## change sign of betas appropriately
+```{r change beta signs}
+##remove SNPs that are 50% in both
+##could also randomly assign?
+##but very few SNPs, comparatively speaking.
+ga.common <- ger.allele[ger.allele[,1]%in%c(-1,1),] #99.4 percent still in
+betas.common <- betas[as.character(betas$rs)%in%rownames(ga.common),]
+ga.common <- ga.common[order(rownames(ga.common)),]
+#rownames(ga.common)==betas.common$rs -> check.me
+#summary(check.me)
+ger.betas <- apply(betas.common[,4:ncol(betas)],2,function(x){x*ga.common[,1]})
+ger.betas <- cbind(ger.betas, betas.common[,1:3])
+
+na.common <- ns.allele[ns.allele[,1]%in%c(-1,1),] #99.4 percent still in
+betas.common <- betas[as.character(betas$rs)%in%rownames(na.common),]
+na.common <- na.common[order(rownames(na.common)),]
+#rownames(na.common)==betas.common$rs -> check.me
+#summary(check.me)
+ns.betas <- apply(betas.common[,4:ncol(betas)],2,function(x){x*na.common[,1]})
+ns.betas <- cbind(ns.betas, betas.common[,1:3])
+
+sa.common <- ss.allele[ss.allele[,1]%in%c(-1,1),] #99.4 percent still in
+betas.common <- betas[as.character(betas$rs)%in%rownames(sa.common),]
+sa.common <- sa.common[order(rownames(sa.common)),]
+#rownames(sa.common)==betas.common$rs -> check.me
+#summary(check.me)
+ss.betas <- apply(betas.common[,4:ncol(betas)],2,function(x){x*sa.common[,1]})
+ss.betas <- cbind(ss.betas, betas.common[,1:3])
+```
+## plot betas by site
+```{r betas by site NS, eval=FALSE}
+ssb.c <- ss.betas[ss.betas$rs%in%ns.betas$rs,]
+nsb.c <- ns.betas[ns.betas$rs%in%ssb.c$rs,]
+#nsb.c$rs==ssb.c$rs -> blah
+#table(blah)
+# now these can be easily plotted together
+
+pdf(file="./figures/most.commmon.beta.NvsS.pdf", width=16, height=12)
+par(mfrow=c(3,4))
+for(up.beta in 1:12){
+  par(pty="s")
+  max.val <- abs(max(c(ssb.c[,up.beta],nsb.c[,up.beta])))
+  smoothScatter(ssb.c[,up.beta],nsb.c[,up.beta],xlab="effect of most common allele S.Swedish admix group", ylab="effect of most common allele N.Swedish admix group", main=colnames(ssb.c[up.beta]),xlim=c(-max.val, max.val), ylim=c(-max.val, max.val))
+  abline(h=0,lty=3)
+  abline(v=0,lty=3)
+  
+  ##add numbers per quadrant
+  same <- ssb.c[,up.beta]==nsb.c[,up.beta]
+  ss.pos <- ssb.c[, up.beta]>0
+  quad.nos <- table(paste(same, ss.pos))
+  text(-max.val, max.val, quad.nos[1], pos=4) #not same, S negative
+  text(max.val, -max.val, quad.nos[2], pos=2) #not same, S positive
+  text(-max.val, -max.val, quad.nos[3], pos=4) #same, S negative
+  text(max.val, max.val, quad.nos[4], pos=2) #same, S positive
+}
+dev.off()
+```
+
+```{r betas by site NG, eval=FALSE}
+gb.c <- ger.betas[ger.betas$rs%in%ns.betas$rs,]
+nsb.c <- ns.betas[ns.betas$rs%in%gb.c$rs,]
+#nsb.c$rs==ssb.c$rs -> blah
+#table(blah)
+# now these can be easily plotted together
+
+pdf(file="./figures/most.commmon.beta.NvsG.pdf", width=16, height=12)
+par(mfrow=c(3,4))
+for(up.beta in 1:12){
+  par(pty="s")
+  max.val <- abs(max(c(gb.c[,up.beta],nsb.c[,up.beta])))
+  smoothScatter(gb.c[,up.beta],nsb.c[,up.beta],xlab="effect of most common allele German admix group", ylab="effect of most common allele N.Swedish admix group", main=colnames(gb.c[up.beta]),xlim=c(-max.val, max.val), ylim=c(-max.val, max.val))
+  abline(h=0,lty=3)
+  abline(v=0,lty=3)
+  
+  ##add numbers per quadrant
+  same <- gb.c[,up.beta]==nsb.c[,up.beta]
+  g.pos <-gb.c[, up.beta]>0
+  quad.nos <- table(paste(same, g.pos))
+  text(-max.val, max.val, quad.nos[1], pos=4) #not same, G negative
+  text(max.val, -max.val, quad.nos[2], pos=2) #not same, G positive
+  text(-max.val, -max.val, quad.nos[3], pos=4) #same, G negative
+  text(max.val, max.val, quad.nos[4], pos=2) #same, G positive
+}
+dev.off()
+```
+
+```{r betas by site SG, eval=FALSE}
+ssb.c <- ss.betas[ss.betas$rs%in%ger.betas$rs,]
+gb.c <- ger.betas[ger.betas$rs%in%ssb.c$rs,]
+#gb.c$rs==ssb.c$rs -> blah
+#table(blah)
+# now these can be easily plotted together
+
+pdf(file="./figures/most.commmon.beta.SvsG.pdf", width=16, height=12)
+par(mfrow=c(3,4))
+for(up.beta in 1:12){
+  par(pty="s")
+  max.val <- abs(max(c(ssb.c[,up.beta],gb.c[,up.beta])))
+  smoothScatter(ssb.c[,up.beta],gb.c[,up.beta],xlab="effect of most common allele S.Swedish admix group", ylab="effect of most common allele Ger admix group", main=colnames(ssb.c[up.beta]),xlim=c(-max.val, max.val), ylim=c(-max.val, max.val))
+  abline(h=0,lty=3)
+  abline(v=0,lty=3)
+  
+  ##add numbers per quadrant
+  same <- ssb.c[,up.beta]==gb.c[,up.beta]
+  ss.pos <- ssb.c[, up.beta]>0
+  quad.nos <- table(paste(same, ss.pos))
+  text(-max.val, max.val, quad.nos[1], pos=4) #not same, S negative
+  text(max.val, -max.val, quad.nos[2], pos=2) #not same, S positive
+  text(-max.val, -max.val, quad.nos[3], pos=4) #same, S negative
+  text(max.val, max.val, quad.nos[4], pos=2) #same, S positive
+}
+dev.off()
+```
+
+
+
+## What are evol history of alleles??
+
+```{r hist most common allele by admix group}
+## Northern Swedish admixture group
+ns.hist <- merge(ns.allele, p.snps, by="row.names")
+ns.hist <- ns.hist[ns.hist$mc.allele%in%c(-1,1),]
+ns.hist.s <- split(ns.hist, ns.hist$x)
+ns.hist.s[[1]]$a.hist <- 0 #can't tell code 000
+ns.hist.s[[2]]$a.hist <- 1 #standing code 001
+aa <- split(ns.hist.s[[3]], ns.hist.s[[3]]$mc.allele) # alt ancestral code 010
+aa[[1]]$a.hist <- 3 #alt ancestral, most common is ref, most common derived
+aa[[2]]$a.hist <- 2 #alt ancestral, most common is alt, most common ancestral
+ra <- split(ns.hist.s[[4]], ns.hist.s[[4]]$mc.allele) # ref ancestral code 100
+ra[[1]]$a.hist <- 2 #ref ancestral, most common is ref, most common ancestral
+ra[[2]]$a.hist <- 3 #ref ancestral, most common is alt, most common derived
+ns.hist <- rbind(ns.hist.s[[1]], ns.hist.s[[2]], aa[[1]], aa[[2]], ra[[1]], ra[[2]])
+ns.hist[,1] <- as.character(ns.hist[,1])
+ns.hist <- ns.hist[order(ns.hist[,1]),]
+
+##a.hist:
+##0 = can't tell
+##1 = standing
+##2 = most common ancestral
+##3 = most common derived
+a.hist.levels <- c("unknown","standing", "ancestral", "derived")
+
+## Southern Swedish admixture group
+ss.hist <- merge(ss.allele, p.snps, by="row.names")
+ss.hist <- ss.hist[ss.hist$mc.allele%in%c(-1,1),]
+ss.hist.s <- split(ss.hist, ss.hist$x)
+ss.hist.s[[1]]$a.hist <- 0 #can't tell code 000
+ss.hist.s[[2]]$a.hist <- 1 #standing code 001
+aa <- split(ss.hist.s[[3]], ss.hist.s[[3]]$mc.allele) # alt ancestral code 010
+aa[[1]]$a.hist <- 3 #alt ancestral, most common is ref, most common derived
+aa[[2]]$a.hist <- 2 #alt ancestral, most common is alt, most common ancestral
+ra <- split(ss.hist.s[[4]], ss.hist.s[[4]]$mc.allele) # ref ancestral code 100
+ra[[1]]$a.hist <- 2 #ref ancestral, most common is ref, most common ancestral
+ra[[2]]$a.hist <- 3 #ref ancestral, most common is alt, most common derived
+ss.hist <- rbind(ss.hist.s[[1]], ss.hist.s[[2]], aa[[1]], aa[[2]], ra[[1]], ra[[2]])
+ss.hist[,1] <- as.character(ss.hist[,1])
+ss.hist <- ss.hist[order(ss.hist[,1]),]
+
+## german admixture group
+ger.hist <- merge(ger.allele, p.snps, by="row.names")
+ger.hist <- ger.hist[ger.hist$mc.allele%in%c(-1,1),]
+ger.hist.s <- split(ger.hist, ger.hist$x)
+ger.hist.s[[1]]$a.hist <- 0 #can't tell code 000
+ger.hist.s[[2]]$a.hist <- 1 #standing code 001
+aa <- split(ger.hist.s[[3]], ger.hist.s[[3]]$mc.allele) # alt ancestral code 010
+aa[[1]]$a.hist <- 3 #alt ancestral, most common is ref, most common derived
+aa[[2]]$a.hist <- 2 #alt ancestral, most common is alt, most common ancestral
+ra <- split(ger.hist.s[[4]], ger.hist.s[[4]]$mc.allele) # ref ancestral code 100
+ra[[1]]$a.hist <- 2 #ref ancestral, most common is ref, most common ancestral
+ra[[2]]$a.hist <- 3 #ref ancestral, most common is alt, most common derived
+ger.hist <- rbind(ger.hist.s[[1]], ger.hist.s[[2]], aa[[1]], aa[[2]], ra[[1]], ra[[2]])
+ger.hist[,1] <- as.character(ger.hist[,1])
+ger.hist <- ss.hist[order(ger.hist[,1]),]
+
+```
+
+## difference in betas correlation patterns by evolutionary histories?
+
+```{r N.Swedish admix group correlations between plot}
+ns.dat <- merge(ns.betas, ns.hist, by="rs", all=TRUE)
+par(pty="s")
+max.val <- abs(max(c(ns.dat$S1_comp,ns.dat$S2_comp)))
+smoothScatter(ns.dat$S1_comp, ns.dat$S2_comp, ylim=c(-max.val, max.val), xlim=c(-max.val, max.val))
+abline(h=0,lty=3)
+abline(v=0,lty=3)
+```
+
+So I think that this is going a bit far down the rabbit hole.  Let's stick with the "X plots" and do evolutionary history in
+In the plots of weighted fitness.
+
+## permutation test for X plots
+
+So the trends in X plots suggest local adaptation, but are these numbers significant?
+Test this by permutation.
+1. Keep common/opposing most common allele structure.
+2. Rotate the genomes (i.e. the betas)
+3. Repolarize betas using (1).
+4. Calculate # in each quadrant
+5. Return
+6. do 1000 or 10000x.
+
+```{r permutation function}
+al1 <- ns.allele
+al2 <- ss.allele
+betas <- betas
+n.perm <- 10
+
+permute.quadrants <- function(al1, al2, betas, n.perm){
+## identify common positions
+  pos <- table(c(as.character(rownames(al1)),as.character(rownames(al2)), as.character(betas$rs)))
+  pos <- pos[pos==3]
+  pos <- names(pos)
+## remove positions where most common allele is 2 (i.e. a tie)
+  t1 <- al1[al1[,1]==2,]
+  t2 <- al2[al2[,1]==2,]
+  t.pos <- unique(c(rownames(t1), rownames(t2)))
+  pos <- pos[pos%in%t.pos==FALSE]
+
+## subset to same commonpositions for all data
+  al1 <- al1[rownames(al1)%in%pos,]
+  al2 <- al2[rownames(al2)%in%pos,]
+  colnames(al1)[1] <- "mc1"
+  colnames(al2)[1] <- "mc2"
+#rownames(al1)==rownames(al2) -> ugh
+#table(ugh)
+  al <- cbind(al1, al2[,1])
+  al <- al[,-2]
+  colnames(al)[2] <- "mc2"
+  al <- as.data.frame(al)
+  
+  bs <- betas[betas$rs%in%pos,]
+  bs <- bs[order(bs$Chromosome, bs$Position),]
+  #bs$rs==rownames(al) -> ugh
+  #table(ugh)
+
+### this sets up variables.
+### now rotate alleles
+
+  quad.perm <- function(){
+    rot <- sample(1:(length(pos)-1), size=1)
+    rot.pos <- c(rot:length(pos),1:(rot-1))
+    al.up <- al[rot.pos,]
+
+    b1 <- bs[,4:ncol(bs)]*al.up$mc1
+    b2 <- bs[,4:ncol(bs)]*al.up$mc2
+
+### get counts in each quadrant for each site/year combo
+    counts <- lapply(as.list(1:ncol(b1)), function(up.beta){
+      same <- b1[,up.beta]==b2[,up.beta]
+      ss.pos <- b1[, up.beta]>0
+      quad.nos <- table(paste(same, ss.pos))
+      return(quad.nos)
+    })
+    counts <- do.call(rbind, counts)
+    return(counts)
+  }
+### this does one rotation/permutation
+#n.perm <- 10
+  out.perm <- array(NA, dim=c(ncol(b1),4,n.perm))
+  for(up in 1:n.perm){
+    print(up)
+    up.counts <- quad.perm()
+    out.perm[,,up] <- up.counts
+  }
+  colnames(out.perm) <- colnames(up.counts)
+  return(out.perm)
+}
+```
+
+```{r do permutation, eval=FALSE}
+#test.perm <- permute.quadrants(al1=al1, al2=al2, betas=betas, n.perm=10)
+
+#al1 <- ns.allele
+#al2 <- ss.allele
+#betas <- betas
+#n.perm <- 10
+ns.perm <- permute.quadrants(al1=ns.allele, al2=ss.allele, betas=betas,n.perm=10000)
+save(ns.perm, file="./data/ns.perm.Rdat")
+ng.perm <- permute.quadrants(al1=ns.allele, al2=ger.allele, betas=betas,n.perm=10000)
+save(ng.perm, file="./data/ng.perm.Rdat")
+sg.perm <- permute.quadrants(al1=ss.allele, al2=ger.allele, betas=betas,n.perm=10000)
+### need to finish this one!!!!
+```
+
+```{r observed quadrant values fxn}
+quadrant.nos <- function(al1, al2, betas){
+## identify common positions
+  pos <- table(c(as.character(rownames(al1)),as.character(rownames(al2)), as.character(betas$rs)))
+  pos <- pos[pos==3]
+  pos <- names(pos)
+## remove positions where most common allele is 2 (i.e. a tie)
+  t1 <- al1[al1[,1]==2,]
+  t2 <- al2[al2[,1]==2,]
+  t.pos <- unique(c(rownames(t1), rownames(t2)))
+  pos <- pos[pos%in%t.pos==FALSE]
+
+## subset to same commonpositions for all data
+  al1 <- al1[rownames(al1)%in%pos,]
+  al2 <- al2[rownames(al2)%in%pos,]
+  colnames(al1)[1] <- "mc1"
+  colnames(al2)[1] <- "mc2"
+#rownames(al1)==rownames(al2) -> ugh
+#table(ugh)
+  al <- cbind(al1, al2[,1])
+  al <- al[,-2]
+  colnames(al)[2] <- "mc2"
+  al <- as.data.frame(al)
+  
+  bs <- betas[betas$rs%in%pos,]
+  bs <- bs[order(bs$Chromosome, bs$Position),]
+  #bs$rs==rownames(al) -> ugh
+  #table(ugh)
+
+### this sets up variables.
+  ### get counts in each quadrant for each site/year combo
+    b1 <- bs[,4:ncol(bs)]*al$mc1
+    b2 <- bs[,4:ncol(bs)]*al$mc2
+    counts <- lapply(as.list(1:ncol(b1)), function(up.beta){
+      same <- b1[,up.beta]==b2[,up.beta]
+      ss.pos <- b1[, up.beta]>0
+      quad.nos <- table(paste(same, ss.pos))
+      return(quad.nos)
+    })
+    counts <- do.call(rbind, counts)
+    rownames(counts) <- colnames(b1)
+    return(counts)
+}
+```
+
+```{r get observed quadrant values}
+
+ns.qn <- quadrant.nos(al1=ns.allele, al2=ss.allele, betas=betas)
+ng.qn <- quadrant.nos(al1=ns.allele, al2=ger.allele, betas=betas) 
+sg.qn <- quadrant.nos(al1=ss.allele, al2=ger.allele, betas=betas)
+```
+
+```{r sig of quadrant values}
+up.perm <- ns.perm
+up.obs <- ns.qn
+col1 <- 1
+col2 <- 3
+
+quad.sig <- function(up.perm, up.obs, col1, col2){
+  all.counts <- matrix(NA, ncol=4, nrow=nrow(up.obs))
+  for(up in 1:nrow(up.obs)){
+    exp.row <- up
+    obs1 <- up.obs[exp.row, col1]
+    obs2 <- up.obs[exp.row, col2]
+
+  perm1 <- up.perm[exp.row, col1,]
+  less.p1 <- obs1<=perm1
+  less.p1 <- length(less.p1[less.p1==TRUE])
+  more.p1 <- obs1>=perm1
+  more.p1 <- length(more.p1[more.p1==TRUE])
+
+  perm2 <- up.perm[exp.row, col2,]
+  less.p2 <- obs2<=perm2
+  less.p2 <- length(less.p2[less.p2==TRUE])
+  more.p2 <- obs2>=perm2
+  more.p2 <- length(more.p2[more.p2==TRUE])
+
+  out.counts <- c(less.p1, more.p1, less.p2, more.p2)
+  all.counts[up,] <- out.counts
+  }
+  rownames(all.counts) <- rownames(up.obs)
+  colnames(all.counts)[3:4] <- paste(c("less", "more"),colnames(up.obs)[col2],sep="_")
+  colnames(all.counts)[1:2] <- paste(c("less", "more"),colnames(up.obs)[col1],sep="_")
+
+  return(all.counts)
+}
+
+ns.sig <- quad.sig(up.perm=ns.perm, up.obs=ns.qn, col1=1, col2=3)
+ng.sig <- quad.sig(up.perm=ng.perm, up.obs=ng.qn, col1=1, col2=3)
+sg.sig <- quad.sig(up.perm=sg.perm, up.obs=sg.qn, col1=1, col2=3)
+#need to finish permutations for this one!
+# the column here are the number of permutations for which:
+#1 - opposing effects, beta of first group is less than 0 -> observed is less than permutation (bottom right of plots)
+#2 - opposing effects, beta of first group is less than 0 -> observed is greater than permutation
+#3 - common effects, beta of first group is less than 0 -> observed is less than permutation (bottom left of plots)
+#4 - common effects, beta of first group is less than 0 -> observed is greater than permutation
+```
+ 
+```{r means of perm counts}
+up.perm <- ns.perm
+get.perm.mean <- function(up.perm){
+  out.mean <- matrix(NA, nrow=nrow(up.perm), ncol=ncol(up.perm))
+  for(up.c in 1:ncol(up.perm)){
+    for(up.r in 1:nrow(up.perm)){ß
+      up.mean <- mean(up.perm[up.r, up.c,])
+      out.mean[up.r, up.c] <- up.mean
+    }
+  }
+  return(out.mean)
+}
+
+ns.pm <- get.perm.mean(ns.perm)
+ng.pm <- get.perm.mean(ng.perm)
+```
+
+
+
+

@@ -1,0 +1,251 @@
+---
+title: "14.mean.dist.betas"
+author: "Daniele Filiault"
+date: "8/16/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("99.geo.helper.fxns.R")
+```
+
+## Introduction/Justification
+
+In 07.geo.betas.Rmd, I was looking at geographic patterns of centroids.  Here I want to ask the question a slightly different way: what is the effect of the closest allele?  So I'm not going to calculate centroids, but rather mean and SD of actual distances of alleles to each experimental site.
+
+
+## Load data
+I can start with some of the data from that Rmd...
+
+```{r load data}
+### location of accessions
+index.acc <- read.table('./data/worldclim_swedish_acc.txt',stringsAsFactors=FALSE, header=TRUE, sep="\t")
+index.acc <- index.acc[,c(1,5,6)]
+colnames(index.acc)[2] <- "lon"
+
+### location of experiments
+index.exp <- read.table('./data/worldclim_swedish_exp.txt', stringsAsFactors=FALSE, header=TRUE, sep="\t")
+index.exp <- index.exp[,c(1:2,4,3)]
+#subset to current experiments - will calculate distances for all experimental sites at once
+index.exp <- index.exp[c(1,3,6,7,12:15),]
+index.exp$site.short <- c("ADA.S","BAR.S","RAT.S","TJO.S","ADA","RAM","ULL","RAT")
+
+### genotypes for experimental lines have already been prepped in 07
+load('./data/gts.prep.Rdata')
+```
+
+
+## Get distances of alt and ref alleles of experimental lines
+
+```{r get acc distances}
+#calculate the distances of each accession to each site first
+# outputs matrix of distances in km with rows=accessions and col=sites
+
+get.site.dist <- function(index.acc, index.exp){
+  site.dist <- matrix(NA, nrow=nrow(index.acc), ncol=nrow(index.exp))
+  for (up.s in 1:nrow(index.acc)){
+    up.dat <- as.numeric(index.acc[up.s,])
+    exp.dist <- rep(NA, nrow(index.exp))
+    for(up.e in 1:nrow(index.exp)){
+      up.exp <- as.numeric(index.exp[up.e,3:4])
+      exp.dist[up.e] <- haversineDistance(up.dat[3], up.dat[2], up.exp[2], up.exp[1])
+    }
+    site.dist[up.s,] <- exp.dist
+  }
+  colnames(site.dist) <- c(index.exp$site.short)
+  rownames(site.dist) <- index.acc[,1]
+  return(site.dist)
+}
+```
+
+```{r get SNP distances}
+#fxn to get mean and SD of distances to each experiment for alt and ref alleles
+# outputs an array with distances (km) rows=site, col=means and SD of ref and alt alleles, z=variant positions
+
+get.allele.dist <- function(acc.dist,gts.prep){
+  allele.dist <- array(NA, dim=c(ncol(acc.dist),4,nrow(gts.prep)))
+  for (up.s in 1:nrow(gts.prep)){
+    up.dat <- gts.prep[up.s,]
+    ### for ref allele
+    ref.gts <- colnames(up.dat[up.dat%in%c(0,0.5)])
+    ref.dists <- acc.dist[rownames(acc.dist)%in%ref.gts,]
+    ref.mean <- apply(ref.dists,2,mean)
+    ref.sd <- apply(ref.dists, 2, sd)
+    ### for alt allele
+    alt.gts <- colnames(up.dat[up.dat%in%c(0.5,1)])
+    alt.dists <- acc.dist[rownames(acc.dist)%in%alt.gts,]
+    alt.mean <- apply(alt.dists,2,mean)
+    alt.sd <- apply(alt.dists, 2, sd)
+    out.dat <- cbind(ref.mean, ref.sd, alt.mean, alt.sd)
+    allele.dist[,,up.s] <- out.dat
+  }
+  return(allele.dist)
+}
+
+```
+
+```{r put together}
+acc.dist <- get.site.dist(index.acc, index.exp)
+#snp.dist <- get.allele.dist(acc.dist, gts.prep)
+#colnames(snp.dist) <- c("ref.mean", "ref.sd", "alt.mean", "alt.sd")
+#rownames(snp.dist) <- colnames(acc.dist)
+#save(snp.dist, file="./data/snp.dist.Rdat")
+```
+
+```{r switch betas}
+load("./data/snp.dist.Rdat")
+colnames(snp.dist) <- c("ref.mean", "ref.sd", "alt.mean", "alt.sd")
+rownames(snp.dist) <- colnames(acc.dist)
+
+
+### identify which allele is closest.  If ref is closest, will need to switch sign of beta, if alt is closest, then beta sign can remain
+close.allele <- apply(snp.dist,3,function(x){
+  r.dist <- x[,1]-x[,3]
+  class(r.dist)
+  out.allele <- sapply(r.dist, function(x){
+    if(x > 0){ca <- 1
+    }else if(x<0){ca <- -1
+    }else {ca <- NA}
+    return(ca)
+      })
+  return(out.allele)
+})
+close.allele <- t(close.allele)
+
+### get betas
+load(file="./data/geo.beta.2011.2012.Rdat")
+nc.beta <- geo.beta.2011.2012[,c(1:7,23:26)]
+
+### get SNPs in both data sets
+close.allele <- as.data.frame(close.allele)
+close.allele$rs <- paste(gts.prep$Chromosome, gts.prep$Position, sep="_")
+
+##quickly check numbers here
+close.table <- table(close.allele$ADA, close.allele$RAM, close.allele$ULL, close.allele$RAT)
+close.table
+
+nc.beta <- merge(close.allele[,5:9],nc.beta)
+nc.beta <- nc.beta[order(nc.beta$Chromosome, nc.beta$Position),]
+
+ada.b <- nc.beta[,grep("beta_1", colnames(nc.beta))]/nc.beta$ADA
+ram.b <- nc.beta[,grep("beta_2", colnames(nc.beta))]/nc.beta$RAM
+ull.b <- nc.beta[,grep("beta_3", colnames(nc.beta))]/nc.beta$ULL
+rat.b <- nc.beta[,grep("beta_4", colnames(nc.beta))]/nc.beta$RAT
+
+c.beta <- cbind(ada.b,ram.b,ull.b,rat.b)
+rownames(c.beta) <- nc.beta$rs
+```
+
+### test pairwise relationships between these betas
+```{r pairwise relationship betas}
+library(corrplot)
+corrplot(cor(c.beta), method="ellipse", type="upper", diag=FALSE)
+
+```
+
+OK, this is perhaps not so interesting, given that it's just the correlations I saw before with the signs switched when alleles are closer to the North or South.  Perhaps just go back to the original question - do closer alleles increase fitness?
+
+### What is the overall effect of the closest allele?
+
+```{R beta histos}
+boxplot(c.beta)
+all.hist <- for(up in 1:ncol(c.beta)){hist(c.beta[,up], main=colnames(c.beta)[up])}
+beta.means <- apply(c.beta,2,mean)
+```
+
+So the mean beta of the closest allele is >0 for sites and years that show local adaptation in accession level.  Is this greater than expected by chance?  Permute the -1/1 designations by genome rotation and get means 1000x
+
+```{R generate index}
+## use nc.beta
+sample.index <- cbind(colnames(c.beta)[c(seq(1,7,2),seq(2,8,2))], rep(colnames(nc.beta)[2:5],2))
+colnames(sample.index) <- c("beta", "site")
+
+sample.means <- beta.means[match(sample.index[,1],names(beta.means))]
+``` 
+
+```{R permute closest allele, eval=FALSE} 
+n.perm <- 1000
+for(up in 1:nrow(sample.index)){
+  print(up)
+  b.up <- sample.index[up,1]
+  s.up <- sample.index[up,2]
+  s.dat <- nc.beta[,colnames(nc.beta)==s.up]
+  out.perm <- rep(NA,n.perm)
+  for(up.p in 1:n.perm){
+    up.n <- sample(2:length(s.dat),1)
+    s.perm <- s.dat[c(up.n:length(s.dat),1:(up.n-1))]
+    b.close <- nc.beta[,colnames(nc.beta)==b.up]*s.perm
+    b.mean <- mean(b.close)
+    out.perm[up.p] <- b.mean
+  }
+  perm.means[,up] <- out.perm
+}
+
+save(perm.means, file="./data/perm.means.Rdat")
+```
+
+
+plot this with observed means noted
+
+```{r plot mean perms}
+
+load("./data/perm.means.Rdat")
+for(up in 1:ncol(perm.means)){
+  hist(perm.means[,up], main=sample.index[up,1], xlim=c(min(c(perm.means[,up],sample.means[up])), max(c(perm.means[,up],sample.means[up]))))
+  abline(v=sample.means[up], col="blue")
+}
+
+```
+
+except for Rat 2011 (slug year), all the means are greater/smaller than random designation of closest allele!  So although the effect is small, it is significant.  When accessions show local adaptation, the closest allele to the experiment also mirrors this.  And vice versa...
+
+
+## Is there a positive relationship between this beta and the absolute distance to an experimental site?
+
+
+```{R distance vs betas}
+## get distance to closest allele
+close.dist <- apply(snp.dist,3, function(x){
+  apply(x, 1,function(y){min(y[c(1,3)])})
+  })
+close.dist <- t(close.dist)
+close.dist <- as.data.frame(close.dist)
+close.dist$rs <- paste(gts.prep$Chromosome, gts.prep$Position, sep="_")
+close.dist <- close.dist[close.dist$rs%in%rownames(c.beta),]
+#summary(close.dist$rs==rownames(c.beta))#all true
+
+cd.beta <- cbind(c.beta,close.dist[,5:8])
+
+
+
+```
+
+```{R plot and lm distance fitness}
+
+#do lms
+all.lm <- as.list(1:nrow(sample.index))
+  
+for(up in 1:nrow(sample.index)){
+  up.beta <- sample.index[up,1]
+  up.site <- sample.index[up,2]
+  up.lm <- lm(get(up.beta)~get(up.site), data=cd.beta)
+  all.lm[[up]] <- up.lm
+  }
+lapply(all.lm, summary)
+
+#plot and add lms
+for(up in 1:nrow(sample.index)){
+  up.beta <- sample.index[up,1]
+  up.site <- sample.index[up,2]
+  with(cd.beta, smoothScatter(get(up.site), get(up.beta), xlab="mean distance of closest allele to experiment site (km)", ylab=paste("fitness",unlist(strsplit(up.beta,"_"))[3],sep=" "), main=up.site))
+  abline(all.lm[[up]])
+  abline(h=0,col="grey60",lty=4)
+}
+
+```
+
+Yes!
+
+
+

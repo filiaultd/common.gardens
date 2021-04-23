@@ -1,0 +1,297 @@
+---
+title: "46.allele.freq.differences.Kgroups"
+author: "Daniele Filiault"
+date: "8/25/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(genio)
+source("99.geo.helper.fxns.R") ### has my genome plot function.
+
+#setwd("/Volumes/field_experiments/adaptation_sweden/common.gardens")
+setwd("/groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens")
+
+
+```
+
+## Introduction
+
+Explore allele frequency differences between 6 K groups in our experimental lines (and between N and S groups).
+Calculated counts per SNP in ./scripts/K.group.allele.count.swedish.R
+
+## Load data
+```{r load data}
+ac.file <- "./data/K.group.allele.count.Rdat"
+load(ac.file)
+
+rc <- allele.count[,1:6]
+ac <- allele.count[,7:12]
+tc <- rc + ac
+
+## also combine S and N groups
+tc <- as.data.frame(tc)
+tc$RSOUTH <- tc$RS1+tc$RS2
+tc$RNORTH <- tc$RN1+tc$RN2
+
+rc <- as.data.frame(rc)
+ac <- as.data.frame(ac)
+rc$RSOUTH <- rc$RS1 + rc$RS2
+rc$RNORTH <- rc$RN1 + rc$RN2
+ac$ASOUTH <- ac$AS1 + ac$AS2
+ac$ANORTH <- ac$AN1 + ac$AN2
+
+rf <- rc/tc
+af <- ac/tc
+
+### load positions of SNPs used for GWAS
+bim.f <- "./GWA/snps/sweden_200_MAF10.bim"
+bim <- read_bim(bim.f) # bim$id is concatenated chr_pos
+```
+
+
+ Check number of individuals genotyped in each K group 
+```{r plot no. individ.}
+par(mfrow=c(2,4))
+for(up in 1:ncol(tc)){
+  hist(tc[,up], main=colnames(tc)[up], xlab="number of individuals")
+}
+```
+
+## Plot frequency spectra
+```{r simple spectra of alt allele}
+par(mfrow=c(2,4))
+for(up in 1:ncol(af)){
+  hist(af[,up], main=colnames(af)[up], xlab="freq of alt allele")
+}
+```
+
+```{r joint SFS of alt allele}
+af <- as.data.frame(af)
+
+af.p <- combn(colnames(af)[1:6],2)
+
+Lab.palette <- colorRampPalette(c("white", "blue", "red"), space = "Lab")
+
+
+
+pdf("./figures/jointSFS.Kgroup.allSNPs.pdf", width=12, height=8.3)
+par(mfcol=c(3,5))
+for(up in 1:ncol(af.p)){
+  up.comb <- af.p[,up]
+  up.dat <- af[, colnames(af)%in%up.comb] 
+  smoothScatter(up.dat[,1],up.dat[,2],colramp=Lab.palette, xlab=paste(gsub("A","",colnames(up.dat)[1])," alt frequency",sep=" "), ylab=paste(gsub("A","",colnames(up.dat)[2]),"alt frequency",sep=" "), asp=1)
+}
+dev.off()
+
+par(mfcol=c(2,4))
+smoothScatter(af$ASOUTH, af$ANORTH, xlab="south", ylab="north", colramp=Lab.palette)
+smoothScatter(af$ASOUTH, af$AS1, xlab="south", ylab="S1", colramp=Lab.palette)
+smoothScatter(af$ASOUTH, af$AS2, xlab="south", ylab="S2", colramp=Lab.palette)
+smoothScatter(af$ANORTH, af$AN1, xlab="north", ylab="N1", colramp=Lab.palette)
+smoothScatter(af$ANORTH, af$AN2, xlab="north", ylab="N2", colramp=Lab.palette)
+smoothScatter(af$ANORTH, af$AS2, xlab="north", ylab="S2", colramp=Lab.palette)
+smoothScatter(af$ANORTH, af$AS1, xlab="north", ylab="S1", colramp=Lab.palette)
+smoothScatter(af$AS2, af$AS1, xlab="S2", ylab="S1", colramp=Lab.palette)
+
+pdf("./figures/jointSFS.NSKgroups.all.SNPs.pdf", width=4, height=4.6)
+smoothScatter(af$ASOUTH, af$ANORTH, xlab="south alt freq", ylab="north alt freq", colramp=Lab.palette, asp=1, xlim=c(0,1), ylim=c(0,1))
+dev.off()
+```
+## Do these but only for SNPs in GWAS dataset
+```{r simple spectra of alt allele GWAS SNPs}
+afg <- af[rownames(af)%in%bim$id,]
+par(mfrow=c(2,4))
+for(up in 1:ncol(afg)){
+  hist(afg[,up], main=colnames(afg)[up], xlab="freq of alt allele")
+}
+afg <- as.data.frame(afg)
+save(afg, file="./data/allele.freq.GWAS.snps.Rdata")
+```
+
+```{r joint SFS of alt allele GWAS}
+
+
+af.p <- combn(colnames(afg)[1:6],2)
+
+Lab.palette <- colorRampPalette(c("white", "blue", "red"), space = "Lab")
+
+pdf("./figures/jointSFS.Kgroup.gwasSNPs.pdf", width=12, height=8.3)
+par(mfcol=c(3,5))
+for(up in 1:ncol(af.p)){
+  up.comb <- af.p[,up]
+  up.dat <- afg[, colnames(af)%in%up.comb] 
+  smoothScatter(up.dat[,1],up.dat[,2],colramp=Lab.palette, xlab=paste(gsub("A","",colnames(up.dat)[1])," alt frequency",sep=" "), ylab=paste(gsub("A","",colnames(up.dat)[2]),"alt frequency",sep=" "))
+}
+dev.off()
+
+par(mfcol=c(3,3))
+smoothScatter(afg$ASOUTH, afg$ANORTH, xlab="south", ylab="north", colramp=Lab.palette)
+smoothScatter(afg$ASOUTH, afg$AS1, xlab="south", ylab="S1", colramp=Lab.palette)
+smoothScatter(afg$ASOUTH, afg$AS2, xlab="south", ylab="S2", colramp=Lab.palette)
+smoothScatter(afg$ANORTH, afg$AN1, xlab="north", ylab="N1", colramp=Lab.palette)
+smoothScatter(afg$ANORTH, afg$AN2, xlab="north", ylab="N2", colramp=Lab.palette)
+smoothScatter(afg$ANORTH, afg$AS1, xlab="north", ylab="S1", colramp=Lab.palette)
+smoothScatter(afg$ANORTH, afg$AS2, xlab="north", ylab="S2", colramp=Lab.palette)
+
+pdf("./figures/jointSFS.NSKgroups.gwasSNPs.pdf", width=4, height=4.6)
+smoothScatter(afg$ASOUTH, afg$ANORTH, xlab="south alt freq", ylab="north alt freq", colramp=Lab.palette)
+dev.off()
+```
+
+
+## Plot absolute alelle frequency differences
+I am just going to do the SNPs in GWAS here.  Can go back and do all SNPs if it seem reasonable?
+
+```{r abs AF diff all snps}
+# do N/S, S1/S2, N1/N2
+## get position information
+pos <- bim[,c(1,4)]
+pos <- as.data.frame(pos)
+colnames(pos) <- c("Chromosome", "Position")
+pos[,1] <- as.numeric(as.character(pos[,1]))
+pos[,2] <- as.numeric(as.character(pos[,2]))
+pos <- pos[order(pos$Chromosome, pos$Position),]
+rownames(pos) <- paste(pos$Chromosome, pos$Position, sep="_")
+#rownames(pos)==names(ns.altf) -> ugh
+#table(ugh)
+
+ns.ss.afd <- abs(afg$ANORTH-afg$ASOUTH)
+ns.ss.afd <- cbind(pos, ns.ss.afd)
+jpeg(filename="./figures/genome.AFD.north.south.gwasSNPs.jpg", width=1200, height=480)
+genome.plot(updata=ns.ss.afd, plot.var="ns.ss.afd")
+dev.off()
+
+s1.s2.afd <- abs(afg$AS1-afg$AS2)
+s1.s2.afd <- cbind(pos, s1.s2.afd)
+jpeg(filename="./figures/genome.AFD.S1.S2.gwasSNPs.jpg", width=1200, height=480)
+genome.plot(updata=s1.s2.afd, plot.var="s1.s2.afd")
+dev.off()
+
+n1.n2.afd <- abs(afg$AN1-afg$AN2)
+n1.n2.afd <- cbind(pos, n1.n2.afd)
+jpeg(filename="./figures/genome.AFD.N1.N2.gwasSNPs.jpg", width=1200, height=480)
+genome.plot(updata=n1.n2.afd, plot.var="n1.n2.afd")
+dev.off()
+
+par(mfrow=c(1,3))
+hist(ns.ss.afd[,3], main="abs AFD North/South")
+hist(s1.s2.afd[,3], main="abs AFD S1/S2")
+hist(n1.n2.afd[,3], main="abs AFD N1/N2")
+```
+
+
+
+
+## Calculate significant allele frequency differences by chisq test
+
+```{r chisq test proportions, eval=TRUE}
+#input needs to be a table of counts
+
+ag1 <- "SOUTH"
+ag2 <- "NORTH"
+up.row <- 2
+all.c <- cbind(rc, ac)
+all.cg <- all.c[rownames(all.c)%in%rownames(pos),]
+
+Xsq.test.allele <- function(ag1, ag2, up.row){
+  ac1 <- all.cg[up.row, grep(ag1, colnames(all.cg))]
+  colnames(ac1) <- c("ref", "alt")
+  ac2 <- all.cg[up.row, grep(ag2, colnames(all.cg))]
+  colnames(ac2) <- c("ref", "alt")
+  ac.table <- rbind(ac1, ac2)
+  rownames(ac.table) <- c("g1","g2")
+  if(sum(ac.table)==0){p.out <- NA
+  }else{
+    Xsq <- chisq.test(ac.table)
+    p.out <- Xsq$p.value
+  }
+  return(p.out)
+}
+
+ns.Xsq <- rep(NA, nrow(all.cg))
+for(up.row in 1:nrow(all.cg)){
+  #print(up.row)
+  up.x <- suppressWarnings(Xsq.test.allele(ag1="NORTH", ag2="SOUTH", up.row=up.row))
+  ns.Xsq[up.row] <- up.x
+}
+
+s1s2.Xsq <- rep(NA, nrow(all.cg))
+for(up.row in 1:nrow(all.cg)){
+  #print(up.row)
+  up.x <- suppressWarnings(Xsq.test.allele(ag1="S1", ag2="S2", up.row=up.row))
+  s1s2.Xsq[up.row] <- up.x
+}
+
+n1n2.Xsq <- rep(NA, nrow(all.cg))
+for(up.row in 1:nrow(all.cg)){
+  #print(up.row)
+  up.x <- suppressWarnings(Xsq.test.allele(ag1="N1", ag2="N2", up.row=up.row))
+  n1n2.Xsq[up.row] <- up.x
+}
+```
+
+```{r plot xsq results}
+par(mfrow=c(1,3))
+hist(-log10(ns.Xsq))
+hist(-log10(s1s2.Xsq))
+hist(-log10(n1n2.Xsq))
+
+xsq.dat <- cbind(pos, -log10(ns.Xsq), -log10(s1s2.Xsq), -log10(n1n2.Xsq))
+colnames(xsq.dat)[3:5] <- c("ns.pval", "s1s2.pval", "n1n2.pval")
+
+jpeg(filename="./figures/genome.pval.NS.gwasSNPs.jpg", width=1200, height=480)
+genome.plot(updata=xsq.dat, plot.var="ns.pval")
+dev.off()
+
+jpeg(filename="./figures/genome.pval.S1S2.gwasSNPs.jpg", width=1200, height=480)
+genome.plot(updata=xsq.dat, plot.var="s1s2.pval")
+dev.off()
+
+jpeg(filename="./figures/genome.pval.N1N2.gwasSNPs.jpg", width=1200, height=480)
+genome.plot(updata=xsq.dat, plot.var="n1n2.pval")
+dev.off()
+
+par(pty="s", mfrow=c(1,3))
+a.lims <- c(0, max(xsq.dat[,3:5], na.rm=TRUE))
+smoothScatter(xsq.dat$s1s2.pval, xsq.dat$ns.pval, xlim=a.lims, ylim=a.lims)
+smoothScatter(xsq.dat$n1n2.pval, xsq.dat$ns.pval, xlim=a.lims, ylim=a.lims)
+smoothScatter(xsq.dat$n1n2.pval, xsq.dat$s1s2.pval, xlim=a.lims, ylim=a.lims)
+
+```
+## output data so freezing Xsq results
+```{r output data}
+
+#ns.ss.afd
+#s1.s2.afd
+#n1.n2.afd
+
+tmp <- merge(xsq.dat,ns.ss.afd)
+tmp <- merge(tmp, s1.s2.afd)
+tmp <- merge(tmp, n1.n2.afd)
+colnames(tmp)[6:8] <- c("ns.afd","s1s2.afd","n1n2.afd")
+tmp <- tmp[order(tmp$Chromosome, tmp$Position),]
+pop.af.dat <- tmp
+save(pop.af.dat, file="./data/pop.af.dat.Rdat")
+
+
+load("./data/pop.af.dat.Rdat")
+
+par(pty="s", mfrow=c(1,3))
+a.lims <- c(0, max(pop.af.dat[,3:5], na.rm=TRUE))
+smoothScatter(pop.af.dat$s1s2.pval, pop.af.dat$ns.pval, xlim=a.lims, ylim=a.lims)
+smoothScatter(pop.af.dat$n1n2.pval, pop.af.dat$ns.pval, xlim=a.lims, ylim=a.lims)
+smoothScatter(pop.af.dat$n1n2.pval, pop.af.dat$s1s2.pval, xlim=a.lims, ylim=a.lims)
+
+
+par(pty="s", mfrow=c(1,3))
+a.lims <- c(0, max(pop.af.dat[,6:8], na.rm=TRUE))
+smoothScatter(pop.af.dat$s1s2.afd, pop.af.dat$ns.afd, xlim=a.lims, ylim=a.lims)
+smoothScatter(pop.af.dat$n1n2.afd, pop.af.dat$ns.afd, xlim=a.lims, ylim=a.lims)
+smoothScatter(pop.af.dat$n1n2.afd, pop.af.dat$s1s2.afd, xlim=a.lims, ylim=a.lims)
+```
+
+
+

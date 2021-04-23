@@ -1,0 +1,894 @@
+---
+title: "020.admix.prop.by.snp"
+author: "Daniele Filiault"
+date: "9/20/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(data.table)
+library(ggplot2)
+library(reshape2)
+library(RColorBrewer)
+library(viridis)
+library(gridExtra)
+library(multcompView)
+
+source("./99.geo.helper.fxns.R")
+```
+
+## Introduction
+
+Given that admixture proportion correlates with fitness, can we see similar relationships at the SNPs level?  Where does adaptive variation come from?
+First step is to summarize the admixture groups that each SNP occurs in in the 1001g data
+
+### prep admixture data
+```{r prep admix data}
+### done in script ./scripts/admix.prop.by.snp.R
+### ran this on the cluster with ./scripts/submit.admix.prop.by.snp.sh
+### output is admixture group of derived and ancestral alleles for the 1001g data
+### so a few of our experimental lines are missing from this.  I think that's OK, but I will need to think about it more...
+### this gives the number of acessions determined to be in each admixture group that have the ancestral (A) and derived (D) allele.
+
+load("./data/admix.prop.pol.Rdat")
+rownames(admix.prop.pol) <- admix.prop.pol$rs
+admix.prop.pol <- admix.prop.pol[,-c(19:20)]
+admix.prop.pol <- as.matrix(admix.prop.pol) #1129233
+
+### subset to SNPs that were used for GWAS
+load("./data/betas2011.Rdat")
+load("./data/betas2012.Rdat")
+b.pos <- unique(c(as.character(betas2011$rs), as.character(betas2012$rs))) #760264
+admix.prop.pol <- admix.prop.pol[row.names(admix.prop.pol)%in%b.pos,]  #341332
+
+### remove non-polymorphic (1 or 2 calls)
+a.sums <- apply(admix.prop.pol, 1, sum)
+admix.prop.pol <- admix.prop.pol[a.sums>1,]
+
+## which admixture group is which (from 0-8)
+group.names <- c("W.Europe","Relicts","Germany","N.Sweden","Iberia","Asia","S.Sweden","Italy/E.Europe","C.Europe")
+```
+
+Let's ask some basic questions about these groups.
+
+```{r prop per admix group, error=FALSE,message=FALSE,warning=FALSE}
+
+### first, are the proportions of each admixture group different between derived and ancestral alleles?
+
+##by row of admix.prop.pol
+
+prop.test.ad.group <- function(up.dat){
+  up.tab <- cbind(up.dat[1:9], up.dat[10:18])
+  up.sum <- apply(up.tab,1,sum)
+  up.na <- sapply(up.sum,is.na)
+  up.tab <- up.tab[up.sum>0 & up.na==FALSE,]
+ if(length(up.tab)==2){out.p <- NA
+    } else if(nrow(up.tab)<=1){out.p <- NA
+    } else{
+    up.test <- prop.test(up.tab) ## test whether proportion ancestral/derived is different between the different admixture groups
+    out.p <- up.test$p.value
+    }
+  return(out.p)
+}
+
+#ad.prop.test <- apply(admix.prop.pol, 1, prop.test.ad.group)
+
+ad.pvals <- rep(NA, nrow(admix.prop.pol))
+
+for (up in 1:nrow(admix.prop.pol)){
+  #print(up)
+  up.dat <- admix.prop.pol[up,]
+  pval <- prop.test.ad.group(up.dat)
+  ad.pvals[up] <- pval
+}
+
+cor.p <- 0.05/length(ad.pvals)
+sig.prop.diff <- table(ad.pvals<=cor.p)
+sig.prop.diff
+#  FALSE   TRUE 
+# 25896 314735
+# this is not unexpected given that this is not a panmictic sample.
+```
+### let's calculate a few things for each of these positions
+
+### First is which allele (ancestral or derived) is more common in the 2 (German), 3 (N.Sweden), and 6 (S.Sweden) admixture groups
+Return which is more common and by what proportion.
+
+```{R common allele in admix group}
+
+pos.line <- admix.prop.pol[100,]
+ad.group <- "3"
+
+com.ad.group <- function(pos.line,ad.group){
+  up.dat <- pos.line[grep(ad.group,names(pos.line))]
+  if(up.dat[1]==up.dat[2]){
+    #print(up.dat)
+    out.dat <- c(2,0.5)
+    }else{
+      max.allele <- names(up.dat)[which(up.dat==max(up.dat))]
+      if(substr(max.allele,1,1)=="A"){bi.allele <- 0}
+      if(substr(max.allele,1,1)=="D"){bi.allele <- 1}
+      max.prop <- up.dat[which(up.dat==max(up.dat))]/sum(up.dat)
+      out.dat <- c(bi.allele, max.prop)
+    }
+  return(out.dat)
+}
+
+ger.allele <- apply(admix.prop.pol, 1, function(x){com.ad.group(pos.line=x, ad.group="2")})
+ger.allele <- t(ger.allele)
+colnames(ger.allele) <- c("mc.allele","prop")
+
+ss.allele <- apply(admix.prop.pol, 1, function(x){com.ad.group(pos.line=x, ad.group="6")})
+ss.allele <- t(ss.allele)
+colnames(ss.allele) <- c("mc.allele","prop")
+
+ns.allele <- apply(admix.prop.pol, 1, function(x){com.ad.group(pos.line=x, ad.group="3")})
+ns.allele <- t(ns.allele)
+colnames(ns.allele) <- c("mc.allele","prop")
+```
+
+look at these results a bit
+
+```{R visualize common allele}
+all.alleles <- c("ger.allele","ss.allele","ns.allele")
+par(mfrow=c(1,3))
+for(up.a in all.alleles){hist(get(up.a)[,2], main=up.a, xlab="proportion most common allele")}
+
+par(mfrow=c(1,1))
+hist.counts <- sapply(all.alleles, function(x){table(get(x)[,1])})
+print(hist.counts)
+barplot(hist.counts,legend.text=c("ancestral", "derived","tied"),ylab="number of positions", xlab="admixture group", main="all position")
+
+ger.fixed <- ger.allele[ger.allele[,2]==1,]
+ns.fixed <- ns.allele[ns.allele[,2]==1,]
+ss.fixed <- ss.allele[ss.allele[,2]==1,]
+fixed.alleles <- c("ger.fixed","ss.fixed","ns.fixed")
+
+fix.counts <- sapply(fixed.alleles, function(x){table(get(x)[,1])})
+print(fix.counts)
+barplot(fix.counts,legend.text=c("ancestral", "derived"),ylab="number of positions", xlab="admixture group", main="fixed positions")
+
+# lets try to combine these two barplots
+ger.allele <- as.data.frame(ger.allele)
+ger.allele$fixed <- ger.allele$prop==1
+ger.hist <- with(ger.allele, table(mc.allele, fixed))
+ger.hist <- melt(ger.hist)
+colnames(ger.hist)[3] <- "Germany"
+
+ss.allele <- as.data.frame(ss.allele)
+ss.allele$fixed <- ss.allele$prop==1
+ss.hist <- with(ss.allele, table(mc.allele, fixed))
+ss.hist <- melt(ss.hist)
+colnames(ss.hist)[3] <- "S.Sweden"
+
+ns.allele <- as.data.frame(ns.allele)
+ns.allele$fixed <- ns.allele$prop==1
+ns.hist <- with(ns.allele, table(mc.allele, fixed))
+ns.hist <- melt(ns.hist)
+colnames(ns.hist)[3] <- "N.Sweden"
+
+all.hist <- merge(ger.hist, ss.hist,by=c("mc.allele","fixed"))
+all.hist <- merge(all.hist, ns.hist,by=c("mc.allele","fixed"))
+all.hist <- all.hist[-6,]
+
+hist.names <- c("anc.seg","anc.fixed", "der.seg", "dev.fixed", "tied")
+
+barplot(as.matrix(all.hist[,3:5]), legend.text=hist.names,col=brewer.pal(5, "Paired"), xlab="admixture group", ylab="number of positions")
+```
+
+### Second is how many admixture groups both the ancestral and derived alleles are shared across
+Turn counts to absence/presence (0/1) and sum.  Output both pattern and number for ancestral and derived allele
+
+```{R admix sharing}
+#pos.line <- admix.prop.pol[100,]
+
+share.pat <- function(pos.line){
+  a.pat <- sapply(pos.line[1:9], function(x){x>0})
+  a.pat <- as.numeric(a.pat)
+  a.sum <- sum(a.pat)
+  a.pat <- paste(a.pat, collapse="")
+
+  d.pat <- sapply(pos.line[10:18], function(x){x>0})
+  d.pat <- as.numeric(d.pat)
+  d.sum <- sum(d.pat)
+  d.pat <- paste(d.pat, collapse="")
+
+  out.dat <- c(a.pat, a.sum, d.pat, d.sum)
+  return(out.dat)
+}
+
+all.share.pat <- apply(admix.prop.pol,1,share.pat)
+all.share.pat <- t(all.share.pat)
+all.share.pat <- as.data.frame(all.share.pat)
+all.share.pat[,2] <- as.numeric(as.character(all.share.pat[,2]))
+all.share.pat[,4] <- as.numeric(as.character(all.share.pat[,4]))
+colnames(all.share.pat) <- c("a.pat","a.gn","d.pat","d.gn")
+
+with(all.share.pat, table(a.gn, d.gn))
+
+a.sp <- table(all.share.pat$a.pat)
+a.sp <- a.sp[order(a.sp,decreasing=TRUE)]
+
+d.sp <- table(all.share.pat$d.pat)
+d.sp <- d.sp[order(d.sp,decreasing=TRUE)]
+
+a.s <- split(all.share.pat, all.share.pat$a.gn)
+a.s.table <- lapply(a.s, function(x){
+  up.t <- table(x$a.pat)
+  up.t <- up.t[up.t>0]
+  return(up.t)})
+
+d.s <- split(all.share.pat, all.share.pat$d.gn)
+d.s.table <- lapply(d.s, function(x){
+  up.t <- table(x$d.pat)
+  up.t <- up.t[up.t>0]
+  return(up.t)})
+
+### this is biased because it is SNPs segregating in Sweden.  But it shows the expected pattern given this, so that's good!
+```
+
+###Now this is going to get a bit more complicated.  Bringing back donut plots, but by most common allele in the "matching" amixture group.
+```{R polarize betas}
+# betas are the effect of the derived allele.  Take most common allele per admixture group and polarize betas for all sites/years
+sites <- c("ADA","RAM", "ULL","RAT")
+
+#prep betas
+betas1 <- betas2011[,8:11]
+colnames(betas1) <- paste(sites,"2011",sep="_")
+rownames(betas1) <- betas2011$rs
+betas2 <- betas2012[,8:11]
+colnames(betas2) <- paste(sites,"2012",sep="_")
+rownames(betas2) <- betas2012$rs
+
+#ger.allele$mc.allele gives ancestral (0), derived (1), or tied (2)
+# choose at random if tied
+#betas are derived allele.  multiply by -1 if most common allele is ancestral
+
+#betas <- betas1
+#ad.allele <- ger.allele
+#fxn to polarize betas
+p.betas <- function(ad.allele, betas){
+  up.p <- ad.allele$mc.allele
+  up.p <- gsub(0,-1,up.p)
+  up.p <- as.numeric(up.p)
+  up.p <- sapply(up.p, function(x){
+    if(x==2){up.p <- sample(c(-1,1),1)
+    }else{up.p <- x
+    }
+    return(up.p)
+  })
+  ad.allele$up.p <- up.p
+  up.dat <- merge(ad.allele, betas, by="row.names")
+  # multiply to polarize betas
+  out.betas <- up.dat[,6:(5+ncol(betas))]
+  out.betas <- apply(out.betas,2,function(x){x*up.dat$up.p})
+  rownames(out.betas) <- up.dat$Row.names
+  return(out.betas)
+}
+
+ger.betas.p1 <- p.betas(ad.allele=ger.allele, betas=betas1)
+ger.betas.p2 <- p.betas(ad.allele=ger.allele, betas=betas2)
+
+ss.betas.p1 <- p.betas(ad.allele=ss.allele, betas=betas1)
+ss.betas.p2 <- p.betas(ad.allele=ss.allele, betas=betas2)
+
+ns.betas.p1 <- p.betas(ad.allele=ns.allele, betas=betas1)
+ns.betas.p2 <- p.betas(ad.allele=ns.allele, betas=betas2)
+```
+
+So now the idea is to plot the betas of one experimental site versus all others (do by year first) for each admixture group based on the most common allele in that group, essentially making a "donut plot" without the hole.  Is there a difference when the admixture group matches the focal groups?  Can add ancestral and derived allele counts to quandrants AND only look at highest percentage of betas int he focal group.  We'll see how it looks...
+
+```{R plot one site}
+up.site <- "ULL_2012"
+
+### start with matching betas
+up.exp <- ns.betas.p2
+top.percent <- 1
+
+
+other.sites <- colnames(up.exp)[colnames(up.exp)!=up.site]
+
+par(mfrow=c(1,3))
+for(up in 1:3){
+  smoothScatter(up.exp[,colnames(up.exp)==up.site], up.exp[,colnames(up.exp)==other.sites[up]], xlab=up.site, ylab=other.sites[up])
+  abline(v=0)
+  abline(h=0)
+  top.betas <- abs(up.exp[,colnames(up.exp)==up.site])
+  top.betas <- top.betas[order(top.betas, decreasing=TRUE)]
+  top.no <- round(length(top.betas)*(top.percent/100))
+  top.betas <- top.betas[1:top.no]
+  point.betas <- up.exp[rownames(up.exp)%in%names(top.betas),]
+  points(point.betas[,colnames(up.exp)==up.site], point.betas[,colnames(up.exp)==other.sites[up]], col="red")
+}
+
+```
+
+Maybe add one more level?  Split each of these into two plots:
+1) most common allele is the same between plots
+2) most common allele is different
+
+```{R pairwise by site, common vs different alleles, eval=FALSE}
+focal.site <- "RAT_2011"
+test.site <- "ADA_2011"
+up.exp <- ss.betas.p1
+top.percent <- 1
+other.sites <- colnames(up.exp)[colnames(up.exp)!=up.site]
+up <- 2
+focal.allele <- ss.allele 
+test.allele <- ns.allele ### these are in same order
+
+c.allele <- focal.allele[focal.allele$mc.allele==test.allele$mc.allele,]
+cf.mean <- median(up.exp.c[,colnames(up.exp.c)==focal.site])
+ct.mean <- median(up.exp.c[,colnames(up.exp.c)==test.site])
+
+d.allele <- focal.allele[focal.allele$mc.allele!=test.allele$mc.allele,]
+df.mean <- median(up.exp.d[,colnames(up.exp.d)==focal.site])
+dt.mean <- median(up.exp.d[,colnames(up.exp.d)==test.site])
+
+up.exp.c <- up.exp[rownames(up.exp)%in%rownames(c.allele),]
+up.exp.d <- up.exp[rownames(up.exp)%in%rownames(c.allele)==FALSE,]
+
+par(mfrow=c(1,2))
+
+xlim <- c(min(up.exp), max(up.exp))
+ylim <- xlim
+
+smoothScatter(up.exp.c[,colnames(up.exp.c)==focal.site], up.exp.c[,colnames(up.exp.c)==test.site], xlab=focal.site, ylab=test.site, xlim=xlim, ylim=ylim, main="same common allele", asp=1)
+  abline(v=0)
+  abline(h=0)
+  points(cf.mean, ct.mean, col="red", pch=6)
+  #top.betas <- abs(up.exp[,colnames(up.exp)==up.site])
+  #top.betas <- top.betas[order(top.betas, decreasing=TRUE)]
+  #top.no <- round(length(top.betas)*(top.percent/100))
+  #top.betas <- top.betas[1:top.no]
+  #point.betas <- up.exp[rownames(up.exp)%in%names(top.betas),]
+  #points(point.betas[,colnames(up.exp)==up.site], point.betas[,colnames(up.exp)==other.sites[up]], col="red")
+smoothScatter(up.exp.d[,colnames(up.exp.d)==focal.site], up.exp.d[,colnames(up.exp.d)==test.site], xlab=focal.site, ylab=test.site, xlim=xlim, ylim=ylim, main="different common allele",asp=1)
+  abline(v=0)
+  abline(h=0)
+   points(df.mean, dt.mean, col="red", pch=6)
+
+```
+
+OK, let's ask this a different way:
+
+1.  Which allele would be predicted to increase fitness at a site?  By how much?
+2.  Is this ancestral or derived?
+3.  What is its frequency in the target admixture population?
+4.  How does this frequency compare with the frequency of this allele in other admixture populations?
+
+```{R get allele increase beta}
+# identify which allele predicted to increase beta
+
+beta.dat <- betas2011
+
+get.pos.betas <-function(beta.dat){
+  up.betas <- beta.dat[,c(2,8:11)]
+  rs <- as.character(up.betas$rs)
+  up.betas$rs <- rs
+  colnames(up.betas) <- c("rs", "ADA", "RAM", "ULL", "RAT")
+  pos.betas <- lapply(as.list(2:5), function(exp.c){
+    exp.name <- colnames(up.betas[exp.c])
+    x <- as.numeric(up.betas[,exp.c])
+    x.sign <- x>=0
+    x.betas.s <- split(up.betas,x.sign) ### so first list entry is derived negative betas.  Flip the signs, note that the ancestral allele increases fitness (allele.hist <- 0)
+    anc <- x.betas.s[[1]]
+    a.beta <- abs(anc[,exp.c])
+    a.out <- cbind(a.beta, 0)
+    rownames(a.out) <- anc$rs
+    colnames(a.out) <- c("beta","hist")
+    der <- x.betas.s[[2]]
+    d.out <- cbind(der[,exp.c],1)
+    rownames(d.out) <- der$rs
+    colnames(d.out) <- c("beta","hist")
+    both.out <- rbind(d.out, a.out)
+    both.out <- both.out[order(row.names(both.out)),]
+    colnames(both.out) <- paste(exp.name,colnames(both.out),sep="_")
+    return(both.out)
+    })
+  pos.betas <- do.call(cbind,pos.betas)
+  return(pos.betas)
+}
+  
+p.betas2011 <- get.pos.betas(beta.dat=betas2011)
+p.betas2012 <- get.pos.betas(beta.dat=betas2012)
+```
+
+```{R plot positive betas by anc/der}
+par(mfcol=c(2,2))
+boxplot(p.betas2011[,1]~as.factor(p.betas2011[,2]), xlab="ADA", main="2011")
+boxplot(p.betas2011[,3]~as.factor(p.betas2011[,4]), xlab="BAR", main="2011")
+boxplot(p.betas2011[,5]~as.factor(p.betas2011[,6]), xlab="ULL", main="2011")
+boxplot(p.betas2011[,7]~as.factor(p.betas2011[,8]), xlab="RAT", main="2011")
+
+par(mfcol=c(2,2))
+boxplot(p.betas2012[,1]~as.factor(p.betas2012[,2]), xlab="ADA", main="2012")
+boxplot(p.betas2012[,3]~as.factor(p.betas2012[,4]), xlab="BAR", main="2012")
+boxplot(p.betas2012[,5]~as.factor(p.betas2012[,6]), xlab="ULL", main="2012")
+boxplot(p.betas2012[,7]~as.factor(p.betas2012[,8]), xlab="RAT", main="2012")
+
+```
+
+```{R get admix group frequency of derived allele}
+
+a.group <- 2
+
+get.da.allele.freq <- function(a.group){
+  up.dat <- admix.prop.pol[,grep(a.group,colnames(admix.prop.pol))]
+  up.sum <- apply(up.dat,1,sum)
+  total <- max(up.sum)
+  d.prop <- up.dat[,colnames(up.dat)==paste("D", a.group,sep="")]/up.sum
+  a.prop <- up.dat[,colnames(up.dat)==paste("A", a.group,sep="")]/up.sum
+  both.p <- cbind(d.prop, a.prop)
+  return(both.p)
+}
+
+ger.df <- get.da.allele.freq(a.group=2)
+ns.df <- get.da.allele.freq(a.group=3)
+ss.df <- get.da.allele.freq(a.group=6)
+
+par(mfcol=c(1,3))
+hist(ger.df[,1], main="derived freq")
+hist(ss.df[,1],main="derived freq")
+hist(ns.df[,1],main="derived freq")
+
+hist(ger.df[,2], main="anc freq")
+hist(ss.df[,2],main="anc freq")
+hist(ns.df[,2],main="anc freq")
+
+### joint SFS between these three
+pdf("./figures/jointSFS.derived.alleles.pdf", width=12, height=6)
+par(mfcol=c(1,3))
+smoothScatter(ss.df[,1], ns.df[,1], xlab="derived frequency S.Swedish", ylab="derived frequency N. Swedish")
+smoothScatter(ss.df[,1], ger.df[,1],xlab="derived frequency S.Swedish", ylab="derived frequency German")
+smoothScatter(ns.df[,1], ger.df[,1],xlab="derived frequency N.Swedish", ylab="derived frequency German")
+dev.off()
+```
+
+
+Now make some plots the show fitness of allele that increases fitness and its frequency in admixture groups
+
+```{R plot SNP fitness and freqency}
+beta.dat <- p.betas2011
+exp.site <- "RAM"
+focal.freq <- ns.df
+
+up.beta <- as.data.frame(beta.dat[,grep(exp.site, colnames(beta.dat))])
+up.beta.s <- split(up.beta, up.beta[,2])
+up.beta.a <- up.beta.s[[1]]
+up.beta.a <- merge(up.beta.a, focal.freq[,2], by="row.names")
+colnames(up.beta.a)[4] <- "pop.freq"
+up.beta.d <- up.beta.s[[2]]
+up.beta.d <- merge(up.beta.d, focal.freq[,1], by="row.names")
+colnames(up.beta.d)[4] <- "pop.freq"
+plot.beta <- rbind(up.beta.d,up.beta.a)
+#plot.beta <- plot.beta[order(plot.beta$Row.names),]
+colnames(plot.beta) <- gsub(paste(exp.site,"_",sep=""),"",colnames(plot.beta))
+ggplot(plot.beta, aes(x=beta, y=pop.freq) ) +
+  geom_hex() +
+  scale_fill_viridis_c(option = "C") +
+  facet_grid(hist ~ .) +
+  theme_bw()
+
+
+
+```
+
+This still isn't exactly right.  Hybridize the two...
+1.  plot beta of most common allele in the focal admixture group by the frequency of that allele.
+2.  split this up by ancestral and derived.
+3.  taking these same alleles, what are their frequencies in the other two admixture groups (plot betas in focal site by frequency in other two admixtue groups)
+
+```{R common allele freq vs beta by history fxn}
+beta.dat <- ns.betas.p1
+exp.site <- "RAM"
+focal.freq <- ns.df
+other.freq1 <- ss.df
+other.freq2 <- ger.df
+focal.allele <- ns.allele
+year="2011"
+ad.group.names <- c("N.Sweden", "S.Sweden", "Germany")
+
+
+
+plot.freq.beta <- function(beta.dat, exp.site, focal.freq, other.freq1, other.freq2,focal.allele, year, ad.group.names){
+  up.dat <- merge(beta.dat,focal.allele, by="row.names")
+  rownames(up.dat) <- up.dat$Row.names
+  up.dat <- up.dat[,-c(1,7:8)]
+  up.dat.s <- split(up.dat, up.dat$mc.allele)
+  ud.a <- up.dat.s[[1]]
+  ud.a <- merge(ud.a, focal.freq[,2], by="row.names")
+  colnames(ud.a)[7] <- "ad.group.freq"
+  ud.d <- up.dat.s[[2]]
+  ud.d <- merge(ud.d, focal.freq[,1], by="row.names")
+  colnames(ud.d)[7] <- "ad.group.freq"
+  ud.both <- rbind(ud.a, ud.d)
+  ud.both$beta <- ud.both[,grep(exp.site, colnames(ud.both))]
+  hist.labs <- c("ancestral allele","derived allele")
+  names(hist.labs) <- c(0,1)
+  p1 <- ggplot(ud.both, aes(x=beta, y=ad.group.freq) ) +
+    geom_hex() +
+    scale_fill_viridis_c(option = "C") +
+    facet_grid(mc.allele ~ .,labeller=labeller(mc.allele=hist.labs)) +
+    theme_bw() +
+    ggtitle(paste(exp.site, year, sep=" ")) +
+    ylab(paste("frequency", ad.group.names[1], sep=" ")) +
+    xlab(paste("fitness effect in", exp.site, year, sep=" ")) +
+    geom_vline(xintercept = 0, linetype="dashed", 
+                color = "springgreen")
+
+### same betas, but change group frequency to the next admixtue group
+  g1.a <- up.dat.s[[1]]
+  g1.a <- merge(g1.a, other.freq1[,2], by="row.names")
+  colnames(g1.a)[7] <- "group1.freq"
+  g1.d <- up.dat.s[[2]]
+  g1.d <- merge(g1.d, other.freq1[,1], by="row.names")
+  colnames(g1.d)[7] <- "group1.freq"
+  g1.both <- rbind(g1.a,g1.d)
+  g1.both$beta <- g1.both[,grep(exp.site, colnames(g1.both))]
+  hist.labs <- c("ancestral allele","derived allele")
+  names(hist.labs) <- c(0,1)
+  p2 <- ggplot(g1.both, aes(x=beta, y=group1.freq) ) +
+    geom_hex() +
+    scale_fill_viridis_c(option = "C") +
+    facet_grid(mc.allele ~ .,labeller=labeller(mc.allele=hist.labs)) +
+    theme_bw() +
+    ggtitle(paste(exp.site, year, sep=" ")) +
+    ylab(paste("frequency", ad.group.names[2], sep=" ")) +
+    xlab(paste("fitness effect in", exp.site, year, sep=" ")) +
+    geom_vline(xintercept = 0, linetype="dashed", 
+                color = "springgreen")
+
+### same betas, but change group frequency to the last admixtue group
+  g2.a <- up.dat.s[[1]]
+  g2.a <- merge(g2.a, other.freq2[,2], by="row.names")
+  colnames(g2.a)[7] <- "group2.freq"
+  g2.d <- up.dat.s[[2]]
+  g2.d <- merge(g2.d, other.freq2[,1], by="row.names")
+  colnames(g2.d)[7] <- "group2.freq"
+  g2.both <- rbind(g2.a,g2.d)
+  g2.both$beta <- g2.both[,grep(exp.site, colnames(g2.both))]
+  hist.labs <- c("ancestral allele","derived allele")
+  names(hist.labs) <- c(0,1)
+  p3 <- ggplot(g2.both, aes(x=beta, y=group2.freq) ) +
+    geom_hex() +
+    scale_fill_viridis_c(option = "C") +
+    facet_grid(mc.allele ~ .,labeller=labeller(mc.allele=hist.labs)) +
+    theme_bw() +
+    ggtitle(paste(exp.site, year, sep=" ")) +
+    ylab(paste("frequency", ad.group.names[3], sep=" ")) +
+    xlab(paste("fitness effect in", exp.site, year, sep=" ")) +
+    geom_vline(xintercept = 0, linetype="dashed", 
+                color = "springgreen")
+
+  grid.arrange(p1,p2,p3, nrow=1)
+  
+  pdf.name <- paste("./figures/",exp.site, year,".beta.by.freq.pdf", sep="")
+  pdf(file=pdf.name, width=16, height=7)
+  grid.arrange(p1,p2,p3, nrow=1)
+  dev.off()
+}
+
+```
+
+```{R common allele freq vs beta by history plot}
+#beta.dat <- ns.betas.p1
+#exp.site <- "RAM"
+#focal.freq <- ns.df
+#other.freq1 <- ss.df
+#other.freq2 <- ger.df
+#focal.allele <- ns.allele
+#year="2011"
+#ad.group.names <- c("N.Sweden", "S.Sweden", "Germany")
+
+
+#2011 plots
+plot.freq.beta(beta.dat=ns.betas.p1, exp.site="RAM", focal.freq=ns.df, other.freq1=ss.df, other.freq2=ger.df, focal.allele=ns.allele, year="2011", ad.group.names <- c("N.Sweden", "S.Sweden", "Germany"))
+
+plot.freq.beta(beta.dat=ns.betas.p1, exp.site="ADA", focal.freq=ns.df, other.freq1=ss.df, other.freq2=ger.df, focal.allele=ns.allele, year="2011", ad.group.names <- c("N.Sweden", "S.Sweden", "Germany"))
+
+plot.freq.beta(beta.dat=ss.betas.p1, exp.site="ULL", focal.freq=ss.df, other.freq1=ns.df, other.freq2=ger.df, focal.allele=ss.allele, year="2011", ad.group.names <- c("S.Sweden", "N.Sweden", "Germany"))
+
+plot.freq.beta(beta.dat=ss.betas.p1, exp.site="RAT", focal.freq=ss.df, other.freq1=ns.df, other.freq2=ger.df, focal.allele=ss.allele, year="2011", ad.group.names <- c("S.Sweden", "N.Sweden", "Germany"))
+
+
+#2012 plots
+plot.freq.beta(beta.dat=ns.betas.p2, exp.site="RAM", focal.freq=ns.df, other.freq1=ss.df, other.freq2=ger.df, focal.allele=ns.allele, year="2012", ad.group.names <- c("N.Sweden", "S.Sweden", "Germany"))
+
+plot.freq.beta(beta.dat=ns.betas.p2, exp.site="ADA", focal.freq=ns.df, other.freq1=ss.df, other.freq2=ger.df, focal.allele=ns.allele, year="2012", ad.group.names <- c("N.Sweden", "S.Sweden", "Germany"))
+
+plot.freq.beta(beta.dat=ss.betas.p2, exp.site="ULL", focal.freq=ss.df, other.freq1=ns.df, other.freq2=ger.df, focal.allele=ss.allele, year="2012", ad.group.names <- c("S.Sweden", "N.Sweden", "Germany"))
+
+plot.freq.beta(beta.dat=ss.betas.p2, exp.site="RAT", focal.freq=ss.df, other.freq1=ns.df, other.freq2=ger.df, focal.allele=ss.allele, year="2012", ad.group.names <- c("S.Sweden", "N.Sweden", "Germany"))
+```
+
+because of density of fixed ancestral, it's a bit hard to see what's going on in derived alleles in Northern sites.  Plot this alone.
+
+```{R plot beta derived alleles Northern sites}
+beta.dat <- ns.betas.p1
+exp.site <- "RAM"
+focal.freq <- ns.df
+focal.allele <- ns.allele
+year="2011"
+
+
+mini.plot.derived.beta <- function(beta.dat, exp.site, focal.freq,focal.allele, year){
+  up.dat <- merge(beta.dat,focal.allele, by="row.names")
+  rownames(up.dat) <- up.dat$Row.names
+  up.dat <- up.dat[,-c(1,7:8)]
+  up.dat.s <- split(up.dat, up.dat$mc.allele)
+  ud.d <- up.dat.s[[2]]
+  ud.d <- merge(ud.d, focal.freq[,1], by="row.names")
+  colnames(ud.d)[7] <- "ad.group.freq"
+  ud.d$beta <- ud.d[,grep(exp.site, colnames(ud.d))]
+  #hist.labs <- c("ancestral allele","derived allele")
+  #names(hist.labs) <- c(0,1)
+  p1 <- ggplot(ud.d, aes(x=beta, y=ad.group.freq) ) +
+    geom_hex() +
+    scale_fill_viridis_c(option = "C") +
+    theme_bw() +
+    ggtitle(paste(exp.site, year, sep=" ")) +
+    ylab(paste("frequency in N.Sweden admixture group")) +
+    xlab(paste("fitness effect in", exp.site, year, sep=" ")) +
+    geom_vline(xintercept = 0, linetype="dashed", 
+                color = "springgreen")
+
+  pdf.name <- paste("./figures/",exp.site, year,".derived.beta.by.freq.pdf", sep="")
+  pdf(file=pdf.name, width=6, height=5)
+  print(p1)
+  dev.off()
+}
+
+## plot these for all 4 Northern experiments
+mini.plot.derived.beta(beta.dat=ns.betas.p1, exp.site="RAM", focal.freq=ns.df, focal.allele=ns.allele, year="2011")
+mini.plot.derived.beta(beta.dat=ns.betas.p1, exp.site="ADA", focal.freq=ns.df, focal.allele=ns.allele, year="2011")
+mini.plot.derived.beta(beta.dat=ns.betas.p2, exp.site="RAM", focal.freq=ns.df, focal.allele=ns.allele, year="2012")
+mini.plot.derived.beta(beta.dat=ns.betas.p2, exp.site="ADA", focal.freq=ns.df, focal.allele=ns.allele, year="2012")
+
+```
+
+This leads to another question, again another hybrid of previous ideas.
+1.  Most common allele in focal admixture group, barplots of beta split by ancestral and derived
+2.  Using same betas, but repeat barplot using most common allele in the other two admix groups
+
+```{R barplot beta most common by hist fxn}
+# uncorrected betas - betas of derived allele
+up.beta <- betas2011
+# most common allele in each site
+mc1 <- ger.allele
+mc2 <- ss.allele
+mc3 <- ns.allele
+# switch beta by most common allele separately for each admix group
+# make one big dataframe
+# plot focal beta by history for each admixture group
+focal.site <- "ULL"
+year <- "2011"
+
+violin.beta.most.common <- function(up.beta, mc1, mc2, mc3, focal.site, year){
+  ub <- up.beta[,8:11]
+  rownames(ub) <- up.beta$rs
+  colnames(ub) <- c("ADA", "RAM", "ULL","RAT")
+
+  mc1b <- merge(ub, mc1, by="row.names")
+  mc1b.s <- split(mc1b, mc1b$mc.allele)
+  #flip betas of ancestral alleles
+  mc1.a <- mc1b.s[[1]]
+  mc1.a$beta <- -mc1.a[,colnames(mc1.a)==focal.site]
+  ### going to lump SNPs that are 50% into to derived alleles.
+  mc1.d <- do.call(rbind, mc1b.s[2:3])
+  mc1.d$beta <- mc1.d[,colnames(mc1.d)==focal.site]
+  mc1.d$mc.allele <- 1
+  mc1p <- rbind(mc1.d, mc1.a)
+  mc1p <- mc1p[,c(1,6,9)]
+  mc1p$ad.group <- "Germany"
+
+  mc2b <- merge(ub, mc2, by="row.names")
+  mc2b.s <- split(mc2b, mc2b$mc.allele)
+  #flip betas of ancestral alleles
+  mc2.a <- mc2b.s[[1]]
+  mc2.a$beta <- -mc2.a[,colnames(mc2.a)==focal.site]
+  ### going to lump SNPs that are 50% into to derived alleles.
+  mc2.d <- do.call(rbind, mc2b.s[2:3])
+  mc2.d$beta <- mc2.d[,colnames(mc2.d)==focal.site]
+  mc2.d$mc.allele <- 1
+  mc2p <- rbind(mc2.d, mc2.a)
+  mc2p <- mc2p[,c(1,6,9)]
+  mc2p$ad.group <- "S.Sweden"
+
+  mc3b <- merge(ub, mc3, by="row.names")
+  mc3b.s <- split(mc3b, mc3b$mc.allele)
+  #flip betas of ancestral alleles
+  mc3.a <- mc3b.s[[1]]
+  mc3.a$beta <- -mc3.a[,colnames(mc3.a)==focal.site]
+  ### going to lump SNPs that are 50% into to derived alleles.
+  mc3.d <- do.call(rbind, mc3b.s[2:3])
+  mc3.d$beta <- mc3.d[,colnames(mc3.d)==focal.site]
+  mc3.d$mc.allele <- 1
+  mc3p <- rbind(mc3.d, mc3.a)
+  mc3p <- mc3p[,c(1,6,9)]
+  mc3p$ad.group <- "N.Sweden"
+
+  mc.all <- rbind(mc1p, mc2p, mc3p)
+  mc.all$ad.group <- factor(mc.all$ad.group, levels=c("Germany", "S.Sweden","N.Sweden"))
+  
+  lm.up <- aov(beta~(as.factor(mc.allele))*as.factor(ad.group), data=mc.all)
+  tt1 <- TukeyHSD(lm.up)
+  Tukey.levels <- tt1[[3]][, 4]
+  Tukey.labels <- data.frame(multcompLetters(Tukey.levels)['Letters'])
+  Tukey.labels$contrast <- rownames(Tukey.labels)
+  tl <- do.call(rbind,strsplit(Tukey.labels$contrast, ":"))
+  Tukey.labels <- cbind(Tukey.labels, tl)
+  colnames(Tukey.labels)[3:4] <- c("hist","ad.group")
+  Tukey.labels$ad.group <- factor(Tukey.labels$ad.group, levels=c("Germany", "S.Sweden","N.Sweden"))
+  Tukey.labels <- Tukey.labels[order(Tukey.labels$ad.group, Tukey.labels$hist),] #Tukey.labels$letters
+
+  dodge <- position_dodge(width = 0.9)
+  p <- ggplot(mc.all, aes(x=ad.group, y=beta, fill=as.factor(mc.allele))) +
+      geom_violin(position=dodge) +
+      ggtitle(paste(focal.site, year, sep=" ")) +
+      ylab(paste("beta in", focal.site, year, sep=" ")) +
+      xlab("admixture group determining most common allele") +
+      scale_fill_manual(name = "allele type", labels = c("ancestral", "derived"),values=c("lightskyblue","dodgerblue3")) +
+      geom_boxplot(alpha=0.5, width=0.3, position=dodge, show.legend=FALSE) +
+      geom_hline(yintercept = 0, linetype="dashed", 
+                color = "magenta") +
+      theme_bw() + 
+      stat_summary(geom = 'text', label = Tukey.labels$Letters, fun.y = max, vjust = -1, position=dodge)
+
+  pdf.file <- paste("./figures/beta.most.common.allele",focal.site, year, "pdf", sep=".")
+  pdf(file=pdf.file, width=8, height=6)
+  print(p)
+  dev.off()
+}
+
+```
+
+```{R barplot beta most common by hist plot}
+violin.beta.most.common(up.beta=betas2011, mc1=ger.allele, mc2=ss.allele, mc3=ns.allele, focal.site="ADA",year="2011") 
+violin.beta.most.common(up.beta=betas2011, mc1=ger.allele, mc2=ss.allele, mc3=ns.allele, focal.site="RAM",year="2011") 
+violin.beta.most.common(up.beta=betas2011, mc1=ger.allele, mc2=ss.allele, mc3=ns.allele, focal.site="ULL",year="2011") 
+violin.beta.most.common(up.beta=betas2011, mc1=ger.allele, mc2=ss.allele, mc3=ns.allele, focal.site="RAT",year="2011") 
+
+violin.beta.most.common(up.beta=betas2012, mc1=ger.allele, mc2=ss.allele, mc3=ns.allele, focal.site="ADA",year="2012") 
+violin.beta.most.common(up.beta=betas2012, mc1=ger.allele, mc2=ss.allele, mc3=ns.allele, focal.site="RAM",year="2012") 
+violin.beta.most.common(up.beta=betas2012, mc1=ger.allele, mc2=ss.allele, mc3=ns.allele, focal.site="ULL",year="2012") 
+violin.beta.most.common(up.beta=betas2012, mc1=ger.allele, mc2=ss.allele, mc3=ns.allele, focal.site="RAT",year="2012")
+
+```
+ 
+ In RAM_2011, what are these high positive beta, high frequency derived alleles?
+ 
+```{R explore high derived Ramsta}
+ram.dat <- merge(ns.betas.p1,ns.allele, by="row.names")
+ram.dat <- ram.dat[order(ram.dat$RAM_2011, decreasing=TRUE),]
+
+### all one locus (end chr3).  So are the ones at similar frequency that have strong negative effect.  Hitchhiking?
+### some half-hearted searching on the gbrowse didn't find any super convincing candidates, but who knows???
+ 
+
+```
+ 
+ Statistically test these barplots
+ 
+```{R stat test beta by admix group and history fxn}
+ # uncorrected betas - betas of derived allele
+up.beta <- betas2011
+# most common allele in each site
+mc1 <- ger.allele
+mc2 <- ss.allele
+mc3 <- ns.allele
+# switch beta by most common allele separately for each admix group
+# make one big dataframe
+# plot focal beta by history for each admixture group
+focal.site <- "ULL"
+year <- "2011"
+
+anova.beta.most.common <- function(up.beta, mc1, mc2, mc3, focal.site, year){
+  ub <- up.beta[,8:11]
+  rownames(ub) <- up.beta$rs
+  colnames(ub) <- c("ADA", "RAM", "ULL","RAT")
+
+  mc1b <- merge(ub, mc1, by="row.names")
+  mc1b.s <- split(mc1b, mc1b$mc.allele)
+  #flip betas of ancestral alleles
+  mc1.a <- mc1b.s[[1]]
+  mc1.a$beta <- -mc1.a[,colnames(mc1.a)==focal.site]
+  ### going to lump SNPs that are 50% into to derived alleles.
+  mc1.d <- do.call(rbind, mc1b.s[2:3])
+  mc1.d$beta <- mc1.d[,colnames(mc1.d)==focal.site]
+  mc1.d$mc.allele <- 1
+  mc1p <- rbind(mc1.d, mc1.a)
+  mc1p <- mc1p[,c(1,6,9)]
+  mc1p$ad.group <- "Germany"
+
+  mc2b <- merge(ub, mc2, by="row.names")
+  mc2b.s <- split(mc2b, mc2b$mc.allele)
+  #flip betas of ancestral alleles
+  mc2.a <- mc2b.s[[1]]
+  mc2.a$beta <- -mc2.a[,colnames(mc2.a)==focal.site]
+  ### going to lump SNPs that are 50% into to derived alleles.
+  mc2.d <- do.call(rbind, mc2b.s[2:3])
+  mc2.d$beta <- mc2.d[,colnames(mc2.d)==focal.site]
+  mc2.d$mc.allele <- 1
+  mc2p <- rbind(mc2.d, mc2.a)
+  mc2p <- mc2p[,c(1,6,9)]
+  mc2p$ad.group <- "S.Sweden"
+
+  mc3b <- merge(ub, mc3, by="row.names")
+  mc3b.s <- split(mc3b, mc3b$mc.allele)
+  #flip betas of ancestral alleles
+  mc3.a <- mc3b.s[[1]]
+  mc3.a$beta <- -mc3.a[,colnames(mc3.a)==focal.site]
+  ### going to lump SNPs that are 50% into to derived alleles.
+  mc3.d <- do.call(rbind, mc3b.s[2:3])
+  mc3.d$beta <- mc3.d[,colnames(mc3.d)==focal.site]
+  mc3.d$mc.allele <- 1
+  mc3p <- rbind(mc3.d, mc3.a)
+  mc3p <- mc3p[,c(1,6,9)]
+  mc3p$ad.group <- "N.Sweden"
+
+  mc.all <- rbind(mc1p, mc2p, mc3p)
+
+  lm.up <- aov(beta~(as.factor(mc.allele))*as.factor(ad.group), data=mc.all)
+  print(summary(lm.up))
+  return(lm.up)
+}
+```
+
+
+```{R stat test beta by admix group and history run}
+lm.ada1 <- anova.beta.most.common(up.beta=betas2011, mc1=ger.allele, mc2=ss.allele, mc3=ns.allele, focal.site="ADA", year="2011")
+lm.ram1 <- anova.beta.most.common(up.beta=betas2011, mc1=ger.allele, mc2=ss.allele, mc3=ns.allele, focal.site="RAM", year="2011")
+lm.ull1 <- anova.beta.most.common(up.beta=betas2011, mc1=ger.allele, mc2=ss.allele, mc3=ns.allele, focal.site="ULL", year="2011")
+lm.rat1 <- anova.beta.most.common(up.beta=betas2011, mc1=ger.allele, mc2=ss.allele, mc3=ns.allele, focal.site="RAT", year="2011")
+
+lm.ada2 <- anova.beta.most.common(up.beta=betas2012, mc1=ger.allele, mc2=ss.allele, mc3=ns.allele, focal.site="ADA", year="2012")
+lm.ram2 <- anova.beta.most.common(up.beta=betas2012, mc1=ger.allele, mc2=ss.allele, mc3=ns.allele, focal.site="RAM", year="2012")
+lm.ull2 <- anova.beta.most.common(up.beta=betas2012, mc1=ger.allele, mc2=ss.allele, mc3=ns.allele, focal.site="ULL", year="2012")
+lm.rat2 <- anova.beta.most.common(up.beta=betas2012, mc1=ger.allele, mc2=ss.allele, mc3=ns.allele, focal.site="RAT", year="2012")
+```
+ 
+ All terms significant in all.
+ 
+## plot betas across genome by most common and by derived/ancestral
+
+```{R betas across genome}
+##ns.betas.p1
+## betas of most common allele
+
+##ns.allele is alt/derived determination
+
+##################################################
+### plotting a value across the genome by chromosome
+### takes a dataframe with Chromosome and Position columns
+### as well as a column what you're trying to plot with colnames plot.var
+###########################################
+genome.plot(updata, plot.var){
+	chr.lengths <- c(30427671,19698289,23459830,18585056,26975502)
+	chr.add <- c(0,cumsum(chr.lengths))[1:5]
+	max.bp <- sum(chr.lengths)
+	chr.colors <- c("blue","dodgerblue", "blue", "dodgerblue", "blue")
+	chr.mids <- chr.add + (chr.lengths/2)
+	up.s <- split(updata, updata$Chromosome)
+	plot.col <- which(colnames(updata)==plot.var)
+	plot(updata$Position,updata[,plot.col], xlim=c(0,max.bp), type="n", xlab="Chromosome", ylab=plot.var, xaxt="n")
+	axis(1,at=chr.mids,labels=c(1:5))
+	for(up.chr in 1:5){
+	  #print(up.chr)
+	  up.c <- up.s[[up.chr]]
+	  up.add <- chr.add[up.chr]
+	  up.c$Position.plot <- up.c$Position + up.add
+	  points(up.c$Position.plot, up.c[,plot.col], col=chr.colors[up.chr])
+	}
+}
+
+
+
+
+
+```
+
+
+

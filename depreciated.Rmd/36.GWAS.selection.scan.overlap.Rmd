@@ -1,0 +1,141 @@
+---
+title: "36.GWAS.selection.scan.overlap"
+date: "updated 02 March 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("99.geo.helper.fxns.R")
+library(tidyr)
+library(ggplot2)
+library(ggpubr)
+library(cowplot)
+
+setwd("/Volumes/field_experiments/adaptation_sweden/common.gardens/")
+```
+
+## Introduction
+
+Looking for overlap between published genome scans and field fitness GWAS "hits"
+
+## 1. prep published scan and climate association data
+
+```{r load scan data}
+### christian's N/S swept intervals
+ci <- read.csv("./data/003.selection.scans/christian.intervals.csv", stringsAsFactors=FALSE)
+ci$source <- "SNS"
+
+### Swedish genomes paper selection scans
+sgp <- read.csv("./data/003.selection.scans/Swedish.genomes.paper.sweeps.simple.csv", stringsAsFactors=FALSE)
+sgp <- sgp[,1:6]
+sgp$source <- "SGP"
+
+### Top climate associations Hancock at al.
+h.assoc <- read.table("./data/003.selection.scans/Hancock.tophits.txt", stringsAsFactors=FALSE, header=TRUE)
+h.assoc$source <- "CAH"
+
+### Fournier Level hits
+flh <- read.csv("./data/003.selection.scans/Fournier_Level_GWAs_Clim_Data.csv", stringsAsFactors=FALSE)
+flh$source <- "AFL"
+
+### Lasky associations with climate
+### waiting to download
+
+### Horton selection scans
+### FST, CLR, PHS
+### "we split the genome into 10-kb windows and took the maximum score from the PHS, CLR and FST scans for each window as the test statistics".  Then took top 1% of these?  A bit unclear.
+### For now, just take top 1% of each, not in windows
+
+#fst
+h.fst <- read.table("./data/003.selection.scans/selection_scans_horton/global.all.fsts", stringsAsFactors=FALSE, header=TRUE)
+h.fst <- h.fst[order(h.fst$fst, decreasing=TRUE),]
+top.fst <- h.fst[1:(nrow(h.fst)*0.01),]
+top.fst$source <- "FST"
+
+#phs
+h.phs <- read.table("./data/003.selection.scans/selection_scans_horton/phsscores.pos.txt",stringsAsFactors=FALSE, header=TRUE)
+h.phs <- h.phs[order(h.phs$PHS, decreasing=TRUE),]
+top.phs <- h.phs[1:(nrow(h.phs)*0.01),]
+top.phs$source <- "PHS"
+
+#clr
+h.clr <- read.table("./data/003.selection.scans/selection_scans_horton/allCLR.txt", stringsAsFactors=FALSE, header=TRUE)
+h.clr <- h.clr[order(h.clr$meanCLR, decreasing=TRUE),]
+top.clr <- h.clr[1:(nrow(h.clr)*0.01),]
+top.clr$source <- "CLR"
+```
+
+```{r concatenate data to one variable}
+#chr, pos, source as column names
+cn <- c("chr", "pos", "source")
+ci.c <- ci[,c("chr","pos","source")]
+sgp.c <- sgp[,c("chr", "pos", "source")]
+colnames(sgp.c) <- cn
+h.assoc.c <- h.assoc[,c("chr","position","source")]
+colnames(h.assoc.c) <- cn
+flh.c <- flh[,c("Chromosome", "Position", "source")]
+colnames(flh.c) <- cn
+top.fst.c <- top.fst[,c("chr9","pos9","source")]
+colnames(top.fst.c) <- cn
+top.phs.c <- top.phs[,c("chr", "pos","source")]
+top.clr.c <- top.clr[,c("chr", "location", "source")]
+colnames(top.clr.c) <- cn
+
+scan.dat <- rbind(ci.c, sgp.c, h.assoc.c, flh.c, top.fst.c, top.phs.c, top.clr.c)
+colnames(scan.dat) <- c("chr", "pos", "experiment")
+```
+
+## 2. marginal fitness GWAS results
+```{r marginal GWAS data}
+gwas.res.files <- c("./res/gemma_marginal/gemma_lmm_blup_RAM_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAM_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ADA_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ADA_2012.rds","./res/gemma_marginal/gemma_lmm_blup_RAT_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAT_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ULL_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ULL_2012.rds")
+
+load(gwas.res.files[1])
+
+pvals <- p[,c(1,3)]
+betas <- pvals
+
+for(up in 1:length(gwas.res.files)){
+  up.gwa.file <- gwas.res.files[up]
+  up.exp <- gsub("./res.gemma_marginal/gemma_lmm_blup_","",up.gwa.file)
+  up.exp <- gsub(".rds","",up.exp)
+  load(gwas.res.files[up])
+  out.p <- p[,c(1,3,13)]
+  colnames(out.p)[3] <- up.exp
+  pvals <- merge(pvals,out.p)
+  out.b <- p[,c(1,3,8)]
+  colnames(out.b)[3] <- up.exp
+  betas <- merge(betas,out.b)
+}
+colnames(pvals)[2] <- "pos"
+colnames(betas)[2] <- "pos"
+
+## reshape these
+pvals.l <- gather(data=pvals, experiment, pval, RAM_2011:ULL_2012)
+betas.l <- gather(data=betas, experiment, beta, RAM_2011:ULL_2012)
+gwas.dat <- merge(pvals.l, betas.l)
+
+## take cutoff of -log10 pval of 4
+gwas3.dat <- gwas.dat[-log10(gwas.dat$pval)>=4,]
+```
+
+
+## 4. plot selection scan and sig pval data together
+
+
+```{r overlap plots}
+## put data together
+scan.dat$pval <- NA
+scan.dat$beta <- NA
+plot.dat <- rbind(scan.dat, gwas3.dat)
+plot.dat$experiment <- factor(plot.dat$experiment, levels=c("ADA_2011","RAM_2011","ULL_2011", "RAT_2011","ADA_2012","RAM_2012","ULL_2012","RAT_2012", "SNS","CAH","SGP","AFL","FST","PHS","CLR"))
+# let's get betas as a positive or negative term
+plot.dat$beta.pos <- plot.dat$beta>0
+
+overlap.plot <- ggplot(data=plot.dat, aes(x=pos/1000000, y=experiment, color=beta.pos)) +
+  geom_point() +
+  facet_wrap(~chr,ncol=1)
+
+ggsave(overlap.plot, file="/Volumes/field_experiments/adaptation_sweden/common.gardens/figures/36.figures/coplot.scans.GWAS.jpg", height=11, width=14, units="in")
+
+```

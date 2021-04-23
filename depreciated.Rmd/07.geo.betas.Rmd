@@ -1,0 +1,545 @@
+---
+title: "07.geo.betas"
+author: "Daniele Filiault"
+date: "4/17/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("99.geo.helper.fxns.R")
+```
+
+## Introduction/Justification
+
+In previous scripts, did GWAS for fitness and grouped the resulting betas into patterns by site.  This clustering essentially generates hypotheses about where alleles should be more frequent if really adaptive.  Now I need to test this!
+
+## Calculate geographic centers and distances
+### 1. Prep data
+```{r preparation}
+### location of accessions
+index.acc <- read.table('./data/worldclim_swedish_acc.txt',stringsAsFactors=FALSE, header=TRUE, sep="\t")
+### location of experiments
+index.exp <- read.table('./data/worldclim_swedish_exp.txt', stringsAsFactors=FALSE, header=TRUE, sep="\t")
+### genotypes of lines
+
+```
+
+
+```{r prep.genotypes, eval=FALSE}
+#############################################
+####### prep.SAF - prepare starting genotype matrix
+################################################
+
+all.gts.file <- "/Volumes/field_experiments/007.pilot.sequencing/018.genotyping.by.plate/997.Swedes.220.10May2016/02.2.3M_Swedes220/02_2.3M_Swedes220.175k.prior15.gauss4.ts99.5.BIALLELIC.csv"
+## this is the data set used for genotyping these samples (from Fernando)
+
+min.MAF <- 0.1
+max.NAF <- 0.05 ## remove if NA rate is higher than this
+### set these so agree with Ben's GWAS filtering so our SNPs overlap
+
+gts.prep <- prep.SAF(all.gts.file=all.gts.file, min.MAF=0.1, max.NAF=0.05)
+# write this as .Rdata so don't need to redo this everytime
+
+save(gts.prep, file='./data/gts.prep.Rdata')
+
+```
+
+### 2. Calculate the geographic center of both alt and ref alleles for all SNPs using our Swedish experimental lines.
+
+
+```{r geo center, eval=FALSE}
+all.geo.cen <- matrix(NA,nrow=nrow(gts.prep), ncol=4)
+for (up.snp in 1:nrow(gts.prep)){
+  up.dat <- gts.prep[up.snp,3:ncol(gts.prep)]
+  ### ref cent
+  ref.gts <- colnames(up.dat[up.dat%in%c(0,0.5)])
+  ref.dat <- index.acc[index.acc$lines%in%ref.gts,]
+  colnames(ref.dat)[5:6] <- c("longitude","latitude")
+  ref.cen <- determineGeographicCenter(ref.dat)
+  ### alt cent
+  alt.gts <- colnames(up.dat[up.dat%in%c(0.5,1)])
+  alt.dat <- index.acc[index.acc$lines%in%alt.gts,]
+  colnames(alt.dat)[5:6] <- c("longitude","latitude")
+  alt.cen <- determineGeographicCenter(alt.dat)
+  out.dat <- c(ref.cen[[1]],ref.cen[[2]], alt.cen[[1]], alt.cen[[2]])
+  all.geo.cen[up.snp,] <- out.dat
+}
+
+colnames(all.geo.cen) <- c("ref.lat", "ref.long","alt.lat","alt.long")
+
+save(all.geo.cen, file="./data/all.geo.cen.Rdat")
+```
+
+###3. get distances between these centers
+
+```{r cen distances, eval=FALSE}
+cen.dist <- apply(all.geo.cen, 1, function(up.snp){haversineDistance(up.snp[1], up.snp[2], up.snp[3], up.snp[4])})
+all.geo.cen <- cbind(all.geo.cen, cen.dist)
+save(all.geo.cen, file="./data/all.geo.cen.Rdat")
+
+```
+
+### 4. calculate distance between each experimental site and the ref and alt allele centers
+
+```{r cen exp distances, eval=FALSE}
+index.cg <- index.exp[index.exp[,1]=="Common garden",]
+site.cen.dist <- as.list(1:4)
+for(up.site in 1:4){
+  print(up.site)
+  site.dat <-index.cg[up.site,3:4]
+  ref.site.dist <- apply(all.geo.cen,1, function(up.snp){haversineDistance(up.snp[1],up.snp[2],site.dat[1,1],site.dat[1,2])})
+  alt.site.dist <- apply(all.geo.cen,1, function(up.snp){haversineDistance(up.snp[3],up.snp[4],site.dat[1,1],site.dat[1,2])})
+  out.dat <- cbind(ref.site.dist, alt.site.dist)
+  site.cen.dist[[up.site]] <- out.dat
+}
+names(site.cen.dist) <- index.cg[,2]
+save(site.cen.dist, file="./data/site.cen.dist.Rdat")
+
+
+```
+
+
+## Relationships between geo data and betas from GWAS -- distance between alt and ref (and derived and ancestral) allele latitude
+There are two ways of looking at this:
+1.  Is there concordance between geographic centers of alleles and the patterns of (significant) betas from fitness GWAS? - this is kind of the donut plot approach
+2.  Do alleles that show signs of being more "local" tend to have differences in beta patterns from those that look less "local" - this is flipping the question - overlap betas over manhattan plot of "localness" - ie distances between ref and alt alleles.
+
+Let's start with the second framework since we know that the first suffers from alt/ref allele bias problems.
+
+### 1.  read in data
+```{r prep2}
+#distances between alt and ref
+load("./data/all.geo.cen.Rdat")
+
+#positions of these snps
+load('./data/gts.prep.Rdata')
+pos <- gts.prep[,1:2]
+#rm(gts.prep)
+a.dist <- cbind(pos, all.geo.cen)
+a.dist$rs <- paste(a.dist$Chromosome, a.dist$Position, sep="_")
+
+#betas 2011
+load("./data/betas2011.Rdat")
+
+#betas 2012
+load("./data/betas2012.Rdat")
+
+### so these three datasets are different lengths.  This is a results of slightly different missing data affecting filtration in the three datasets.
+### merge them to common SNPs.
+
+colnames(betas2011)[4:ncol(betas2011)]<- paste(colnames(betas2011)[4:ncol(betas2011)],"2011", sep="_")
+colnames(betas2012)[4:ncol(betas2012)]<- paste(colnames(betas2012)[4:ncol(betas2011)],"2012", sep="_")
+
+com.dat <- merge(betas2011, betas2012, by=c("rs","chr","pos"))
+### allele1 and allele0 designations are the same in both datasets and n_miss is very close.  remove these for simplification
+com.dat <- merge(betas2011[,c(1:3,8:ncol(betas2011))], betas2012[,c(1:3,8:ncol(betas2012))], by=c("rs","chr","pos"))
+colnames(com.dat)[2:3] <- c("Chromosome", "Position")
+com.dat <- merge(com.dat,a.dist, by=c("rs","Chromosome","Position")) ### 742567 SNPs total
+geo.beta.2011.2012 <- com.dat
+
+save(geo.beta.2011.2012, file="./data/geo.beta.2011.2012.Rdat")
+```
+
+
+### 2.  Genomewide, is there a relationship between "localness" (i.e. alt and ref centroids farther apart) and fitness betas?
+
+```{r ref alt centroid distance}
+
+hist(geo.beta.2011.2012$cen.dist, xlab="distance between alt and ref centroids in kilometers")
+
+### which is more Northern?
+```
+
+```{r 2011 lat diff versus fitness beta}
+geo.beta.2011.2012$ar.lat.dist <- geo.beta.2011.2012$alt.lat - geo.beta.2011.2012$ref.lat
+hist(geo.beta.2011.2012$ar.lat.dist, xlab="latitude degrees between alt and ref allele")
+
+### so, looking genomewide, at each site, does the beta estimate direction and the Northern-ness of the allele match?
+### i.e., do Northern alelles increase fitness in Northern sites and vice versa.
+### we know the beta of the alt allele and the difference in latitute between alt and ref alleles...
+
+### start with 2011
+
+lm.2011 <- as.list(1:4)
+sites <- c("Ådal","Ramsta","Ullstorp","Ratchkegården")
+
+for(up.c in 4:7){
+  smoothScatter(geo.beta.2011.2012$ar.lat.dist,geo.beta.2011.2012[,up.c], xlab="diff in lat between alt and ref alleles", ylab="fitness beta of alt allele", main=paste(sites[up.c-3],"2011", sep="_"))
+  lm.up <- lm(geo.beta.2011.2012[,up.c]~geo.beta.2011.2012$ar.lat.dist)
+  lm.2011[[(up.c)-3]] <- lm.up
+  abline(0,0,lty=6)
+  abline(0,1)
+  abline(lm.up, col="red")
+
+}
+
+lapply(lm.2011, summary)
+
+
+```
+
+```{r 2012 lat diff versus fitness beta}
+
+### so, looking genomewide, at each site, does the beta estimate direction and the Northern-ness of the allele match?
+### i.e., do Northern alelles increase fitness in Northern sites and vice versa.
+### we know the beta of the alt allele and the difference in latitute between alt and ref alleles...
+
+### aslo do 2012
+
+lm.2012 <- as.list(1:4)
+sites <- c("Ådal","Ramsta","Ullstorp","Ratchkegården")
+
+for(up.c in 23:26){
+  smoothScatter(geo.beta.2011.2012$ar.lat.dist,geo.beta.2011.2012[,up.c], xlab="diff in lat between alt and ref alleles", ylab="fitness beta of alt allele", main=paste(sites[up.c-22],"2012", sep="_"))
+  lm.up <- lm(geo.beta.2011.2012[,up.c]~geo.beta.2011.2012$ar.lat.dist)
+  lm.2012[[(up.c)-22]] <- lm.up
+  abline(0,0,lty=6)
+  abline(0,1)
+  abline(lm.up, col="red")
+
+}
+
+lapply(lm.2012, summary)
+
+
+```
+
+So, this result is interesting - for cases in which I saw relationships between latitude of origin of accessions and fitness,
+there is a weak, but very significant, genome-wide pattern of a relationship between the "localness" of alleles (i.e. differences
+in latitude between alt and ref alleles) and beta.  There are still some problems with the ref/alt designation that make the 
+finer points of this hard to think about, though.  I am wondering what patterns of beta would look like if using ancestral/derived
+alleles.  I have already used Polina's data to calculate this...
+
+### 3.  repeat 2, but using ancestral and derived allele designations
+
+```{r prep data alt/derived}
+### ancestral and derived alleles were determined in /projects/field_experiments/001.common.reference.files/004.genus.vcfs
+
+p.snps <- read.table("./data/Polarized.snps.txt",colClasses="character")
+
+### 000 is cases without calls in either ref or alt species 299151
+### 100 is reference ancestral  1018851 (ie alt is derived allele)
+### 010 is alt ancestral  111968 
+### 001 is both ref and alt alleles occur in species 351834
+
+p.snps$rs <- rownames(p.snps)
+colnames(p.snps)[1] <- "history"
+p.snps$rs <- gsub("Chr","", p.snps$rs)
+
+geo.beta.hist <- merge(p.snps, geo.beta.2011.2012)  ## 562086
+
+### need 100 and 010 cases
+### 100 can stay the way they are
+### (going to plot the effect of the derived allele)
+### for 010, need to flip both the betas and the lat degrees between centroids.
+
+geo.beta.hist <- geo.beta.hist[geo.beta.hist$history %in% c("100", "010"),]  ### only 333632 snps left
+### make this a bit less unwieldy
+geo.beta.hist <- geo.beta.hist[,c(1:8,23,24:27,42,48)]
+gbs <- split(geo.beta.hist, geo.beta.hist$history)
+gbs.alt <- gbs[[1]]
+gbs.alt[,c(5:8,10:13,15)] <- -gbs.alt[,c(5:8,10:13,15)]
+
+## put everthing back together
+geo.beta.hist <- rbind(gbs.alt, gbs[[2]])
+save(geo.beta.hist, file="./data/geo.beta.hist.Rdat")
+```
+
+```{r 2011 lat diff versus fitness beta derived}
+hist(geo.beta.hist$ar.lat.dist, xlab="latitude degrees between derived and ancestral allele")
+
+### so, looking genomewide, at each site, does the beta estimate direction and the Northern-ness of the allele match?
+### i.e., do Northern alelles increase fitness in Northern sites and vice versa.
+### we know the beta of the alt allele and the difference in latitute between alt and ref alleles...
+
+### start with 2011
+
+lm.hist.2011 <- as.list(1:4)
+sites <- c("Ådal","Ramsta","Ullstorp","Ratchkegården")
+
+for(up.c in 5:8){
+  smoothScatter(geo.beta.hist$ar.lat.dist,geo.beta.hist[,up.c], xlab="diff in lat between derived and ancestral alleles", ylab="fitness beta of derived allele", main=paste(sites[up.c-4],"2011", sep="_"))
+  lm.up <- lm(geo.beta.hist[,up.c]~geo.beta.hist$ar.lat.dist)
+  lm.hist.2011[[(up.c)-4]] <- lm.up
+  abline(0,0,lty=6)
+  abline(0,1)
+  abline(lm.up, col="red")
+
+}
+
+lapply(lm.hist.2011, summary)
+
+
+```
+
+```{r 2012 lat diff versus fitness beta derived}
+#hist(geo.beta.hist$ar.lat.dist, xlab="latitude degrees between derived and ancestral allele")
+
+### so, looking genomewide, at each site, does the beta estimate direction and the Northern-ness of the allele match?
+### i.e., do Northern alelles increase fitness in Northern sites and vice versa.
+### we know the beta of the alt allele and the difference in latitute between alt and ref alleles...
+
+### now do 2012
+
+lm.hist.2012 <- as.list(1:4)
+sites <- c("Ådal","Ramsta","Ullstorp","Ratchkegården")
+
+for(up.c in 10:13){
+  smoothScatter(geo.beta.hist$ar.lat.dist,geo.beta.hist[,up.c], xlab="diff in lat between derived and ancestral alleles", ylab="fitness beta of derived allele", main=paste(sites[up.c-9],"2012", sep="_"))
+  lm.up <- lm(geo.beta.hist[,up.c]~geo.beta.hist$ar.lat.dist)
+  lm.hist.2012[[(up.c)-9]] <- lm.up
+  abline(0,0,lty=6)
+  abline(0,1)
+  abline(lm.up, col="red")
+
+}
+
+lapply(lm.hist.2012, summary)
+
+
+```
+
+```{r output lat correlations}
+
+site.simple <- c("N2", "N1","S1","S2")
+## need pvals and R2 values and slope
+adjr.2011 <- unlist(lapply(lm.hist.2011, function(x){summary(x)$adj.r.squared}))
+adjr.2012 <- unlist(lapply(lm.hist.2012, function(x){summary(x)$adj.r.squared}))
+adjr.lat <- cbind(adjr.2011, adjr.2012)
+rownames(adjr.lat) <- site.simple
+
+pval.2011 <-unlist(lapply(lm.hist.2011, function(x){anova(x)[[5]][1]}))
+pval.2012 <- unlist(lapply(lm.hist.2012, function(x){anova(x)[[5]][1]}))
+### all are very significant.  don't need to output this explicitly
+
+slope.2011  <-unlist(lapply(lm.hist.2011, function(x){x$coefficients[2]}))
+slope.2012  <-unlist(lapply(lm.hist.2012, function(x){x$coefficients[2]}))
+slope.lat <- cbind(slope.2011, slope.2012)
+rownames(slope.lat) <- site.simple
+### let's make this 0 or 1 by hand (0=wrong way, 1=correct way)
+slope.lat <- cbind(c(0,1,1,1),c(0,0,1,1))
+colnames(slope.lat) <- colnames(adjr.lat)
+rownames(slope.lat) <- site.simple
+
+
+## let's just go ahead and make this plot for the poster
+
+slope.lat <- slope.lat[order(rownames(slope.lat)),]
+adjr.lat <- adjr.lat[order(rownames(adjr.lat)),]
+```
+
+```{r lat local adapt plot}
+pdf("./figures/local.latitude.fitness.lms.pdf", width=5, height=5)
+
+slope.latr <- slope.lat[c(4:1),]
+adjr.latr <- adjr.lat[c(4:1),]
+
+par(mar=c(5,4,4,4))
+plot(1,1,type="n",xlim=c(0,2),ylim=c(0,4),xaxt="n",yaxt="n", ann=FALSE, bty="n")
+rect(0,0,2,4)
+
+library(RColorBrewer)
+col.cols <- colorRampPalette(c("green", "red"))( 5 )
+col.cols <- brewer.pal(n = 5, name = "RdBu")
+col.cols <- col.cols[c(1,5)]
+
+for(up.c in 1:ncol(slope.latr)){
+  up.x<-up.c-1
+  up.xx<-up.c
+  for (up.r in 1:nrow(slope.latr)){
+    up.y<-up.r-1
+    up.yy<-up.r
+    up.col <- slope.latr[up.r, up.c]
+    up.rsq <- adjr.latr[up.r, up.c]
+    rect(up.x,up.y, up.xx, up.yy, col=col.cols[up.col+1])
+    text(x=up.x+0.5,y=up.y+0.5, labels=substr(up.rsq,1,5))
+  }
+}
+axis(2,at=seq(0.5,3.5, 1),tick=FALSE, labels=rownames(slope.latr), las=2,line=-1, font=2)
+axis(3, at=c(0.5,1.5), labels=c("2011", "2012"), tick=FALSE, line=-1, font=2)
+dev.off()
+
+```
+
+
+
+
+
+Let's try looking at this with some boxplots, split by latitude difference
+
+```{r boxplot bins}
+### need to break this into 6 bins
+
+lat.bins <- sapply(geo.beta.hist$ar.lat.dist, function(x){
+  if (x < -4){bin <- 1}
+  else if(x < -2 && x >=-4){bin <- 2}
+  else if (x < 0 && x >= -2){bin <- 3}
+  else if (x <2 && x >=0){bin <- 4}
+  else if (x < 4 && x >=2) {bin <- 5}
+  else if (x >=4) {bin <- 6}
+})
+
+geo.beta.hist$lat.bins <- lat.bins
+geo.beta.hist$lat.bins <- as.factor(geo.beta.hist$lat.bins)
+save(geo.beta.hist, file="./data/geo.beta.hist.Rdat")
+```
+
+
+```{r boxplot 2011}
+### for 2011
+sites <- c("Ådal","Ramsta","Ullstorp","Ratchkegården")
+library(ggplot2)
+
+### for 2011
+for(up.c in 5:8){
+  up.betas <- colnames(geo.beta.hist[up.c])
+  p <- ggplot(geo.beta.hist, aes(x=lat.bins, y=get(up.betas))) + geom_violin()
+  p <- p + geom_boxplot(width=0.1)
+  p <- p + scale_x_discrete(labels=c("1" = "<-4", "2" = "-4 to -2", "3" = "-2 to 0", "4" = "0 to 2", "5" = "2 to 4", "6" = ">4")) + xlab("Latitude difference between derived and ancestral alleles") + ggtitle(paste(sites[up.c-4],"2011",sep="_")) + ylab("beta of derived allele")
+  print(p)
+  }
+```
+
+
+
+
+```{r boxplot 2012}
+### for 2012  
+ for(up.c in 10:13){
+  up.betas <- colnames(geo.beta.hist[up.c])
+  p <- ggplot(geo.beta.hist, aes(x=lat.bins, y=get(up.betas))) + geom_violin()
+  p <- p + geom_boxplot(width=0.1)
+  p <- p + scale_x_discrete(labels=c("1" = "<-4", "2" = "-4 to -2", "3" = "-2 to 0", "4" = "0 to 2", "5" = "2 to 4", "6" = ">4")) + xlab("Latitude difference between derived and ancestral alleles") + ggtitle(paste(sites[up.c-9],"2012",sep="_")) + ylab("beta of derived allele")
+  print(p)
+ }
+
+### write one of these for the poster
+### Rat 2012
+pdf("./figures/boxplot.Rat.latitude.diff.vs. fitness.pdf", width=6, height=4)
+up.c <- 13
+up.betas <- colnames(geo.beta.hist[up.c])
+  p <- ggplot(geo.beta.hist, aes(x=lat.bins, y=get(up.betas))) + geom_violin()
+  p <- p + geom_boxplot(width=0.1)
+  p <- p + scale_x_discrete(labels=c("1" = "<-4", "2" = "-4 to -2", "3" = "-2 to 0", "4" = "0 to 2", "5" = "2 to 4", "6" = ">4")) + xlab("Latitude difference between derived and ancestral alleles") + ggtitle("S2_2012") + ylab("fitness effect of derived allele")
+print(p)
+dev.off()
+```
+
+So you can see these patterns in the boxplot means, too.  It isn't just some artefact of a few SNPs in the regression.
+Effects are (generally) weak, but significant.
+
+## Relationships between geo data and betas from GWAS - distance to experiment of derived allele
+Basically repeat above, but instead of N/S designation, use difference in distance to experimental site.
+This was calculated in site.cen.dist
+
+
+```{r polarize distances}
+load("./data/site.cen.dist.Rdat")
+
+
+site.cen.pol <- lapply(site.cen.dist,function(up.sd){
+  ### need to switch columns if alt != derived
+  ### p.snps is ancestral/derived
+  up.sd <- cbind(up.sd, gts.prep[,1:2])
+  up.sd$rs <- paste(up.sd$Chromosome, up.sd$Position, sep="_")
+  up.sd <- merge(up.sd, p.snps)
+
+### need 100 and 010 cases
+### 100 can stay the way they are
+### (going to plot the effect of the derived allele)
+### for 010, need to flip the distances.
+  up.sd <- up.sd[up.sd$history %in% c("100", "010"),]
+  sd.s <- split(up.sd, up.sd$history)
+  sds.alt <- sd.s[[1]]
+  colnames(sds.alt)[2:3] <- c("der.site.dist", "anc.site.dist")
+  sds.ref <- sd.s[[2]]
+  colnames(sds.ref)[2:3] <- c("anc.site.dist", "der.site.dist")
+  sds.ref <- sds.ref[,c(1,3,2,4:6)]
+  sds.out <- rbind(sds.alt, sds.ref)
+  sds.out$der.anc.diff <- sds.out$der.site.dist-sds.out$anc.site.dist
+  return(sds.out)
+})
+
+for(up in 1:4){
+  hist(site.cen.pol[[up]]$der.anc.diff, xlab="difference between derived and ancestral allele centroid distances to exp site (km)", main=sites[[up]])
+}
+
+
+save(site.cen.pol, file="./data/site.cen.pol.Rdat")
+```
+As expected, the two northern and southern sites look similar...
+
+```{r dist diff beta relationship 2011}
+
+lm.dist.2011 <- as.list(1:4)
+sites <- c("Ådal","Ramsta","Ullstorp","Ratchkegården")
+
+for(up.c in 5:8){
+  up.dist <- site.cen.pol[[up.c-4]]
+  up.dat <- merge(geo.beta.hist, up.dist)
+  smoothScatter(up.dat$der.anc.diff,up.dat[,up.c], xlab="diff in centroid->experiment distance between derived and ancestral alleles", ylab="fitness beta of derived allele", main=paste(sites[up.c-4],"2011", sep="_"))
+  lm.up <- lm(up.dat[,up.c]~up.dat$der.anc.diff)
+  lm.dist.2011[[(up.c)-4]] <- lm.up
+  abline(0,0,lty=6)
+  abline(0,1)
+  abline(lm.up, col="red")
+
+}
+
+lapply(lm.dist.2011, summary)
+```
+
+```{r dist diff beta relationship 2012}
+
+lm.dist.2012 <- as.list(1:4)
+sites <- c("Ådal","Ramsta","Ullstorp","Ratchkegården")
+
+for(up.c in 10:13){
+  up.dist <- site.cen.pol[[up.c-9]]
+  up.dat <- merge(geo.beta.hist, up.dist)
+  smoothScatter(up.dat$der.anc.diff,up.dat[,up.c], xlab="diff in centroid->experiment distance between derived and ancestral alleles", ylab="fitness beta of derived allele", main=paste(sites[up.c-9],"2012", sep="_"))
+  lm.up <- lm(up.dat[,up.c]~up.dat$der.anc.diff)
+  lm.dist.2011[[(up.c)-9]] <- lm.up
+  abline(0,0,lty=6)
+  abline(0,1)
+  abline(lm.up, col="red")
+
+}
+
+lapply(lm.dist.2011, summary)
+```
+
+
+
+### 4.  beta distributions by allele type (polarizable, segregating,(not polarizable))
+
+```{r allele type summary}
+
+geo.beta.other <- merge(p.snps, geo.beta.2011.2012)
+
+
+for(up in levels(geo.beta.other$history)){
+  up.dat <- geo.beta.other[geo.beta.other$history==up,]
+  hist(up.dat)
+}
+
+
+library(ggplot2)
+geo.beta.other$history <- as.factor(geo.beta.other$history)
+ggplot(geo.beta.other, aes(x=beta_1_2011)) + geom_histogram()
+ggplot(geo.beta.other, aes(x=beta_1_2011, colour=history)) + geom_density()
+
+ggplot(geo.beta.other, aes(x=abs(beta_1_2011), colour=history)) + geom_density()
+ggplot(geo.beta.other, aes(x=abs(beta_2_2011), colour=history)) + geom_density()
+ggplot(geo.beta.other, aes(x=abs(beta_3_2011), colour=history)) + geom_density()
+ggplot(geo.beta.other, aes(x=abs(beta_4_2011), colour=history)) + geom_density()
+
+ggplot(geo.beta.other, aes(x=abs(beta_1_2012), colour=history)) + geom_density()
+ggplot(geo.beta.other, aes(x=abs(beta_2_2012), colour=history)) + geom_density()
+ggplot(geo.beta.other, aes(x=abs(beta_3_2012), colour=history)) + geom_density()
+ggplot(geo.beta.other, aes(x=abs(beta_4_2012), colour=history)) + geom_density()
+```
+
+
+No huge differences between classes in beta distributions...

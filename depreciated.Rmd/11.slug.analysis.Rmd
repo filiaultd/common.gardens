@@ -1,0 +1,296 @@
+---
+title: "11.slug.analysis"
+author: "Daniele Filiault"
+date: "7/8/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("RColorBrewer")
+library("ggplot2")
+library(ggmap)
+library(maps)
+library(mapdata)
+library("sf")
+library("rnaturalearth")
+library("rnaturalearthdata")
+library("rgeos")
+library(viridis)
+library(reshape)
+library(gridExtra)
+library(multcompView)
+
+group.colors <- brewer.pal(9, "Paired")
+ss.col <- group.colors[3]
+group.colors[3] <- group.colors[7]
+group.colors[7] <- ss.col
+ag.colors <-group.colors[c(3,7,4)]
+```
+
+Investigate slug damage phenotypes a bit more
+
+## load data
+
+```{r load.data}
+load("./data/slug.phenos.fitted.Rdat")
+c.acc <- read.table('./data/worldclim_swedish_acc.txt',stringsAsFactors=FALSE, header=TRUE, sep="\t")  ### 6 accessions don't have data.
+colnames(c.acc)[1] <- "id"
+slug.phenos <- merge(slug.phenos, c.acc[,c(1,3,5,6)]) 
+
+fitness <- read.table("./data/fitness.fitted.values.txt", header=TRUE)
+fitness <- fitness[,c(1,9)]
+colnames(fitness)[2] <- "fitness"
+ows <- read.table("./data/ows.fitted.values.txt", header=TRUE)
+ows <- ows[,c(1,9)]
+colnames(ows)[2] <- "ows"
+fecund <- read.table("./data/fecund.fitted.values.txt", header=TRUE)
+fecund <- fecund[,c(1,11)]
+colnames(fecund)[2] <- "fecundity"
+
+slug.phenos <- merge(slug.phenos, fitness)
+slug.phenos <- merge(slug.phenos, ows)
+slug.phenos <- merge(slug.phenos, fecund)
+
+```
+
+## relationship between phenos
+```{r pheno relationships}
+library(corrplot)
+corrplot(cor(slug.phenos[,c(2,3,7:9)], use="complete.obs"), method="ellipse")
+
+#plot some of these more specifically
+
+lm.slug <- lm(X2011_RAT_severeslug~ ows, data=slug.phenos)
+summary(lm.slug)
+with(slug.phenos, plot(ows, X2011_RAT_severeslug))
+abline(lm.slug)
+
+pdf("./figures/slug.vs.ows.pdf", width=5,height=5)
+with(slug.phenos, plot(ows, X2011_RAT_severeslug, ylab="proportion of severe slug damage", xlab="overwinter survival"))
+abline(lm.slug, col="blue")
+dev.off()
+
+lm.lat <- lm(X2011_RAT_severeslug~lat, data=slug.phenos)
+summary(lm.lat)
+with(slug.phenos, plot(lat, X2011_RAT_severeslug))
+abline(lm.lat)
+
+pdf("./figures/slug.vs.latitude.pdf", width=5,height=5)
+with(slug.phenos, plot(lat, X2011_RAT_severeslug, xlab="latitude of accession origin", ylab="proportion severe slug damage"))
+abline(lm.lat, col="blue")
+dev.off()
+
+```
+
+## what does slug damage look like by admixture group?
+
+```{r prep admixture data}
+### admixture groups for 1001g data - from the paper:
+#We defined nine groups based on these clusters and assigned each individual to a group if more than 60% of its genome
+#derived from the corresponding cluster. The 135 individuals not
+#matching this criterion were labeled ‘‘Admixed.’’
+admix <- read.csv(file="./data/1001genomes-accessionsand1001genomes-admixture.csv", stringsAsFactors=FALSE)
+admix.m <- admix[,grep("K9", colnames(admix))]
+rownames(admix.m) <- admix$id
+#admix.m$id <- rownames(admix.m)
+
+max.a <- apply(admix.m,1, function(x)(max(x, na.rm=TRUE)))
+a.group <- rep(NA, nrow(admix.m))
+for(up in 1:nrow(admix.m)){
+  up.dat <- admix.m[up,]
+  a.group[up] <- which(up.dat==max.a[up])-1
+}
+names(a.group)<- rownames(admix.m)
+a.group <- cbind(admix[,c(1:4)], max.a,a.group, admix.m)
+
+
+## subset for experiment accessions.  Some will be missing.  Should rerun admixture with expanded data?
+fit.dat <- read.table("./data/fitness.fitted.values.txt", stringsAsFactors=FALSE)
+fit.dat <- fit.dat[,c(1,8:11,14:17)]
+
+a.fit <- merge(a.group,fit.dat)  ### only 186 out of 200 accessions have admixture info
+
+## get info about N/C/S accession
+acc.list <- read.table("./data/acc_list.txt", sep="\t", header=TRUE)
+colnames(acc.list)[1] <- "id"
+a.fit <- merge(a.fit, acc.list[,c(1,3)])
+a.fit$region <- droplevels(a.fit$region)
+
+slug.phenos <- merge(slug.phenos, a.fit[,c(1,4:6,9,10,13,24)], all.x=TRUE)
+```
+
+
+```{R slug by admixture group}
+g.slugs <- slug.phenos[slug.phenos$max.a>=0.60,]
+g.slugs <- g.slugs[g.slugs$a.group%in%c(2,3,6),]
+table(g.slugs$a.group)
+g.slugs$a.group <- factor(g.slugs$a.group, levels=c(2,6,3))
+
+aov1 <- aov(X2011_RAT_severeslug~a.group, data=g.slugs)
+summary(aov1)
+tt1 <- TukeyHSD(aov1)
+plot(tt1)
+
+Tukey.levels <- tt1[[1]][, 4]
+Tukey.labels <- data.frame(multcompLetters(Tukey.levels)['Letters'])
+Tukey.labels <- Tukey.labels[c(3,1,2),1]
+
+ad.names <- c("German","S.Swedish", "N.Swedish")
+
+boxplot(X2011_RAT_severeslug~a.group, data=g.slugs, names=ad.names, col=ag.colors, xlab="admixture group", ylab="proportion severe slug damage")
+text(as.character(Tukey.labels), x=c(1:3), y=0.5)
+
+## this is nice, but would take a bit of time to make pretty...
+#multcompBoxplot(formula=X2011_RAT_severeslug~a.group, data=g.slugs, compFn = "TukeyHSD")
+ag.colors <- ag.colors
+p <- ggplot(g.slugs, aes(x=factor(a.group, levels=c(2,6,3)), y=X2011_RAT_severeslug, fill=factor(a.group, levels=c(2,6,3)))) + 
+  geom_violin() +
+  geom_boxplot(width=0.1, show.legend=FALSE) +
+  scale_fill_manual(name = "admixture group", labels = c("German", "S.Swedish", "N.Swedish"), values=ag.colors) +
+  scale_x_discrete(labels=c("German", "S.Swedish", "N.Swedish")) +
+  theme_bw() + 
+  stat_summary(geom = 'text', label = Tukey.labels, fun.y = max, vjust = -0.5) +
+  xlab("admixture group") +
+  ylab("proportion severe slug damage")
+
+print(p)
+
+pdf("./figures/slug.damage.by.admixture.group.pdf", width=7, height=5)
+print(p)
+dev.off()
+```
+
+
+```{R slug damage vs ows by admix group}
+
+##overwinter survival
+slug.ows <- ggplot(g.slugs, aes(x=X2011_RAT_severeslug, y=ows, colour=a.group)) + geom_point() + scale_color_manual(name = "admixture group", labels = c("Germany", "S.Sweden", "N.Sweden"), values=ag.colors) + theme_classic() + labs(x="proportion severe slug damage", y="overwinter survival") + geom_smooth(method='lm')
+
+print(slug.ows)
+
+lm.slug.ows <- lm(ows~X2011_RAT_severeslug, data=g.slugs)
+summary(lm.slug.ows)
+
+##fecundity
+slug.fec <- ggplot(g.slugs, aes(x=X2011_RAT_severeslug, y=fecundity, colour=a.group)) + geom_point() + scale_color_manual(name = "admixture group", labels = c("Germany", "S.Sweden", "N.Sweden"), values=ag.colors) + theme_classic() + labs(x="proportion severe slug damage", y="fecundity") + geom_smooth(method='lm')
+
+print(slug.fec)
+
+pdf("./figures/slug.damage.vs.fecundity.pdf", width=6, height=4)
+print(slug.fec)
+dev.off()
+
+lm.slug.fec <- lm(fecundity~X2011_RAT_severeslug, data=g.slugs)
+summary(lm.slug.fec)
+lm.slug.fec2 <- lm(fecundity~X2011_RAT_severeslug * a.group, data=g.slugs)
+summary(lm.slug.fec2)
+
+
+## fitness
+slug.fit <- ggplot(g.slugs, aes(x=X2011_RAT_severeslug, y=fitness, colour=a.group)) + geom_point() + scale_color_manual(name = "admixture group", labels = c("Germany", "S.Sweden", "N.Sweden"), values=ag.colors) + theme_classic() + labs(x="proportion severe slug damage", y="fitness") + geom_smooth(method='lm')
+
+print(slug.fit)
+
+pdf("./figures/slug.damage.vs.fitness.pdf", width=6, height=4)
+print(slug.fit)
+dev.off()
+
+
+lm.slug.fit <- lm(fitness~X2011_RAT_severeslug, data=g.slugs)
+summary(lm.slug.fit)
+lm.slug.fit2 <- lm(fitness~X2011_RAT_severeslug * a.group, data=g.slugs)
+summary(lm.slug.fit2)
+
+
+
+```
+
+
+
+## let's ask if we "recover" local adaptation in Rat if we get rid of this slug effect.
+```{R slug corrected fitness}
+# two choices: correct OWS or correct fitness.
+#correct fitness first since easiest (although less significant relationship)
+
+slug.no.na <- slug.phenos[is.na(slug.phenos$fitness)==FALSE,]
+
+slug.lm <- lm(fitness~X2011_RAT_severeslug, data=slug.no.na)
+summary(slug.lm)
+anova(slug.lm)
+
+slug.no.na$fit.resid <- slug.lm$residuals
+
+plot(slug.no.na$lat, slug.no.na$fit.resid, main="slug corrected fitness")
+corfit.lm <- lm(fit.resid~lat, data=slug.no.na)
+abline(corfit.lm, col="blue")
+summary(corfit.lm)
+
+plot(slug.no.na$lat, slug.no.na$fitness, main="uncorrected fitness")
+fit.lm <- lm(fitness~lat, data=slug.no.na)
+abline(fit.lm, col="blue")
+summary(fit.lm)
+```
+
+Even after correction, significantly "wrong" direction at p=0.049.  But R2 greatly reduced.
+
+Try correcting the overwinter survival, where the correlation with slug damage is stronger.
+
+```{R slug corrected ows}
+#correct ows
+
+slug.ows.lm <- lm(ows~X2011_RAT_severeslug, data=slug.no.na)
+summary(slug.ows.lm)
+anova(slug.ows.lm)
+
+slug.no.na$ows.resid <- slug.ows.lm$residuals
+
+## need fecundity to re-make "fitness"
+fecund <- read.table("./data/fecund.fitted.values.txt", header=TRUE)
+fecund <- fecund[,c(1,11)]
+colnames(fecund)[2] <- "fecundity"
+slug.no.na <- merge(slug.no.na, fecund, all.x=TRUE)
+slug.no.na$cor.fitness <- slug.no.na$fecundity * slug.no.na$ows.resid
+
+plot(slug.no.na$lat, slug.no.na$cor.fitness, main="slug corrected ows -> fitness")
+corows.lm <- lm(cor.fitness~lat, data=slug.no.na)
+abline(corows.lm, col="blue")
+summary(corows.lm)
+
+plot(slug.no.na$lat, slug.no.na$fitness, main="uncorrected fitness")
+fit.lm <- lm(fitness~lat, data=slug.no.na)
+abline(fit.lm, col="blue")
+summary(fit.lm)
+```
+
+
+So, although I can't use this to get all the way to positive local adaptation, by correcting ows for slug damage, I do get to non-significance.
+
+But slug damage is negatively correlated with fecundity, too...
+
+```{R lat correlation}
+lm1 <- lm(fitness~lat*X2011_RAT_severeslug, data=slug.no.na)
+anova(lm1)
+summary(lm1)
+
+```
+
+Let's try this by brute force.  Remove accessions with ows < 50%
+```{R no low ows}
+gg.slugs <- g.slugs[g.slugs$ows>=0.5,]
+aov.no <- aov(fitness~a.group, data=gg.slugs)
+summary(aov.no)
+ttno <- TukeyHSD(aov.no)
+plot(ttno)
+
+Tukey.levels <- ttno[[1]][, 4]
+Tukey.labels <- data.frame(multcompLetters(Tukey.levels)['Letters'])
+Tukey.labels <- Tukey.labels[order(rownames(Tukey.labels)),]
+
+ad.names <- c("German","N.Swedish", "S.Swedish")
+ag.colors <- brewer.pal(9, "Paired")[c(3,4,7)]
+boxplot(fitness~a.group, data=gg.slugs, names=ad.names,col=ag.colors, xlab="admixture group", ylab="fitness")
+text(as.character(Tukey.labels), x=c(1:3), y=0.015)
+
+```
+

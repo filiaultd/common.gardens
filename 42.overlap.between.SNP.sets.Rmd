@@ -1,0 +1,215 @@
+---
+title: "42.overlap.between.SNP.sets"
+author: "Daniele Filiault"
+date: "7/28/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#setwd("/Volumes/field_experiments/adaptation_sweden/common.gardens")
+setwd("/groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens/")
+library(intervals)
+library(ggplot2)
+library(pander)
+```
+
+## Introduction
+
+Developing script to look for physical overlap between two SNP data sets (GWAS hits and selection scans, for instance).
+Two csv files with chr and pos as input, one is the focal list - will look for overlap of target lists in windows +/-n basepairs around focal list.
+Checking significance of overlap by permutation.
+
+### Set variables
+
+```{r set variables}
+## This is the file that will stay put - also file with windows.  First two columns are chr and pos.
+focal.file <-  "./data/003.selection.scans/001.formatted.for.limix/Fournier_Level_GWAs_Clim_Data.simple.csv"
+## This is the file that will rotate.  first two columns are chr and pos
+target.file <- "./data/slope.snps.sig5.2012.csv"
+win.size <- 20000
+nperm <- 1000
+outdir <- "/groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens/data/006.overlap.permutations/"
+fp <- unlist(strsplit(focal.file,"/"))
+fp <- fp[length(fp)]
+tp <- unlist(strsplit(target.file,"/"))
+tp <- tp[length(tp)]
+outprefix <- paste(fp,tp,win.size,"windows",nperm,"perm", sep=".")
+outprefix <- paste(outdir, outprefix, sep="")
+
+
+## need to generate a few variables for indexing so permutation/rotation works well
+chr.lengths<-c(30427671,19698289,23459830,18585056,26975502)
+chr.sum <- cumsum(chr.lengths)
+chr.sum <- c(0, chr.sum[1:4])
+genome.bp <- sum(chr.lengths)
+chr.index <- cbind(c(1:5),chr.sum+1,cumsum(chr.lengths),chr.sum)
+chr.index <- as.data.frame(chr.index)
+names(chr.index) <- c("chr","start","stop","c.add")
+```
+
+### Read in both SNP datasets and index
+
+```{r read data}
+focal <- read.csv(focal.file, stringsAsFactors=FALSE)
+focal <- focal[,1:2]
+target <- read.csv(target.file, stringsAsFactors=FALSE)
+target <- target[,1:2]
+
+# set indices for focal windows - works even if not all chromosomes are represented
+fs <- split(focal,focal$chr)
+fsi <- as.list(rep(NA, length(fs)))
+for(upc in 1:length(fs)){
+  up.dat <- fs[[upc]]
+  up <- unique(up.dat$chr)
+  up.dat$index <- up.dat$pos + chr.index[up,4]
+  up.dat$start <- up.dat$index - win.size
+  up.dat$stop <- up.dat$index + win.size
+  ## account for chromosome starts and stops - don't extend windows beyond chromosomes
+  up.dat$stop  <- sapply(up.dat$stop, function(x){
+    if(x > chr.index[up,3]){nx <-chr.index[up,3]}
+    else{nx <- x}
+    return(nx)
+    })
+  up.dat$start  <- sapply(up.dat$start, function(x){
+    if(x < chr.index[up,2]){nx <-chr.index[up,2]}
+    else{nx <- x}
+    return(nx)
+    })
+  fsi[[upc]] <- up.dat
+}
+focal.i <- do.call(rbind,fsi)
+
+# set indices for target snps
+# for now, just going to analyze whether target SNPs are in focal windows.  Could also give target SNPs a window, too...
+ts <- split(target,target$chr)
+tsi <- as.list(rep(NA, length(ts)))
+for(upc in 1:length(ts)){
+  up.dat <- ts[[upc]]
+  up <- unique(up.dat$chr)
+  up.dat$index <- up.dat$pos + chr.index[up,4]
+  tsi[[upc]] <- up.dat
+}
+target.i <- do.call(rbind,tsi)
+```
+
+### Go thru focal and ask if any target snp in range
+```{r overlap}
+ti <- target.i$index
+f.out <- apply(focal.i, 1, function(x){
+  f.range <- x[4]:x[5]
+  overlap <- sum(ti%in%f.range)
+  return(overlap)
+})
+focal.i$obs.overlap <- f.out
+write.csv(focal.i, file=paste(outprefix,".observed.csv", sep=""))
+```
+
+## Permutation tests by genome rotation
+Here I am going to rotate the target dataset by a random number N times and check the overlap
+
+```{r function for one rotation}
+rotate.target <- function(target.i, focal.i){
+  #do rotation
+  rot <- sample(1:(genome.bp-1),1)
+  #print(rot)
+  up.t <- target.i$index + rot
+  ## need to account for snps larger than genome size now
+  up.t <- sapply(up.t, function(x){
+    if (x>genome.bp){x <- x-genome.bp}
+    return(x)
+  })
+  # test overlap
+  f.out <- apply(focal.i, 1, function(x){
+    f.range <- x[4]:x[5]
+    overlap <- sum(up.t%in%f.range)
+    return(overlap)
+  })
+  #return(f.out)
+  num.overlap <- sum(sapply(f.out, function(x){x>0}))
+  return(num.overlap)
+  }
+
+#up.rot <- rotate.target(target.i, focal.i)
+```
+
+```{r full perm test}
+perm.results <- sapply(1:nperm,function(x){rotate.target(target.i, focal.i)})
+write.csv(perm.results, file=paste(outprefix,".permuted.csv", sep=""))
+
+```
+
+```{r plot barplot with observed value}
+n.obs <- sum(sapply(f.out, function(x){x>0}))###this is a bit sketchy...rewrite
+max.x <- max(c(perm.results,n.obs))
+p.tab <- as.data.frame(table(perm.results))
+colnames(p.tab) <- c("permuted","freq")
+p.tab$permuted <- factor(p.tab$permuted, levels=0:max.x)
+p<-ggplot(data=p.tab, aes(x=permuted, y=freq)) +
+  geom_bar(stat="identity")+
+  geom_vline(xintercept = which(levels(p.tab$permuted)==n.obs),linetype="dashed", color = "red")+
+  scale_x_discrete(drop=FALSE)
+
+pdf(file=paste(outprefix,".barplot.pdf", sep=""), width=4, height=4)
+print(p)
+dev.off()
+```
+## make better output figures
+```{R combinedplots, eval=FALSE}
+setwd(outdir)
+f <- dir()
+f <- f[-grep(".pdf",f)]
+### get matching files of each analysis
+fn <- strsplit(f, ".", fixed=TRUE)
+fn <- lapply(fn, function(x){x[-c(length(x)-1,length(x))]})
+fn <- lapply(fn, function(x){paste(x,collapse=".")})
+fn <- unique(unlist(fn)) ### list of prefixes
+f.index <- cbind(c(rep("christian.interval",4),rep("fournier.level",4),rep("hancock",4),rep("swedish.sweep",4)), rep(c("betas2011","betas2012","slope2011", "slope2012"),4))
+f.index <- paste(f.index[,1],f.index[,2], sep="_")
+
+out.num.sum <- matrix(NA, nrow=length(fn), ncol=5)
+
+for(up in 1:length(fn)){
+  print(up)
+  up.p <- fn[up]
+  up.f <- dir()
+  up.f <- up.f[grep(up.p, up.f)]
+  up.name <- f.index[up]
+  obs <- read.csv(file=paste(up.p,"observed.csv", sep="."), stringsAsFactors=FALSE)
+  n.obs <- sum(sapply(obs[,7], function(x){x>0}))
+  perm.results <- read.csv(file=paste(up.p,"permuted.csv", sep="."), stringsAsFactors=FALSE)
+  
+  ##make plot
+  max.x <- max(c(perm.results[,2],n.obs))
+  p.tab <- as.data.frame(table(perm.results[,2]))
+  colnames(p.tab) <- c("permuted","freq")
+  p.tab$permuted <- factor(p.tab$permuted, levels=0:max.x)
+  p<-ggplot(data=p.tab, aes(x=permuted, y=freq)) +
+    geom_bar(stat="identity")+
+    geom_vline(xintercept = which(levels(p.tab$permuted)==n.obs),linetype="dashed", color = "red")+
+    scale_x_discrete(drop=FALSE)+
+    ggtitle(up.name)
+  print(p)
+  pdf(file=paste(up.p,".barplot.redone.pdf", sep=""), width=6, height=4)
+  print(p)
+  dev.off()
+  
+  ## get numbers
+  p.tab[,1]<- as.numeric(as.character(p.tab[,1]))
+  nl <- sum(p.tab[p.tab[,1]<n.obs,2])
+  ne <- sum(p.tab[p.tab[,1]==n.obs,2])
+  ng <- sum(p.tab[p.tab[,1]>n.obs,2])
+  out.n <- c(nrow(obs),n.obs, nl, ne, ng)
+  out.num.sum[up,] <- out.n
+  
+}
+out.num.sum <- as.data.frame(out.num.sum)
+colnames(out.num.sum) <- c("total","overlap","less.than.p", "equal.p", "more.than.p")
+out.num.sum$test <- f.index
+pandoc.table(out.num.sum)
+
+
+out.num.sum$file <- fn
+
+out.num.slope <- out.num.sum[grep("slope", out.num.sum$file),]
+```

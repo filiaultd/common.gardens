@@ -1,0 +1,303 @@
+\documentclass[]{article}
+\usepackage{lmodern}
+\usepackage{amssymb,amsmath}
+\usepackage{ifxetex,ifluatex}
+\usepackage{fixltx2e} % provides \textsubscript
+\ifnum 0\ifxetex 1\fi\ifluatex 1\fi=0 % if pdftex
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+\else % if luatex or xelatex
+  \ifxetex
+    \usepackage{mathspec}
+  \else
+    \usepackage{fontspec}
+  \fi
+  \defaultfontfeatures{Ligatures=TeX,Scale=MatchLowercase}
+\fi
+% use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+% use microtype if available
+\IfFileExists{microtype.sty}{%
+\usepackage{microtype}
+\UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\hypersetup{unicode=true,
+            pdftitle={09.acc.local.adapt.summary},
+            pdfauthor={Daniele Filiault},
+            pdfborder={0 0 0},
+            breaklinks=true}
+\urlstyle{same}  % don't use monospace font for urls
+\usepackage{color}
+\usepackage{fancyvrb}
+\newcommand{\VerbBar}{|}
+\newcommand{\VERB}{\Verb[commandchars=\\\{\}]}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\}}
+% Add ',fontsize=\small' for more characters per line
+\usepackage{framed}
+\definecolor{shadecolor}{RGB}{248,248,248}
+\newenvironment{Shaded}{\begin{snugshade}}{\end{snugshade}}
+\newcommand{\KeywordTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{\textbf{#1}}}
+\newcommand{\DataTypeTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{#1}}
+\newcommand{\DecValTok}[1]{\textcolor[rgb]{0.00,0.00,0.81}{#1}}
+\newcommand{\BaseNTok}[1]{\textcolor[rgb]{0.00,0.00,0.81}{#1}}
+\newcommand{\FloatTok}[1]{\textcolor[rgb]{0.00,0.00,0.81}{#1}}
+\newcommand{\ConstantTok}[1]{\textcolor[rgb]{0.00,0.00,0.00}{#1}}
+\newcommand{\CharTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\SpecialCharTok}[1]{\textcolor[rgb]{0.00,0.00,0.00}{#1}}
+\newcommand{\StringTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\VerbatimStringTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\SpecialStringTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\ImportTok}[1]{#1}
+\newcommand{\CommentTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textit{#1}}}
+\newcommand{\DocumentationTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\AnnotationTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\CommentVarTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\OtherTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{#1}}
+\newcommand{\FunctionTok}[1]{\textcolor[rgb]{0.00,0.00,0.00}{#1}}
+\newcommand{\VariableTok}[1]{\textcolor[rgb]{0.00,0.00,0.00}{#1}}
+\newcommand{\ControlFlowTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{\textbf{#1}}}
+\newcommand{\OperatorTok}[1]{\textcolor[rgb]{0.81,0.36,0.00}{\textbf{#1}}}
+\newcommand{\BuiltInTok}[1]{#1}
+\newcommand{\ExtensionTok}[1]{#1}
+\newcommand{\PreprocessorTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textit{#1}}}
+\newcommand{\AttributeTok}[1]{\textcolor[rgb]{0.77,0.63,0.00}{#1}}
+\newcommand{\RegionMarkerTok}[1]{#1}
+\newcommand{\InformationTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\WarningTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\AlertTok}[1]{\textcolor[rgb]{0.94,0.16,0.16}{#1}}
+\newcommand{\ErrorTok}[1]{\textcolor[rgb]{0.64,0.00,0.00}{\textbf{#1}}}
+\newcommand{\NormalTok}[1]{#1}
+\usepackage{graphicx,grffile}
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
+\makeatother
+% Scale images if necessary, so that they will not overflow the page
+% margins by default, and it is still possible to overwrite the defaults
+% using explicit options in \includegraphics[width, height, ...]{}
+\setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+\IfFileExists{parskip.sty}{%
+\usepackage{parskip}
+}{% else
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt plus 2pt minus 1pt}
+}
+\setlength{\emergencystretch}{3em}  % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\setcounter{secnumdepth}{0}
+% Redefines (sub)paragraphs to behave more like sections
+\ifx\paragraph\undefined\else
+\let\oldparagraph\paragraph
+\renewcommand{\paragraph}[1]{\oldparagraph{#1}\mbox{}}
+\fi
+\ifx\subparagraph\undefined\else
+\let\oldsubparagraph\subparagraph
+\renewcommand{\subparagraph}[1]{\oldsubparagraph{#1}\mbox{}}
+\fi
+
+%%% Use protect on footnotes to avoid problems with footnotes in titles
+\let\rmarkdownfootnote\footnote%
+\def\footnote{\protect\rmarkdownfootnote}
+
+%%% Change title format to be more compact
+\usepackage{titling}
+
+% Create subtitle command for use in maketitle
+\newcommand{\subtitle}[1]{
+  \posttitle{
+    \begin{center}\large#1\end{center}
+    }
+}
+
+\setlength{\droptitle}{-2em}
+
+  \title{09.acc.local.adapt.summary}
+    \pretitle{\vspace{\droptitle}\centering\huge}
+  \posttitle{\par}
+    \author{Daniele Filiault}
+    \preauthor{\centering\large\emph}
+  \postauthor{\par}
+      \predate{\centering\large\emph}
+  \postdate{\par}
+    \date{6/27/2019}
+
+
+\begin{document}
+\maketitle
+
+\subsection{Load models from scripts
+02-05}\label{load-models-from-scripts-02-05}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{load}\NormalTok{(}\StringTok{"./data/fitness.adapt.models.Rdat"}\NormalTok{)}
+\KeywordTok{load}\NormalTok{(}\StringTok{"./data/fecundity.adapt.models.Rdat"}\NormalTok{)}
+\KeywordTok{load}\NormalTok{(}\StringTok{"./data/ows.adapt.models.Rdat"}\NormalTok{)}
+\KeywordTok{load}\NormalTok{(}\StringTok{"./data/sss.adapt.models.Rdat"}\NormalTok{)}
+
+\NormalTok{models <-}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"ADA_2011"}\NormalTok{,}\StringTok{"RAM_2011"}\NormalTok{,}\StringTok{"RAT_2011"}\NormalTok{,}\StringTok{"ULL_2011"}\NormalTok{,}\StringTok{"ADA_2012"}\NormalTok{,}\StringTok{"RAM_2012"}\NormalTok{,}\StringTok{"RAT_2012"}\NormalTok{,}\StringTok{"ULL_2012"}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\subsection{extract pvals, slope,
+adjR2}\label{extract-pvals-slope-adjr2}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{### get desired values out of the model}
+\NormalTok{mod2val <-}\StringTok{ }\ControlFlowTok{function}\NormalTok{(lm.up)\{}
+\NormalTok{  lm.vals <-}\StringTok{ }\KeywordTok{lapply}\NormalTok{(lm.up, }\ControlFlowTok{function}\NormalTok{(x)\{}
+\NormalTok{    slope <-}\StringTok{ }\NormalTok{x}\OperatorTok{$}\NormalTok{coefficients[[}\DecValTok{2}\NormalTok{]]}
+\NormalTok{    pval <-}\StringTok{ }\KeywordTok{anova}\NormalTok{(x)[}\DecValTok{5}\NormalTok{][}\DecValTok{1}\NormalTok{,}\DecValTok{1}\NormalTok{]}
+\NormalTok{    rsq <-}\StringTok{ }\KeywordTok{summary}\NormalTok{(x)}\OperatorTok{$}\NormalTok{adj.r.squared}
+\NormalTok{    output <-}\StringTok{ }\KeywordTok{c}\NormalTok{(slope,pval,rsq)}
+    \KeywordTok{return}\NormalTok{(output)}
+\NormalTok{    \})}
+\NormalTok{  lm.vals <-}\StringTok{ }\KeywordTok{do.call}\NormalTok{(rbind,lm.vals)}
+  \KeywordTok{colnames}\NormalTok{(lm.vals) <-}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"slope"}\NormalTok{,}\StringTok{"pval"}\NormalTok{,}\StringTok{"adjR2"}\NormalTok{)}
+  \KeywordTok{rownames}\NormalTok{(lm.vals) <-}\StringTok{ }\NormalTok{models}
+  \KeywordTok{return}\NormalTok{(lm.vals)}
+\NormalTok{\}}
+
+\NormalTok{### make a variable that will reflect color of cell}
+\CommentTok{#1= sig, right direction}
+\CommentTok{#2= marg. sig, right direction}
+\CommentTok{#3= not sig}
+\CommentTok{#4= marg sig, wrong direction}
+\CommentTok{#5= sig, wrong direction}
+\NormalTok{sig.col <-}\StringTok{ }\ControlFlowTok{function}\NormalTok{(x)\{}
+\NormalTok{  ns <-}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"ADA"}\NormalTok{,}\StringTok{"RAM"}\NormalTok{)}
+\NormalTok{  ss <-}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"RAT"}\NormalTok{,}\StringTok{"ULL"}\NormalTok{)}
+  \CommentTok{#significance level}
+\NormalTok{  sig <-}\StringTok{ }\NormalTok{x[,}\DecValTok{2}\NormalTok{]}\OperatorTok{<}\FloatTok{0.05}
+\NormalTok{  msig <-}\StringTok{ }\NormalTok{x[,}\DecValTok{2}\NormalTok{]}\OperatorTok{<}\FloatTok{0.1}
+\NormalTok{  sig <-}\StringTok{ }\NormalTok{sig }\OperatorTok{+}\StringTok{ }\NormalTok{msig}
+\NormalTok{  x <-}\StringTok{ }\KeywordTok{cbind}\NormalTok{(x, sig)}
+  \CommentTok{#0=ns, 1=sig 0.1, 2=sig 0.05}
+  \CommentTok{#correct direction of slope for local adaptation}
+\NormalTok{  n.dat <-}\StringTok{ }\NormalTok{x[}\KeywordTok{substr}\NormalTok{(}\KeywordTok{rownames}\NormalTok{(x),}\DecValTok{1}\NormalTok{,}\DecValTok{3}\NormalTok{)}\OperatorTok{%in%}\NormalTok{ns,]}
+\NormalTok{  n.dir <-}\StringTok{ }\NormalTok{n.dat[,}\DecValTok{1}\NormalTok{]}\OperatorTok{>}\DecValTok{0}
+\NormalTok{  n.dat <-}\StringTok{ }\KeywordTok{cbind}\NormalTok{(n.dat,n.dir)}
+  \CommentTok{#1=correct, 0= not correct}
+\NormalTok{  s.dat <-}\StringTok{ }\NormalTok{x[}\KeywordTok{substr}\NormalTok{(}\KeywordTok{rownames}\NormalTok{(x),}\DecValTok{1}\NormalTok{,}\DecValTok{3}\NormalTok{)}\OperatorTok{%in%}\NormalTok{ss,]}
+\NormalTok{  s.dir <-}\StringTok{ }\NormalTok{s.dat[,}\DecValTok{1}\NormalTok{]}\OperatorTok{<}\DecValTok{0}
+\NormalTok{  s.dat <-}\StringTok{ }\KeywordTok{cbind}\NormalTok{(s.dat,s.dir)}
+\NormalTok{  x <-}\StringTok{ }\KeywordTok{rbind}\NormalTok{(n.dat, s.dat)}
+\NormalTok{  col.index <-}\StringTok{ }\KeywordTok{paste}\NormalTok{(x[,}\DecValTok{4}\NormalTok{],x[,}\DecValTok{5}\NormalTok{],}\DataTypeTok{sep=}\StringTok{""}\NormalTok{)}
+\NormalTok{  col.index <-}\StringTok{ }\KeywordTok{gsub}\NormalTok{(}\StringTok{"21"}\NormalTok{,}\StringTok{"1"}\NormalTok{,col.index)}
+\NormalTok{  col.index <-}\StringTok{ }\KeywordTok{gsub}\NormalTok{(}\StringTok{"11"}\NormalTok{,}\StringTok{"2"}\NormalTok{,col.index)}
+\NormalTok{  col.index <-}\StringTok{ }\KeywordTok{gsub}\NormalTok{(}\StringTok{"00"}\NormalTok{,}\StringTok{"3"}\NormalTok{,col.index)}
+\NormalTok{  col.index <-}\StringTok{ }\KeywordTok{gsub}\NormalTok{(}\StringTok{"01"}\NormalTok{,}\StringTok{"3"}\NormalTok{,col.index)}
+\NormalTok{  col.index <-}\StringTok{ }\KeywordTok{gsub}\NormalTok{(}\StringTok{"10"}\NormalTok{,}\StringTok{"4"}\NormalTok{,col.index)}
+\NormalTok{  col.index <-}\StringTok{ }\KeywordTok{gsub}\NormalTok{(}\StringTok{"20"}\NormalTok{,}\StringTok{"5"}\NormalTok{,col.index)}
+\NormalTok{  x <-}\StringTok{ }\KeywordTok{cbind}\NormalTok{(x,}\KeywordTok{as.numeric}\NormalTok{(col.index))}
+  \KeywordTok{colnames}\NormalTok{(x)[}\DecValTok{6}\NormalTok{] <-}\StringTok{ "col.index"}
+  \KeywordTok{return}\NormalTok{(x)}
+\NormalTok{\}}
+
+\NormalTok{fit.vals <-}\StringTok{ }\KeywordTok{sig.col}\NormalTok{(}\KeywordTok{mod2val}\NormalTok{(fitness.adapt.models))}
+\NormalTok{fec.vals <-}\StringTok{ }\KeywordTok{sig.col}\NormalTok{(}\KeywordTok{mod2val}\NormalTok{(fecundity.adapt.models))}
+\NormalTok{ows.vals <-}\StringTok{ }\KeywordTok{sig.col}\NormalTok{(}\KeywordTok{mod2val}\NormalTok{(ows.adapt.models))}
+\NormalTok{sss.vals <-}\StringTok{ }\KeywordTok{sig.col}\NormalTok{(}\KeywordTok{mod2val}\NormalTok{(sss.adapt.models))}
+
+\NormalTok{### make 2 variables: adjR2 for all fit components, col.index for all...}
+
+\NormalTok{adjR <-}\StringTok{ }\KeywordTok{cbind}\NormalTok{(fit.vals[,}\DecValTok{3}\NormalTok{],ows.vals[,}\DecValTok{3}\NormalTok{],sss.vals[,}\DecValTok{3}\NormalTok{],fec.vals[,}\DecValTok{3}\NormalTok{])}
+\KeywordTok{colnames}\NormalTok{(adjR) <-}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"fitness"}\NormalTok{,}\StringTok{"ows"}\NormalTok{,}\StringTok{"sss"}\NormalTok{,}\StringTok{"fecundity"}\NormalTok{)}
+\NormalTok{adjR <-}\StringTok{ }\NormalTok{adjR[}\KeywordTok{order}\NormalTok{(}\KeywordTok{rownames}\NormalTok{(adjR)),]}
+
+\NormalTok{col.index <-}\StringTok{ }\KeywordTok{cbind}\NormalTok{(fit.vals[,}\DecValTok{6}\NormalTok{],ows.vals[,}\DecValTok{6}\NormalTok{],sss.vals[,}\DecValTok{6}\NormalTok{],fec.vals[,}\DecValTok{6}\NormalTok{])}
+\KeywordTok{colnames}\NormalTok{(col.index) <-}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"fitness"}\NormalTok{,}\StringTok{"ows"}\NormalTok{,}\StringTok{"sss"}\NormalTok{,}\StringTok{"fecundity"}\NormalTok{)}
+\NormalTok{col.index <-}\StringTok{ }\NormalTok{col.index[}\KeywordTok{order}\NormalTok{(}\KeywordTok{rownames}\NormalTok{(col.index)),]}
+\end{Highlighting}
+\end{Shaded}
+
+\paragraph{make plot}\label{make-plot}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{library}\NormalTok{(RColorBrewer)}
+\NormalTok{col.cols <-}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"green4"}\NormalTok{,}\StringTok{"green1"}\NormalTok{,}\StringTok{"white"}\NormalTok{,}\StringTok{"red1"}\NormalTok{,}\StringTok{"red4"}\NormalTok{)}
+\NormalTok{col.cols <-}\StringTok{ }\KeywordTok{colorRampPalette}\NormalTok{(}\KeywordTok{c}\NormalTok{(}\StringTok{"green"}\NormalTok{, }\StringTok{"red"}\NormalTok{))( }\DecValTok{5}\NormalTok{ )}
+\NormalTok{col.cols <-}\StringTok{ }\KeywordTok{brewer.pal}\NormalTok{(}\DataTypeTok{n =} \DecValTok{5}\NormalTok{, }\DataTypeTok{name =} \StringTok{"RdBu"}\NormalTok{)}
+\NormalTok{col.cols <-}\StringTok{ }\NormalTok{col.cols[}\DecValTok{5}\OperatorTok{:}\DecValTok{1}\NormalTok{]}
+
+\KeywordTok{par}\NormalTok{(}\DataTypeTok{mar=}\KeywordTok{c}\NormalTok{(}\DecValTok{5}\NormalTok{,}\DecValTok{4}\NormalTok{,}\DecValTok{4}\NormalTok{,}\DecValTok{4}\NormalTok{))}
+\KeywordTok{plot}\NormalTok{(}\DecValTok{1}\NormalTok{,}\DecValTok{1}\NormalTok{,}\DataTypeTok{type=}\StringTok{"n"}\NormalTok{,}\DataTypeTok{xlim=}\KeywordTok{c}\NormalTok{(}\DecValTok{0}\NormalTok{,}\DecValTok{8}\NormalTok{),}\DataTypeTok{ylim=}\KeywordTok{c}\NormalTok{(}\DecValTok{0}\NormalTok{,}\DecValTok{4}\NormalTok{),}\DataTypeTok{xaxt=}\StringTok{"n"}\NormalTok{,}\DataTypeTok{yaxt=}\StringTok{"n"}\NormalTok{, }\DataTypeTok{ann=}\OtherTok{FALSE}\NormalTok{, }\DataTypeTok{bty=}\StringTok{"n"}\NormalTok{)}
+\KeywordTok{rect}\NormalTok{(}\DecValTok{0}\NormalTok{,}\DecValTok{0}\NormalTok{,}\DecValTok{8}\NormalTok{,}\DecValTok{4}\NormalTok{)}
+
+\NormalTok{col1 <-}\StringTok{ }\NormalTok{col.index[}\KeywordTok{grep}\NormalTok{(}\StringTok{"2011"}\NormalTok{, }\KeywordTok{rownames}\NormalTok{(col.index)),]}
+\NormalTok{col1 <-}\StringTok{ }\NormalTok{col1[}\DecValTok{4}\OperatorTok{:}\DecValTok{1}\NormalTok{,]}
+\KeywordTok{rect}\NormalTok{(}\DecValTok{0}\NormalTok{,}\DecValTok{0}\NormalTok{,}\DecValTok{1}\NormalTok{,}\DecValTok{1}\NormalTok{, }\DataTypeTok{col=}\DecValTok{2}\NormalTok{)}
+\ControlFlowTok{for}\NormalTok{(up }\ControlFlowTok{in} \DecValTok{1}\OperatorTok{:}\KeywordTok{nrow}\NormalTok{(col1))\{}
+\NormalTok{  up.dat <-}\StringTok{ }\NormalTok{col1[up,]}
+\NormalTok{  up.y <-}\StringTok{ }\NormalTok{up}\OperatorTok{-}\DecValTok{1}
+\NormalTok{  up.yy <-}\StringTok{ }\NormalTok{up}
+  \ControlFlowTok{for}\NormalTok{(up.obs }\ControlFlowTok{in} \DecValTok{1}\OperatorTok{:}\KeywordTok{length}\NormalTok{(up.dat))\{}
+\NormalTok{    up.col <-}\StringTok{ }\NormalTok{up.dat[up.obs]}
+\NormalTok{    up.x <-}\StringTok{ }\NormalTok{up.obs}\OperatorTok{-}\DecValTok{1}
+\NormalTok{    up.xx <-}\StringTok{  }\NormalTok{up.obs}
+    \KeywordTok{rect}\NormalTok{(up.x,up.y, up.xx, up.yy, }\DataTypeTok{col=}\NormalTok{col.cols[up.col])}
+\NormalTok{  \}}
+\NormalTok{\}}
+
+\NormalTok{col2 <-}\StringTok{ }\NormalTok{col.index[}\KeywordTok{grep}\NormalTok{(}\StringTok{"2012"}\NormalTok{, }\KeywordTok{rownames}\NormalTok{(col.index)),]}
+\NormalTok{col2 <-}\StringTok{ }\NormalTok{col2[}\DecValTok{4}\OperatorTok{:}\DecValTok{1}\NormalTok{,]}
+\ControlFlowTok{for}\NormalTok{(up }\ControlFlowTok{in} \DecValTok{1}\OperatorTok{:}\KeywordTok{nrow}\NormalTok{(col2))\{}
+\NormalTok{  up.dat <-}\StringTok{ }\NormalTok{col2[up,]}
+\NormalTok{  up.y <-}\StringTok{ }\NormalTok{up}\OperatorTok{-}\DecValTok{1}
+\NormalTok{  up.yy <-}\StringTok{ }\NormalTok{up}
+  \ControlFlowTok{for}\NormalTok{(up.obs }\ControlFlowTok{in} \DecValTok{1}\OperatorTok{:}\KeywordTok{length}\NormalTok{(up.dat))\{}
+\NormalTok{    up.col <-}\StringTok{ }\NormalTok{up.dat[up.obs]}
+\NormalTok{    up.x <-}\StringTok{ }\NormalTok{up.obs}\OperatorTok{+}\DecValTok{3}
+\NormalTok{    up.xx <-}\StringTok{  }\NormalTok{up.obs}\OperatorTok{+}\DecValTok{4}
+    \KeywordTok{rect}\NormalTok{(up.x,up.y, up.xx, up.yy, }\DataTypeTok{col=}\NormalTok{col.cols[up.col])}
+\NormalTok{  \}}
+\NormalTok{\}}
+\KeywordTok{axis}\NormalTok{(}\DecValTok{1}\NormalTok{,}\DataTypeTok{at=}\KeywordTok{seq}\NormalTok{(}\FloatTok{0.5}\NormalTok{,}\FloatTok{7.5}\NormalTok{,}\DecValTok{1}\NormalTok{),}\DataTypeTok{labels=}\OtherTok{FALSE}\NormalTok{, }\DataTypeTok{tick=}\OtherTok{FALSE}\NormalTok{, }\DataTypeTok{line=}\OperatorTok{-}\DecValTok{1}\NormalTok{, }\DataTypeTok{las=}\DecValTok{2}\NormalTok{)}
+\KeywordTok{text}\NormalTok{(}\DataTypeTok{x =} \KeywordTok{seq}\NormalTok{(}\FloatTok{0.25}\NormalTok{,}\FloatTok{7.25}\NormalTok{,}\DecValTok{1}\NormalTok{), }\KeywordTok{par}\NormalTok{(}\StringTok{"usr"}\NormalTok{)[}\DecValTok{3}\NormalTok{]}\OperatorTok{-}\FloatTok{0.2}\NormalTok{, }\DataTypeTok{labels =} \KeywordTok{c}\NormalTok{(}\KeywordTok{colnames}\NormalTok{(col.index),}\KeywordTok{colnames}\NormalTok{(col.index)), }\DataTypeTok{srt =} \DecValTok{45}\NormalTok{, }\DataTypeTok{pos =} \DecValTok{1}\NormalTok{, }\DataTypeTok{xpd =} \OtherTok{TRUE}\NormalTok{)}
+\KeywordTok{axis}\NormalTok{(}\DecValTok{2}\NormalTok{,}\DataTypeTok{at=}\KeywordTok{seq}\NormalTok{(}\FloatTok{0.5}\NormalTok{,}\FloatTok{3.5}\NormalTok{,}\DecValTok{1}\NormalTok{),}\DataTypeTok{labels=}\KeywordTok{c}\NormalTok{(}\StringTok{"Ull"}\NormalTok{,}\StringTok{"Rat"}\NormalTok{,}\StringTok{"Ram"}\NormalTok{,}\StringTok{"Ada"}\NormalTok{), }\DataTypeTok{las=}\DecValTok{2}\NormalTok{, }\DataTypeTok{tick=}\OtherTok{FALSE}\NormalTok{, }\DataTypeTok{line=}\OperatorTok{-}\DecValTok{1}\NormalTok{)}
+\KeywordTok{axis}\NormalTok{(}\DecValTok{3}\NormalTok{, }\DataTypeTok{at=}\KeywordTok{c}\NormalTok{(}\DecValTok{2}\NormalTok{,}\DecValTok{6}\NormalTok{),}\DataTypeTok{labels=}\KeywordTok{c}\NormalTok{(}\StringTok{"2011"}\NormalTok{,}\StringTok{"2012"}\NormalTok{),}\DataTypeTok{tick=}\OtherTok{FALSE}\NormalTok{, }\DataTypeTok{font=}\DecValTok{2}\NormalTok{,}\DataTypeTok{line=}\DecValTok{0}\NormalTok{, }\DataTypeTok{cex.axis=}\FloatTok{1.5}\NormalTok{)}
+\KeywordTok{axis}\NormalTok{(}\DecValTok{4}\NormalTok{, }\DataTypeTok{at=}\KeywordTok{c}\NormalTok{(}\DecValTok{1}\NormalTok{,}\DecValTok{3}\NormalTok{),}\DataTypeTok{labels=}\KeywordTok{c}\NormalTok{(}\StringTok{"South"}\NormalTok{,}\StringTok{"North"}\NormalTok{),}\DataTypeTok{tick=}\OtherTok{FALSE}\NormalTok{, }\DataTypeTok{las=}\DecValTok{2}\NormalTok{, }\DataTypeTok{line=}\OperatorTok{-}\FloatTok{0.5}\NormalTok{, }\DataTypeTok{font=}\DecValTok{2}\NormalTok{, }\DataTypeTok{cex.axis=}\FloatTok{1.5}\NormalTok{)}
+\KeywordTok{rect}\NormalTok{(}\DecValTok{0}\NormalTok{,}\DecValTok{0}\NormalTok{,}\DecValTok{4}\NormalTok{,}\DecValTok{4}\NormalTok{,}\DataTypeTok{lwd=}\DecValTok{3}\NormalTok{)}
+\KeywordTok{rect}\NormalTok{(}\DecValTok{4}\NormalTok{,}\DecValTok{0}\NormalTok{,}\DecValTok{8}\NormalTok{,}\DecValTok{4}\NormalTok{,}\DataTypeTok{lwd=}\DecValTok{3}\NormalTok{)}
+\KeywordTok{abline}\NormalTok{(}\DecValTok{2}\NormalTok{,}\DecValTok{0}\NormalTok{, }\DataTypeTok{lwd=}\DecValTok{3}\NormalTok{)}
+
+
+\NormalTok{#### just need to add rsquared values = adjR}
+\NormalTok{ar1 <-}\StringTok{ }\NormalTok{adjR[}\KeywordTok{grep}\NormalTok{(}\StringTok{"2011"}\NormalTok{, }\KeywordTok{rownames}\NormalTok{(adjR)),]}
+\NormalTok{ar1 <-}\StringTok{ }\NormalTok{ar1[}\DecValTok{4}\OperatorTok{:}\DecValTok{1}\NormalTok{,]}
+\ControlFlowTok{for}\NormalTok{(up }\ControlFlowTok{in} \DecValTok{1}\OperatorTok{:}\KeywordTok{nrow}\NormalTok{(ar1))\{}
+\NormalTok{  up.dat <-}\StringTok{ }\NormalTok{ar1[up,]}
+\NormalTok{  up.y <-}\StringTok{ }\NormalTok{up}\OperatorTok{-}\FloatTok{0.5}
+  \ControlFlowTok{for}\NormalTok{(up.obs }\ControlFlowTok{in} \DecValTok{1}\OperatorTok{:}\KeywordTok{length}\NormalTok{(up.dat))\{}
+\NormalTok{    up.r <-}\StringTok{ }\NormalTok{up.dat[up.obs]}
+\NormalTok{    up.rc <-}\StringTok{ }\KeywordTok{substr}\NormalTok{(up.r, }\DecValTok{1}\NormalTok{,}\DecValTok{5}\NormalTok{)}
+\NormalTok{    up.x <-}\StringTok{ }\NormalTok{up.obs}\OperatorTok{-}\FloatTok{0.5}
+    \ControlFlowTok{if}\NormalTok{(up.r }\OperatorTok{>}\StringTok{ }\FloatTok{0.01}\NormalTok{)\{}\KeywordTok{text}\NormalTok{(}\DataTypeTok{x=}\NormalTok{up.x,}\DataTypeTok{y=}\NormalTok{up.y, }\DataTypeTok{labels=}\NormalTok{up.rc)\}  ### this is a hack to not plot NS values.  to do for reals, would need to check pvals.}
+\NormalTok{  \}}
+\NormalTok{\}}
+
+\NormalTok{ar2 <-}\StringTok{ }\NormalTok{adjR[}\KeywordTok{grep}\NormalTok{(}\StringTok{"2012"}\NormalTok{, }\KeywordTok{rownames}\NormalTok{(adjR)),]}
+\NormalTok{ar2 <-}\StringTok{ }\NormalTok{ar2[}\DecValTok{4}\OperatorTok{:}\DecValTok{1}\NormalTok{,]}
+\ControlFlowTok{for}\NormalTok{(up }\ControlFlowTok{in} \DecValTok{1}\OperatorTok{:}\KeywordTok{nrow}\NormalTok{(ar2))\{}
+\NormalTok{  up.dat <-}\StringTok{ }\NormalTok{ar2[up,]}
+\NormalTok{  up.y <-}\StringTok{ }\NormalTok{up}\OperatorTok{-}\FloatTok{0.5}
+  \ControlFlowTok{for}\NormalTok{(up.obs }\ControlFlowTok{in} \DecValTok{1}\OperatorTok{:}\KeywordTok{length}\NormalTok{(up.dat))\{}
+    \KeywordTok{options}\NormalTok{(}\StringTok{"scipen"}\NormalTok{=}\DecValTok{100}\NormalTok{, }\StringTok{"digits"}\NormalTok{=}\DecValTok{4}\NormalTok{)}
+\NormalTok{    up.r <-}\StringTok{ }\NormalTok{up.dat[up.obs]}
+\NormalTok{    up.rc <-}\StringTok{ }\KeywordTok{substr}\NormalTok{(up.r, }\DecValTok{1}\NormalTok{,}\DecValTok{5}\NormalTok{)}
+\NormalTok{    up.x <-}\StringTok{ }\NormalTok{up.obs}\OperatorTok{+}\FloatTok{3.5}
+    \ControlFlowTok{if}\NormalTok{(up.r }\OperatorTok{>}\StringTok{ }\FloatTok{0.01}\NormalTok{)\{}\KeywordTok{text}\NormalTok{(}\DataTypeTok{x=}\NormalTok{up.x,}\DataTypeTok{y=}\NormalTok{up.y, }\DataTypeTok{labels=}\NormalTok{up.rc)\} ### same hack as above}
+\NormalTok{  \}}
+\NormalTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\includegraphics{09.acc.local.adapt.summary_files/figure-latex/makeplot-1.pdf}
+
+
+\end{document}

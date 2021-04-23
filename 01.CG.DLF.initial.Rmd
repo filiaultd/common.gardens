@@ -1,0 +1,187 @@
+---
+title: "01.Common.Gardens.DLF.initial"
+author: "Daniele Filiault"
+date: "1/16/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Description and Motivation
+Redoing Ben's single trait GWAS to include slugs as well
+Also learning how gemma GWAS works.
+
+Here I am starting a new markdown for the purpose of taking over Ben's analyses of the Swedish Common Garden experiments.  His old .Rmd is: /projects/field_experiments/adaptation_sweden/main.Rmd  
+Before I start, I need to regenerate genotype files so I can use gemma.  Modified Ben's script prep_SNPs.sh to make prep_SNPs_DLF.sh and ran on mendel.
+SNPs and other files for gemma are in:
+/projects/field_experiments/001.common.reference.files/006.field.SNPs.Fernando
+
+## 1. GWAS for all marginal traits
+
+### 1a. Add slug damage to phenotypes
+
+* 0 = no plant
+* 1 = no damage
+* 2 = light damage
+* 3 = heavy damage  
+Scored visually in the field in Rathckegården, Fall 2011 by DLF
+
+```{r}
+data <- read.csv("./data/rat.snail.2011.csv")
+data <- data[,1:5]
+data$rep <-c(rep("A",nrow(data)/3),rep("B", nrow(data)/3),rep("C",nrow(data)/3))
+glm.data.t2 <- unique(data[,c(4,6)])
+glm.data.t2$no.plant<-99
+glm.data.t2$s1 <- 99
+glm.data.t2$s2<- 99
+glm.data.t2$s3<- 99
+
+for (i in 1:nrow(glm.data.t2)){
+  glm.data.t2$no.plant[i]<-nrow(data[data$line.no==glm.data.t2[i,1] & data$rep==glm.data.t2[i,2] & data$slug=="0",])
+  glm.data.t2$s1[i]<-nrow(data[data$line.no==glm.data.t2[i,1] & data$rep==glm.data.t2[i,2] & data$slug=="1",])
+  glm.data.t2$s2[i]<-nrow(data[data$line.no==glm.data.t2[i,1] & data$rep==glm.data.t2[i,2] & data$slug=="2",])
+  glm.data.t2$s3[i]<-nrow(data[data$line.no==glm.data.t2[i,1] & data$rep==glm.data.t2[i,2] & data$slug=="3",])
+}
+
+total.plant <- apply(glm.data.t2,1,function(x) sum(as.numeric(x[4:6])))
+glm.data.t2$total.plant <- total.plant
+glm.data.t2$ps3 <- glm.data.t2$s3/glm.data.t2$total.plant
+glm.data.t2$ps23 <- (glm.data.t2$s2+glm.data.t2$s3)/glm.data.t2$total.plant
+glm.data.t2$s12 <- glm.data.t2$total.plant-glm.data.t2$s3
+glm.data.t2$s23 <- glm.data.t2$total.plant-glm.data.t2$s1
+
+glm.data.t2$rep <- as.factor(glm.data.t2$rep)
+glm.data.t2$line.no <- as.factor(glm.data.t2$line.no)
+
+to.remove <- c("201","202","203","error", "Eden-1","Ull-1","empty")
+glm.data.t2 <- glm.data.t2[glm.data.t2$line.no%in%to.remove==FALSE,,drop=TRUE]
+glm.data.t2$line.no <- as.character(glm.data.t2$line.no)
+glm.data.t2$line.no <- as.factor(glm.data.t2$line.no)
+```
+
+Test two sets of models.  First is first is proportion s3 (heavy damage) vs s2 s1
+
+```{r}
+glm1 <- glm(cbind(s3,s12) ~ rep, data=glm.data.t2, family=binomial(link="logit")) # rep sig
+glm2 <- glm(cbind(s3,s12) ~ line.no, data=glm.data.t2, family=binomial(link="logit")) # line.no sig
+glm3 <- glm(cbind(s3,s12) ~ rep + line.no, data=glm.data.t2, family=binomial(link="logit")) # both sig 
+
+```
+
+So, both block and line are significant together.  Include both in model.
+
+Second model is proportion s1 (not touched) vs s2 s3
+
+```{r}
+glm4 <- glm(cbind(s1,s23) ~ rep, data=glm.data.t2, family=binomial(link="logit")) # rep sig
+glm5 <- glm(cbind(s1,s23) ~ line.no, data=glm.data.t2, family=binomial(link="logit")) # line.no sig
+glm6 <- glm(cbind(s1,s23) ~ rep + line.no, data=glm.data.t2, family=binomial(link="logit")) # both sig together
+```
+Again, both block and line are significant together.  Include both in model.
+
+Get fitted values for mapping.  These are the mean modeled proportion of plants per line with either no or severe slug damage.
+
+```{r}
+glm.data.t2$fitted.s3 <- glm3$fitted.values
+s3.means <- aggregate(fitted.s3~line.no, data=glm.data.t2, mean)
+hist(s3.means$fitted)
+
+glm.data.t2$fitted.s1 <- glm6$fitted.values
+s1.means <- aggregate(fitted.s1~line.no, data=glm.data.t2, mean)
+hist(s1.means$fitted)
+
+id=read.table("./data/acc_list.txt", sep="\t", h=T, na.strings=".", encoding="utf-8")
+s1.means <- merge(s1.means, id, all.x=TRUE, by.x="line.no", by.y="tubes")
+slug.no.damage.GWAS <- s1.means[,c(3,2)]
+s3.means <- merge(s3.means, id, all.x=TRUE, by.x="line.no", by.y="tubes")
+slug.severe.damage.GWAS <- s3.means[,c(3,2)]
+
+slug.phenos <- merge(slug.no.damage.GWAS, slug.severe.damage.GWAS)
+colnames(slug.phenos) <- c("id", "X2011_RAT_noslug", "X2011_RAT_severeslug")
+
+save(slug.phenos, file="./data/slug.phenos.fitted.Rdat")
+
+```
+
+### 1b. Combine with BLUPs for all other phenotypes, too
+These are by year and by site, so the most "marginal" possible.  
+Think about sense of combining years, combining N/S for phenos?  Ben only did for fitness.  Should explore year-to-year differences more?  Or do N/S
+by year for comparing with SnR estimates?
+
+```{r}
+dat <- read.table("./res/blups.txt", stringsAsFactors=FALSE, header=TRUE)
+dat <- merge(dat, slug.phenos)
+row.names(dat)=paste(dat$id)
+dat=dat[,-1]
+
+pref="./GWA/snps/sweden_200_MAF10.bimbam"
+
+##make a phenotype file
+acclist=scan(paste(pref, ".acclist", sep=""), sep=",")
+
+##make a table of blups in the same order as the genotype
+phen=dat[paste(acclist), ]
+phenfile=paste(pref, ".all.marginal.phen.txt", sep="")
+#write.table(phen, phenfile, sep="\t", row.names=F, col.names=F)
+```
+
+
+### 1c. Run GWAS with gemma
+```{r eval=FALSE, results='hide'}
+
+##run gemma using gemma-wrapper
+## to get system() to work in .Rstudio, you need to open .RStudio in the commmand line to inhert setup.  
+## command is:
+## open -a RStudio
+
+system("mkdir ./GWA/output_gemma_marginal/")
+system(paste("/Users/daniele.filiault/.gem/ruby/2.0.0/bio-gemma-wrapper-0.98.1/bin/gemma-wrapper --loco --json --cache-dir ./GWA/.gemma-cache -- -gk -g ", pref, ".geno.gz -a ", pref, ".map -p ", phenfile, " > ./GWA/output_gemma_marginal/K.json", sep=""))
+
+for(n in 1:ncol(phen)){
+#for(n in 39:ncol(phen)){
+    pheno=colnames(phen)[n]
+    system(paste("/Users/daniele.filiault/.gem/ruby/2.0.0/bio-gemma-wrapper-0.98.1/bin/gemma-wrapper --loco --json --cache-dir ./GWA/.gemma-cache --input ./GWA/output_gemma_marginal/K.json -- -lmm 4 -g ", pref, ".geno.gz -a ", pref, ".map -p ", phenfile, " -n ", n , " > ./GWA/output_gemma_marginal/out_marginal_", pheno, sep=""))
+}
+```
+
+
+Make manhattan plots and output 
+
+```{r eval=FALSE, include=TRUE}
+ph2=data.frame(phen=colnames(phen), ph2=NA)
+gwsignif=list()
+#for(n in 1:ncol(phen)){
+
+### column 38 (X2012_ADAL_FT) didn't work - all NaN and NA in output file
+### because all the data is NAs!
+
+for(n in 39:ncol(phen)){
+    pheno=colnames(phen)[n]
+    print(pheno)
+    x=unlist(strsplit(scan(paste("./GWA/output_gemma_marginal/out_marginal_", pheno,sep=""), what="character")[10], ","))[7]  ### had to play with this a bit to deal with a warning message that made my output different from Ben's
+    f=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+    f2=gsub("assoc", "log", f)
+    ph2$ph2[n]=ph2gemma(f2)
+    p=read.delim(f, header=T, sep="\t")
+    saveRDS(p, paste("./res/gemma_marginal/gemma_lmm_", pheno,".rds", sep=""))
+    ##make a manhattan plot
+    colnames(p)[3]="pos"
+    colnames(p)=gsub("p_lrt", "pval", colnames(p))
+    p$score=-log10(p$pval)
+    p=p[p$af>=0.1,]
+    p$fdr_pval=p.adjust(p$pval, "fdr")
+    gwsignif[[pheno]]=p[p$fdr_pval<=0.05,]
+    jpeg(paste("./GWA/manhattans_marginal/lmm_gwa_", pheno, ".jpeg", sep=""),res=600, unit="in", width=8, height=4, pointsize=12)
+    manhattan(p)
+    dev.off()
+    if(n==1){
+        beta=p[, c("rs","beta")]
+        se=p[, c("rs", "se")]
+    }else{
+        beta=merge(p[, c("rs","beta")], beta, by="rs", all=T)
+        se=merge(p[, c("rs","se")], se, by="rs", all=T)
+    }
+}
+```

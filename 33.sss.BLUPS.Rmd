@@ -1,0 +1,392 @@
+---
+title: "33.sss.BLUPS"
+author: "Daniele Filiault"
+date: "3/2/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lme4) # mixed models
+library(statmod) 
+library(merTools)
+library(MuMIn) # for calculating R2 of mixed models
+library(RColorBrewer)
+library(pander)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(corrplot)
+library(heatmaply)
+library(gridExtra)
+library(pheatmap)
+library(ggpubr)
+library(pgirmess)
+library(multcompView)
+```
+
+## Want to estimate BLUPs per accessions (i.e. use accession as a random effect in a mixed effects model)
+
+### 1. prep data
+
+```{r data prep}
+d11=readRDS(file="./data/d11_for_analysis.rds")
+d12=readRDS(file="./data/d12_for_analysis.rds")
+
+##restrict to fitness
+traits=c("sss")
+
+d11$year=2011
+d12$year=2012
+
+d11=d11[, c("year", "exp", "block", "id", "sss")]
+d12=d12[, c("year", "exp", "block", "id", "sss")]
+
+d=rbind(d11, d12)
+d$region[d$exp%in%c("ULL", "RAT")]="S"
+d$region[d$exp%in%c("RAM", "ADA")]="N"
+d$year=as.factor(d$year)
+d=d[, c("year", "region", "exp","block", "id", "sss")]
+d=na.omit(d)
+d$sss <- as.factor(d$sss)
+
+with(d, table(sss,year, exp))
+raw.sss.plot <- ggplot(data=d, aes(x=year, y=sss, fill=sss)) +
+  geom_bar(stat="identity") +
+  facet_wrap(~exp)
+print(raw.sss.plot)
+
+pdf(file="./figures/raw.sss.barplot.by.year.site.pdf", width=8, height=8)
+print(raw.sss.plot)
+dev.off()
+```
+
+### 2. fit "normal" linear models - this doesn't work since interaction models are so slow
+
+### 3. Fit mixed models
+```{r mixed model specifications}
+### was having convergence issues.  Setting to the toher optimizer and increasing iterations seems to fix.
+mm1 <- glmer(sss ~ 1 + (1 | block), data=d,family=binomial("logit"),control=glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=2e5))) 
+
+mm2 <- glmer(sss ~ 1 + (1 | id), data=d, family=binomial("logit"),control=glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=2e5)))
+
+mm3 <- glmer(sss~exp + (1|exp:block), data=d, family=binomial("logit"),control=glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=2e5))) # so this is correctly specified (without year effect, at least)
+
+mm4 <- glmer(sss~exp + year + (1|exp:year:block), data=d, family=binomial("logit"),control=glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=2e5)))  ## I think this is also correctly specified!
+
+mm5 <- glmer(sss~exp*year + (1|exp:year:block), data=d, family=binomial("logit"), control=glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=2e5)))
+
+mm6 <- glmer(sss~exp*year + (1|exp:year:block) + (1|id), data=d,family=binomial("logit"),control=glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=2e5)))
+
+mm7 <- glmer(sss~exp*year + (1|exp:year:block) + (1|exp:year:id), data=d, family=binomial("logit"),control=glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=2e5)))
+
+mm8 <- glmer(sss~exp*year  + (1|exp:year:id), data=d, family=binomial("logit"), control=glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=2e5)))
+
+# get fit information for all these models
+mods <- c("mm1", "mm2", "mm3","mm4", "mm5", "mm6", "mm7", "mm8")
+mod.sum <- matrix(NA, ncol=5, nrow=length(mods))
+for(up in 1:length(mods)){
+  up.m <- mods[up]
+  up.lm <- get(up.m)
+  up.fit <- summary(up.lm)$AICtab
+  mod.sum[up,] <- up.fit
+}
+rownames(mod.sum) <- mods
+colnames(mod.sum) <- names(up.fit)
+print(mod.sum)
+
+## choose mm7 (full model)
+
+c2 <- predictInterval(mm7)
+int.mm7 <- REsim(mm7)
+plotREsim(REsim(mm7))
+
+anova(mm7)
+summary(mm7)
+
+# random effect variances
+var.mm7 <- VarCorr(mm7)
+print(var.mm7,comp=c("Variance","Std.Dev."),digits=4)
+re.var <- as.data.frame(var.mm7, row.names = NULL,optional = FALSE)
+
+r.squaredGLMM(mm5)
+r.squaredGLMM(mm6)
+r.squaredGLMM(mm7)
+r.squaredGLMM(mm8)
+## R2m is from marginal(fixed effects)
+## R2c is from entire model
+```
+
+So, genotype explains about 10% of variance (as assessed by R2)
+
+```{r explore blups}
+blups <- ranef(mm7)[[1]]
+blups <- as.data.frame(blups)
+desc <- do.call(rbind,strsplit(rownames(blups),":"))
+colnames(desc) <- c("exp","year","id")
+blups <- cbind(blups, desc)
+colnames(blups)[1] <- "sss.b"
+
+hist(blups$sss.b)
+pdf(file="./figures/blup.sss.boxplot.by.year.site.pdf", width=10, height=6)
+with(blups, boxplot(sss.b~year+exp, col=c(rep(brewer.pal(9, "Paired")[4],4), rep(brewer.pal(9, "Paired")[3],4))))
+dev.off()
+
+## write BLUPS to file
+write.csv(blups, file="./data/marginal.sss.blups.csv", quote=FALSE,row.names=FALSE)
+
+```
+
+
+So blups from logistic regression are log odds probability of ows
+
+```{r pairwise correlations between blups}
+## need to reformat blups to long format
+blups.l <- blups %>% pivot_wider(id_cols=id,names_from=c(exp,year),values_from=sss.b)%>%as.data.frame()
+
+corrplot(cor(blups.l[,2:9], use="na.or.complete"))
+
+my_cor <- cor(blups.l[,2:9], use="na.or.complete")
+colfunc<-colorRampPalette(c("red","white","royalblue"))
+heatmaply_cor(my_cor, colors= colfunc(100),cellnote=my_cor,cellnote_textposition="middle center")
+### since these are interactive plots in plotly, they are hard to save statically, so I saved this one manually from the window
+#file="./figures/correlation.dendrogram.sss.blups.jpeg")
+```
+
+
+### 4. Heatmap blups
+```{r normalize blups}
+hm.blups <- blups.l[,2:9]
+rownames(hm.blups) <- blups.l[,1]
+
+## z-score normalize the blups in each experiment
+znorm <- function(x){(x-mean(x, na.rm=TRUE))/sd(x, na.rm=TRUE)}
+norm.blups <- apply(hm.blups, 2,znorm)
+```
+
+```{r normalized snr fitness by K groups heatmap}
+## similar to in 29.BLUP.heatmap.by.K
+### K group membership
+k.groups <- read.table(file="./data/Kmatrix.6cluster.membership.txt")
+
+## put normalized blups into K clustering order
+k.order.blups <- norm.blups[match(rownames(k.groups),rownames(norm.blups)),]
+
+## make in pheatmap so can add breaks and annotations
+bk <- c(seq(-max(k.order.blups,na.rm=TRUE),max(k.order.blups,na.rm=TRUE),by=0.5))
+#colors (one less than breaks) - centered on 0, using grey as zero so can see breaks
+mycols <- c(colorRampPalette(colors = c("red","grey80","blue"))(length(bk)-1))
+
+### where should we place gaps?
+gap.coord <- sapply(1:(nrow(k.groups)-1), function(x){
+  k.groups[x,1]==k.groups[x+1,1]
+  })
+gap.coord <- which(gap.coord==FALSE)
+gap.co <- c(2)
+
+### add K-matrix group annotation
+kcl.order.fact <- k.groups
+ann.colors <- list(K.group=c(K1 = "#A6CEE3", K2 = "#1F78B4", K3 = "#B2DF8A", K4 = "#33A02C", K5 = "#FB9A99", K6 = "#E31A1C")) 
+## these colors are from brewer.pal(6, "Paired").  Hard to generate this list automatically!
+
+### make heatmap
+pdf(file="./figures/heatmap.sss.by.Kgroup.pdf")
+pheatmap(k.order.blups, cluster_rows=FALSE, color=mycols, breaks=bk, annotation_row=kcl.order.fact, gaps_row=gap.coord, cutree_cols=4, annotation_colors=ann.colors, show_rownames = FALSE)
+dev.off()
+
+pheatmap(k.order.blups, cluster_rows=FALSE, color=mycols, breaks=bk, annotation_row=kcl.order.fact, gaps_row=gap.coord, cutree_cols=4, annotation_colors=ann.colors, show_rownames = FALSE)
+
+```
+## 5.  Nonparametric tests of ows between K groups
+
+```{R nonpara tests K group sss}
+
+nb <- cbind(k.order.blups,k.groups)
+
+### get labels for multiple testing
+get.tuk.lab <- function(up.kmc){
+  tlab <- up.kmc[[3]][,3]
+  names(tlab) <- rownames(up.kmc[[3]])
+  tlab <- data.frame(multcompLetters(tlab)['Letters'])
+  return(tlab)
+}
+
+kw.comp <- as.list(rep(NA,8)) 
+ph.comp <- as.list(rep(NA,8))
+
+for(up in 1:8){
+  up.exp <- colnames(nb)[up]
+  up.kt <- kruskal.test(get(up.exp)~K.group, data=nb)
+  up.ph <- kruskalmc(get(up.exp)~K.group, data=nb)
+  out.ph <- get.tuk.lab(up.ph)
+  kw.comp[[up]] <- up.kt
+  ph.comp[[up]] <- out.ph
+}  
+
+ph.comp <- do.call(cbind,ph.comp)
+colnames(ph.comp) <- colnames(nb)[1:8]
+ph.comp$K.group <- rownames(ph.comp)
+```
+
+###6. nonparametric plots 2011
+
+```{R nonparam plots 2011}
+############
+### ADA
+max.vals <- aggregate(nb$ADA_2011,by=list(nb$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.2*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.comp$ADA_2011, max.vals[,1])
+colnames(Tukey_test) <- c("ADA_2011","Tukey_labels","K.group")
+tt.a1 <- Tukey_test
+
+a1.plot <- ggplot(data=nb, aes(x=K.group, y=ADA_2011,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized sss") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.a1, aes(label=tt.a1$Tukey_labels)) + ggtitle("ADA_2011")
+
+############
+### RAM
+max.vals <- aggregate(nb$RAM_2011,by=list(nb$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.2*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.comp$RAM_2011, max.vals[,1])
+colnames(Tukey_test) <- c("RAM_2011","Tukey_labels","K.group")
+tt.r1 <- Tukey_test
+
+r1.plot <- ggplot(data=nb, aes(x=K.group, y=RAM_2011,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized sss") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.r1, aes(label=tt.r1$Tukey_labels)) + ggtitle("RAM_2011")
+
+############
+### ULL
+max.vals <- aggregate(nb$ULL_2011,by=list(nb$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.2*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.comp$ULL_2011, max.vals[,1])
+colnames(Tukey_test) <- c("ULL_2011","Tukey_labels","K.group")
+tt.u1 <- Tukey_test
+
+u1.plot <- ggplot(data=nb, aes(x=K.group, y=ULL_2011,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized sss") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.u1, aes(label=tt.u1$Tukey_labels)) + ggtitle("ULL_2011")
+
+############
+### RAT
+max.vals <- aggregate(nb$RAT_2011,by=list(nb$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.2*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.comp$RAT_2011, max.vals[,1])
+colnames(Tukey_test) <- c("RAT_2011","Tukey_labels","K.group")
+tt.t1 <- Tukey_test
+
+t1.plot <- ggplot(data=nb, aes(x=K.group, y=RAT_2011,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized sss") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.t1, aes(label=tt.t1$Tukey_labels)) + ggtitle("RAT_2011")
+```
+
+```{R nonparam plot 2011 generate}
+pdf("./figures/sss.2011.nonparametric.by.K.pdf", width=9, height=9)
+figure.nonparam <- ggarrange(a1.plot, r1.plot, u1.plot, t1.plot, 
+          labels = c("A", "B", "C","D"),
+          ncol = 2, nrow = 2)
+annotate_figure(figure.nonparam, top = text_grob("normalized survival to seed set BLUPs - KW tests", face = "bold", size = 20))
+dev.off()
+```
+
+
+## 7.  Nonparametric plots - 2012
+
+```{R nonparam plots 2012}
+############
+### ADA
+max.vals <- aggregate(nb$ADA_2012,by=list(nb$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.2*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.comp$ADA_2012, max.vals[,1])
+colnames(Tukey_test) <- c("ADA_2012","Tukey_labels","K.group")
+tt.a2 <- Tukey_test
+
+a2.plot <- ggplot(data=nb, aes(x=K.group, y=ADA_2012,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized sss") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.a2, aes(label=tt.a2$Tukey_labels)) + ggtitle("ADA_2012")
+
+############
+### RAM
+max.vals <- aggregate(nb$RAM_2012,by=list(nb$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.2*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.comp$RAM_2012, max.vals[,1])
+colnames(Tukey_test) <- c("RAM_2012","Tukey_labels","K.group")
+tt.r2 <- Tukey_test
+
+r2.plot <- ggplot(data=nb, aes(x=K.group, y=RAM_2012,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized sss") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.r2, aes(label=tt.r2$Tukey_labels)) + ggtitle("RAM_2012")
+
+############
+### ULL
+max.vals <- aggregate(nb$ULL_2012,by=list(nb$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.2*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.comp$ULL_2012, max.vals[,1])
+colnames(Tukey_test) <- c("ULL_2012","Tukey_labels","K.group")
+tt.u2 <- Tukey_test
+
+u2.plot <- ggplot(data=nb, aes(x=K.group, y=ULL_2012,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized sss") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.u2, aes(label=tt.u2$Tukey_labels)) + ggtitle("ULL_2012")
+
+############
+### RAT
+max.vals <- aggregate(nb$RAT_2012,by=list(nb$K.group), max, na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.2*max(max.vals[,2])))
+Tukey_test <- cbind(max.buffer,ph.comp$RAT_2012, max.vals[,1])
+colnames(Tukey_test) <- c("RAT_2012","Tukey_labels","K.group")
+tt.t2 <- Tukey_test
+
+t2.plot <- ggplot(data=nb, aes(x=K.group, y=RAT_2012,fill=K.group)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_brewer(palette="Paired") +
+  theme_bw() +
+  labs(y="normalized sss") +
+  theme(legend.position = "none") +
+  geom_text(data=tt.t2, aes(label=tt.t2$Tukey_labels)) + ggtitle("RAT_2012")
+```
+
+```{R nonparam plot 2012 generate}
+pdf("./figures/sss.2012.nonparametric.by.K.pdf", width=9, height=9)
+figure.nonparam <- ggarrange(a2.plot, r2.plot, u2.plot, t2.plot, 
+          labels = c("A", "B", "C","D"),
+          ncol = 2, nrow = 2)
+annotate_figure(figure.nonparam, top = text_grob("normalized survival to seed set BLUPs - KW tests", face = "bold", size = 20))
+dev.off()
+```

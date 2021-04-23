@@ -1,0 +1,677 @@
+---
+author: Benjamin Brachi
+date: October, 2017
+title: Swedish project
+output:
+ html_document:
+  keep_md: true
+  fig_caption: yes
+  toc: true
+  toc_float: true
+  number_sections: true
+  highlight: tango
+  theme: space
+---
+
+```{r eval=T, echo=F}
+library(knitr)
+library(captioner)
+table_nums <- captioner(prefix = "Table")
+fig_nums <- captioner(prefix = "Fig.")
+
+```
+
+```{sh convim, eval=T, echo=F}
+I=$(ls ./figures/*.pdf)
+for i in $I
+do    
+    i2=$(echo $i | sed 's/.pdf/.png/g')
+    if [ ! -f $i2 ]; then
+	convert -quality 99 -density 300 $i $i2
+    fi
+done
+```
+
+# Complete protocol of the experiments
+
+## Location of the experiments
+
+We performed a total of 8 experiments, in 4 locations in Sweden over 2 years. 
+
+```{r rcmakemap, eval=T, echo=F}
+read_chunk("./scripts/make_map.R")
+```
+
+```{r makemap, eval=F, echo=T}
+<<map>>
+```
+This doesn't work anymore, but I made the map before so I'll just use that for now. 
+
+![Map of experiments and origin of accessions used in the experiments. Red dots: experiments; Blue dots: accessions](./figures/map.png)
+
+## planting and setup
+
+The list of the 203 accessions/genotypes used is presented in acc\_list.txt.
+This list includes 200 re-sequenced Swedish accessions,  Edi-0,
+Col-Fri and Col-Fri-FLC. Most Swedish accessions were planted in 8
+replicates per block and Edi-0, Col-FRI and Col-FRI-FLC, 6043 Lov-1,
+6974 Ull2-5, 7517 Var2-6, 8369 Rev-1, 8240 Kulturen-1, 8262 Bil-5,
+8247 San-2, 6918 Fab-4 were planted in 16 replicates per block.
+
+Each experiment is organized in a three complete randomized block
+design. Plantings followed the calendar presented in table
+\ref{calendar}.
+
+\begin{table}
+\center
+\label{calendar}
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+Year & Experiment   & Block & planting date & field installation date \\
+\hline
+ 2011 & Adal         & A     &    2011-08-08 &              2011-08-25 \\
+      &              & B     &    2011-08-10 &              2011-08-25 \\
+      &              & C     &    2011-08-12 &              2011-08-25 \\
+      & Ramsta       & A     &    2011-08-07 &              2011-08-24 \\
+      &              & B     &    2011-08-09 &              2011-08-24 \\
+      &              & C     &    2011-08-11 &              2011-08-24 \\
+      & Ullstorp     & A     &    2011-08-31 &              2011-09-17 \\
+      &              & B     &    2011-09-02 &              2011-09-17 \\
+      &              & C     &    2011-09-04 &              2011-09-17 \\
+      & Ratckegarden & A     &    2011-09-01 &              2011-09-18 \\
+      &              & B     &    2011-09-03 &              2011-09-18 \\
+      &              & C     &    2011-09-05 &              2011-09-18 \\
+\hline
+2012 & Adal         & A     &    2012-08-08 &              2012-08-25 \\
+      &              & B     &    2012-08-10 &              2012-08-25 \\
+      &              & C     &    2012-08-12 &              2012-08-25 \\
+      & Ramsta       & A     &    2012-08-07 &              2012-08-24 \\
+      &              & B     &    2012-08-09 &              2012-08-24 \\
+      &              & C     &    2012-08-11 &              2012-08-24 \\
+      & Ullstorp     & A     &    2012-08-31 &              2012-09-17 \\
+      &              & B     &    2012-09-02 &              2012-09-17 \\
+      &              & C     &    2012-09-04 &              2012-09-17 \\
+      & Ratckegarden & A     &    2012-09-01 &              2012-09-18 \\
+      &              & B     &    2012-09-03 &              2012-09-18 \\
+      &              & C     &    2012-09-05 &              2012-09-18 \\
+\hline
+\end{tabular}
+\caption{Calendar followed for the planting of the common garden
+experiments}
+\end{table}
+
+## Overview of the phenotypes collected and organisation.
+
+To designate a particular round of experiment we'll use the year it
+was sown (not the year it was harvested).
+
+Table \ref{phenCG2011} and \ref{phenCG2012} provide a the list of the
+phenotypes we have.
+
+\begin{table}
+\center
+\caption{Table of the phenotypes we have collected (\textit{or will collect} indicated in italic) in the common garden experiments from 2011.}
+\label{phenCG2011}
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+phenotype                     & ULL 2011   & RAT 2011   & RAM 2011   & ADA 2011   \\
+\hline
+ flowering time before winter  & X          & X          & X          & X          \\
+ flowering time in the spring  &            &            &            &            \\
+ herbivore damage in the fall  &            & X          &            &            \\
+ rosette size                  & X          & X          &            &            \\
+ overwinter survival           & X          & X          & X          & X          \\
+ survival to seed set (Approx) & X          & X          & X          & X          \\
+ fecundity estimate            & X          & X          & X          & X          \\
+ microbial community           & \textit{X} & \textit{X} & \textit{X} & \textit{X} \\
+\end{tabular}
+\end{table}
+
+
+\begin{table}
+\center
+\caption{Table of the phenotypes we have collected (\textit{or will
+collect} indicated in italic) in the common garden experiments from
+2012.}
+\label{phenCG2012}
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+ phenotype                     & ULL 2012   & RAT 2012   & RAM 2012   & ADA 2012   \\
+\hline
+ flowering time before winter  & X          & X          & X          & X          \\
+ flowering time in the spring  & X          & X          & X          & X          \\
+ herbivore damage in the fall  &            &            &            &            \\
+ rosette size                  & X          & X          & X          & X          \\
+ overwinter survival           & X          & X          & X          & X          \\
+ survival to seed set (Approx) & X          & X          & X          & X          \\
+ fecundity estimate            & \textit{X} & \textit{X} & \textit{X} & \textit{X} \\
+ microbial community           & \textit{X} & \textit{X} & \textit{X} & \textit{X} \\
+\end{tabular}
+\end{table}
+
+To be able to combine everything in one file, the easiest is probably
+to start from the initial randomizations, corrected for errors that
+were made during planting. Then we can add all the phenotypes in
+different columns. Some phenotypes will have many NAs, because only a
+subset of the plants were measured (/i.e./ microbiota, fitness).
+
+# Merging all phenotypes in one file and description
+
+The script merging\_phen\_files_11202014.R was used in April 2014 to
+merge all phenotype files into one. I copied that script and updated
+the paths. This scripts uses the results from the treatment of each
+trait or set of traits fom the folders in "../all\_phenotypes/"
+
+```{r mergephen, eval=T, echo=T}
+read_chunk("./scripts/merging_phen_files.R")
+```
+```{r mergephen1, eval=T, echo=T}
+<<phenmerge>>
+```
+
+This results in two files, one for each year. There are named
+data\_2011.txt (or .R for the binary version) and data\_2012.txt (or
+.R for the binary version).
+
+The column names for each files are summarized below.
+
+## columns in data2011
+
+- exp: name of the experiment  
+- block: experimental block within the experiment  
+- tray: tray within the experiments  
+row: coordinate 1 of position of the plants on a tray (varies from 1
+to 11)  
+- column: coordinate 2 of position of the plants on a tray (varies from 1
+to 6)  
+- line: number from 1 to 203 designating the accessions planted  
+- id: accession id of the accession as refered to in the call\_method\_75
+of the 250 KSNPs data.  
+- name: actual name of the accession (might be messed up by encoding,
+use ids!!)  
+- planting\_date: the planting date. All plants of the same block within
+the same experiment have the same date.  
+- errors: errors during planting (only use lines with ".")  
+- fall: score of survival,flowering, and pathogene infections the
+survival code  
+- spring: score of survival,flowering, and pathogene infections the
+survival code  
+- sampled: TRUE if the sample has been sample for microbial community
+analysis in the spring.Otherwise FALSE.  
+- rosette\_date: Date at which the photographe that was use to make
+rosette measurements was taken.  
+- area: rosette area on the photograph in cm2  
+- perimeter: rosette perimiter (cm)  
+- max\_diameter: maximum diameter of the plant.  
+- sdR: standard deviation of the plants radius  
+- circle\_area: area of a circle of diameter "max\_diameter"  
+- stockiness: measure of plant stockiness: (4*pi*area)/(perimeter)^2  
+- color: a measure of color variation from green to purple. lower values
+are greener.  
+- herbivory: herbivore damage score from 0 to 3, 0: no damage, 3:
+extensive damage.  
+- fecundity: area of occupied by the mature plant stems (number of
+pixels of the image that are the plant, not the area of the bounding
+box) as a proportion of the total number of pixel on the image.  
+
+
+## columns for data2012 (only columns that are different):
+
+- epi: sampled by Fernando and Manu for RNASeq.  
+- PC\_sampled: TRUE if the sample has been sample for microbial community
+analysis in the spring.Otherwise FALSE.  
+- flowering\_date: the date at which the plant was scored as flowered (if
+reading from the text file, in R,  as.Date() will turn it to a date
+format.  
+- FT: time from planting to the date the plant was scored as
+  flowered.  
+
+
+## Add some derived phenotype columns and clean up
+
+This next chunck of script does some cleaning up, and compute derive
+phenotypes such as ow, sss, fitness (composite of fecundity and sss).
+
+```{r deriv0, eval=T, echo=T}
+read_chunk("./scripts/deriv_phen.R")
+```
+### rational
+
+In Both 2011 and 2012 we have scored survival in the spring and we
+have harvested stems at the end of the plants life cycle.
+We also have information about flowering time before winter for both
+year.
+I'll try to create to survival related columns in the data. The first
+is going to be overwinter survival (ows). For ows our data are
+relatively precise because we have survival/flowering scores before
+and after winter. The second survival phenotype is going to be
+survival until seed set (sss). This is will include the plants that
+survived over-winter, plus the plants we don't have stem flowering
+data and stem photos for. This is likely to be a little
+unprecise. First we are missing some stems, because some were
+missing, we disgarded some while taking the photos when they were in
+such a state a photo wasn't meaningful. However that's probably quite
+rare over the number of stems we photographed. Second, some dead
+plant might have "flown" away from the experiments before we
+harvested them. That again should only be a small
+fraction. Nevertheless, we should keep those limitations in mind.
+
+### Over-winter survival (ows)
+
+To considered a plant has survived winter (ows=1) it needs to have been alive in
+the last sensus in the fall and be alive in the spring. Following table \ref{survivalscores},that means it must have a value of 1, 2, 4, or 5 in the fall and
+spring column. Whether it was sampled or not doesn't matter in 2011
+because the only sampling we did was in the spring after the
+survival/flowering sensus was made. To be considered having not
+survived winter, plants must have been present in the last sensus in
+the fall, but be dead or absent in the spring. 
+For the 2012, data, it's basically the same except we beed to
+take into account the epi genetics sampling (epi column). This
+sampling happened in Oct or November.##
+
+```{r eval=T, echo=F}
+<<ows>>
+```
+### Survival until seed set (sss).
+That I\'ll define as surviving until seed set (sss) as having survived
+over winter and having data in the fecundity column. ##A0004##
+They must not have been harvested for micorbiom
+
+```{r eval=T, echo=T}
+<<sss>>
+```
+
+### Checking if it makes sens.
+I want to know how many of the plants that are scored as having died,
+have produced a stem that we have (Table \ref{counts}). ##A0005##
+Basically there are only a few plants died.
+
+```{r eval=T, echo=T}
+<<verifowssss>>
+```
+
+There are rosette and fitness data for a few wells that were supposed
+to be empty. If there weren't empty in the fall, then a subset of them
+got rosette data. It therefore looks like it's a combination of
+scoring mistakes and a few contaminations. ##A0006##
+Those lines will be removed from both datasets. ##A0007##
+```{r eval=T, echo=T}
+<<cleanowssss>>
+```
+
+### cleaning up rosette data
+
+The number of data points is presented in table \ref{rosettes1}. ##A0008##
+
+```{r eval=T, echo=T}
+<<rosettes1>>
+```
+
+There shouldn't be rosette data if the fall sensus indicates 0, 3, or
+5 (see table \ref{survivalscores}), however there are a few (table
+\ref{rosettes2}). These can arise from errors in the sensus, or
+errors in the image analysis. The most conservative way to deal with
+that is probably to remove those lines. ##A0009##
+
+```{r eval=T, echo=T}
+<<rosettes2>>
+```
+
+I also added a column giving the age of the rosettes when photographed. 
+
+```{r eval=T, echo=T}
+<<rosettesage>>
+```
+
+### adding a "fitness" trait.
+
+This trait is going to correspond to the fecundity estimates, but the
+NAs will be replaced by 0s when sss==0.
+##A0011##
+
+```{r eval=T, echo=T}
+<<addfittrait>>
+```
+
+### dealing with the Controls.
+
+
+For now I've decided to remove the controls from the dataset. I can
+bring them in as needed. I'll save them in a seperate file.
+
+I'll also remove all lines saying "empty" in the column line or
+anything else than "." in the error column. 
+
+I'll also remove the none Swedish accessions with line numbers 201
+(Edi), 202 (Col-FRI) and 203 (Col-FRI-FLC).
+
+```{r eval=T, echo=T}
+<<controlsandco>>
+```
+
+### save the clean datasets
+
+```{r eval=T, echo=T}
+<<savedatasets>>
+```
+
+# Compute heritabilities and blups per accession
+
+```{r h20, eval=T, echo=T}
+read_chunk("./scripts/heritability.R")
+```
+This is slow, because of the bootstrapping. Set to not run. Also for
+now the number of bootstraps is set to 100, but in the final version
+this needs to be parallelized and increased to 1000.
+
+```{r h21, eval=F, echo=T}
+<<herit>>
+```
+![Heritability of traits in the common garden experiments.](./figures/H2.png)
+Replot this to focus on fitness and composite traits
+```{r heritability plot}
+###DLF 07July19
+hs <- read.table("./res/H2_2011_2012.txt", sep="|",header=TRUE)
+site.index <- read.table("./data/exp.sites.simple.index.txt")
+colnames(site.index) <- c("experiment", "simple.name")
+
+hs <- merge(hs, site.index, all.x=TRUE)
+fit.hs <- hs[hs$trait%in% c("fecundity","ows", "sss","fitness"),]
+fit.hs <- fit.hs[order(fit.hs$trait, fit.hs$year),]
+
+ library(lattice)
+ 
+fit.hs$year <- as.factor(fit.hs$year)
+fit.hs$trait <-gsub("ows","overwinter survival",fit.hs$trait)
+fit.hs$trait <-gsub("sss","survival to seed set",fit.hs$trait)
+
+
+pdf("./figures/heritability.barplot.pdf", width=6, height=4)
+trellis.par.set(superpose.polygon = list(col = c("darkslateblue", "dodgerblue")))
+barchart(H2~simple.name|trait, groups=year, data=fit.hs, auto.key=TRUE, ylab="heritability", xlab="experimental site")
+dev.off()
+```
+
+
+
+In the next chunk we compute heritability estimates just for the fitness trait (again, this is slow due to bootstrapping so not evaluated in the markdown). 
+
+```{r h22, eval=F, echo=T}
+<<heritfit>>
+```
+The next table gives the fitness heritability estimates and 95\% confidence intervals (from 1000 bootstrapts)
+
+```{r heritfittable, eval=T, echo=F}
+res=read.table("./res/H2_fitness_percent_rounded.txt", sep="|",h=T)
+kable(res, caption="Broad sens Heritability estimates for fitness in each experiment")
+```
+We then need to compute "fitness in the North" and "fitness in the
+South" for comparison with allele frequencies changes.
+
+```{r h23, eval=T, echo=T}
+<<h2fitNS>>
+```
+
+# Evidence for adaptation based on the common garden experiments
+
+The idea here is to look for a relationship between the fitness
+estimates in the North and South of Sweden and the latitude of origin
+of the accessions.
+
+```{r rcfitvslat, eval=T, echo=F}
+read_chunk("./scripts/CG_fitvslat.R")
+```
+
+```{r fitvslat1, eval=T, echo=T, warning=F}
+<<fitlat>>
+```
+
+The mean fitness traits were computed to remove the year, experiment and block effects
+within regions by fitting a linear model to the fitness data, and then
+to compute means of the residuals per accessions. This data is saved in the file "./res/means_NvsS.txt".
+
+This yields the following figure. 
+
+![Fitness estimates from the common garden experiments display evidence for local adaptation across to successive years. A and B: Relationship between the latitude of origin of accessions and fitness in the North (blue) and in the South (red). C: Ditribution of the Spearman's rho rank correlation coefficients between latitude of origin and fitness in the North (blue) and in the South (red), over 1000 non-parametric bootstraps. The blue and red vertical lines delimite the 95% confidence interval for the correlation coefficients in the North and in the South, respectively. D. Genetic correlation between the fitness of accessions in the North (x axis) and in the South (y axis). The color gradient represents the latitude of origine of accessions.](./figures/fitness_N_S_lat.png)
+
+_Conclusions:_  
+- There is a negative relationship between fitness and latitude of origin in the South, but not in the North, indicating conditional neutrality.  
+- Fitness in the North and in the South are positively correlated  
+- Plants tend to grow bigger and produce more seeds in the North  
+
+# Fitness estimates from the CG vs change in accession frequency in the NSE
+
+```{r rcfitfreq, eval=T, echo=F}
+read_chunk("./scripts/fit_vs_freq.R")
+```
+
+We need to determine is accessions that became frequent in all
+experimental evolution experiments are also fitter in the common
+gardens.
+
+Daniele provided a file called "./data/accs.per.plot.Rdata" which as
+the allele frequency of accessions in the experimental plots after two
+winters.
+
+I'll compare those values with the fitness means per accession and per region that used I when looking
+for adaptation above.
+
+```{r fitfreq, eval=T, echo=T}
+<<ff1>>
+```
+
+This scripts yields the following figure.
+
+![Accession frequency and common garden fitness estimates. The plots
+are organized in 4 lines, one for each of the natural selection
+experiments. For each NSE, the plot on the left shows the relationship
+between accession fitness in the North (x) and accession fitness in
+the South (y). Each point is an accession. Gold dots correspond to
+accessions that were not sampled in the NSE. Blue dots are accessions
+that were sampled in the NSE and their sizes reflect the frequency of
+the accessions in the NSE. Red dots are accessions that were sampled
+more than twice in all NSE. The diagonal line has a slope of 1 and
+intercept of 0. The barplots on the right break down the frequency of
+acccessions from each region in Sweden that were sampled in the NSE,
+and those that were not.](./figures/fit_vs_overall_freq.png)
+
+What this shows is that the fittest plants in the common gardens are
+not always the ones sampled in the NSE experiments, suggesting that
+important fitness components are not captured in the commong gardens
+(germination and establishement most likely). 
+
+From the barplots, we can see that Northern accessions are more
+frequent among sampled accessions than they are in the non-sampled
+accessions. In the other experiments, including Barsta in the North,
+it seems Northern accessions are at lower frequency in the sampled
+accessions than in the non-sampled accessions.
+
+# Genetic bases of adaptation
+
+## GWA of common garden mean fitness estimates
+
+Here we are going to investigates the genetics underlying the North and South fitness estimates. 
+
+```{r eval=T, echo=F}
+read_chunk("./scripts/GWA_fitness_NvsS.R")
+```
+
+This first chunk prepare libraries, and loads data needed for mapping. 
+
+```{r gwafit1, eval=F, echo=T}
+<<prepmap>>
+```
+
+Then we run lmm using gemma for the two traits seperatly. 
+
+```{r gwafit2, eval=F, echo=T}
+<<lmm>>
+```
+
+We then read the outputs, make mahattan plots, compute pseudo heritability and retrieve genome wide signigificant SNPs. 
+We also retrieve the matrices of betas and their standard error for the next analysis. 
+
+```{r manhattan, eval=T, echo=F}
+fig_nums("manhattan1", caption="Manhattan plot for fitness in the North")
+include_graphics("./GWA/manhattans/lmm_gwa_N_fitness.jpeg")
+
+fig_nums("manhattan2", caption="Manhattan plot for fitness in the South")
+include_graphics("./GWA/manhattans/lmm_gwa_S_fitness.jpeg")
+```
+
+
+```{r gwafit3, eval=F, echo=T}
+<<topsnpslmm>>
+```
+
+At a 0.05 fdr corrected pvalue threshold, there are no significantly associated SNPs. 
+
+To investigate which SNP effects might be significant we run mashr on betas and se. 
+
+
+```{r gwafit4, eval=F, echo=T}
+<<mashrfitNvsS>>
+```
+
+This generates posterior effect size estimates for SNPs it deems significant using adaptive shrinkage. 
+
+```{r mashreff, eval=T, echo=F}
+fig_nums("mashrposteff", caption="Heatmap of posterior effect sizes of associated SNPs in fitness in the North and in the South.")
+include_graphics("./figures/heatmap_mashr_fit_NvsS.png")
+```
+
+This highlights the two main peaks we can see for the GWA of fitness in the South on chromosome 2 and 5. 
+
+The figure shows that those peaks have effects going in the same direction for both traits, which is consitent with the positive correlation we observe between fitness in the North and the South. 
+
+Then we run mlmm using gemma for the two traits simultaniously. We
+also make a manhattan plot.
+
+
+```{r gwafit5, eval=F, echo=T}
+<<mlmm>>
+```
+
+```{r manhattan2, eval=T, echo=F}
+fig_nums("manhattan3", caption="Manhattan plot for fitness in the North and South mapped in a multivariate mixed model")
+include_graphics("./GWA/manhattans/lmm_gwa_N_fitness_S_fitness.jpeg")
+```
+
+# Investigate allele frequency changes from NSE
+
+DF produced a file in which the allele frequency changes between
+initial (sown) and Spring sampling on year two (with associated SE).
+
+_We'll add details about methods later. _
+
+# Comparing GWA top hits and NSE results
+
+```{r mlmmvsaf, eval=T, echo=F}
+read_chunk("./scripts/GWA_vs_NSE.R")
+```
+
+```{r eval=T, echo=F}
+<<readaf>>
+```
+
+The above chunk reads in the table of allele frequency changes between
+North and South and outputs a table which gives the proportions of
+SNPs for which no more extreme allele frequency changes were observe
+in 10,000 permutations.
+
+Basically 7% of the SNPs show "significant" changes in allele frequency in both
+regions, and 15% in each of the two regions.
+
+
+```{r eval=F, echo=F}
+<<readGWA>>
+```
+
+```{r eval=T, echo=T}
+<<mlmmvsafchange>>
+```
+
+The top SNPs in the two trait GWA, of which most two region are also
+associated in single trait GWAs have evolved in the allele frequency
+experiment.
+
+The significance of allele frequency changes was done based on 10000
+permutations. 
+
+
+
+## define questions
+
+- Do the GWAs top SNPs change in allele frequency
+  - Significant fdr significant SNPs evol? _looks like it but is there a way calculate enrichement?_
+  - Going a little lower in the list of SNP effects, can we see the relationships we observed before with changes in allele frequency?
+  
+
+# Get the matrix
+
+The SNP matrix is the same used in the microbiota paper.  The script
+prep SNPs starts from the vcf files from Fernando, and produces
+different formats, including plink and bimbam (for GWA).
+
+Here we chose to use SNPs with MAF above 0.1, so I recomputed the SNP
+matrices and used the prefix sweden\_200\_MAF10.
+
+# Compute haplotype blocks
+
+The SNPs are group into haplotype blocks (or LD blocks) using the
+plink --block function. This has a bunch of settings which I'll detail
+here:
+-  'no-pheno-req' simply allows the function to run on all the
+   genotypes in the SNP file, without removing those without
+   phenotypes
+- 'no-small-max-span' is a modifier that allows to limit the span of
+  blocks with very few SNPs. By default, a two snp group can't span
+  more than 20kb and a 3 snps block can span more than 30kb.
+- --blocks-max-kb allows to limit the maximum size of a block. The
+  default is 200kb, but I've set it to 50kb.
+- --blocks-min-maf determines to MAF threshold for SNPs considered in
+  making the blocks. Default is 0.05 but we've decided to work with
+  SNPs at 0.1.
+- --blocks-strong-lowci and --blocks-strong-highci sets the CI limits
+  of Dprime for considering SNPs in strong LD. The default is 0.7 for the lowest
+  CI and at least 0.98 for the highest. I've left the default values.
+- --blocks-recomb-highci sets the lowest high CI of dprime value to
+  considered historical recombination events.
+- --blocks-inform-frac is the lowest percentage of informative SNPs in a
+  block. I used th default is 0.95.
+
+Better description of the parameters can be found at
+  https://www.cog-genomics.org/plink/1.9/ld#blocks
+
+The jobs can be started using "./scripts/compute\_LD\_blocks.sh"
+
+# Start GWAs on blups
+
+Here I need to run a GWA using mlmm on the Northern and Southern
+fitness values. The fitness values for each region corrected for year
+and block effects are have been calculated previously. I ran a two
+trait GWA, which gave additive coefficients for each SNP for each
+trait.
+
+# The ideas on how to use that now are:
+
+- Define the ancestral state of the SNPs and calculate the effects of
+  derived alleles to see in which quadrant of the plot they fall.
+- investigate the frequency of the SNPs in the founder populations for
+  each region.
+- Compare with allele frequency changes in the SR experiments
+- Match SNPs in this study with regions that may be introgressed from
+  neandertal Arabidopsis.
+- Match with methylation patterns
+
+
+
+# Compute expected SNP frequencies based on the CG data. 
+
+
+
+
+
+
+
+

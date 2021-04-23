@@ -1,0 +1,156 @@
+---
+title: "44.BLUP.slopesNS.GWAS.Rmd"
+author: "Daniele Filiault"
+date: "8/2/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE)
+read_chunk("./scripts/GWA_functions.R")
+
+library(dplyr)
+library(tidyr)
+library(lattice)
+
+```
+
+## Introduction
+Running GWAS for BLUPs calculated in 43.blup.slopesNS.Rmd (which is from 27.fitness.BLUPS.Rmd)
+Uses gemma and the setup thereof in markdown 01.CG.DLF.initial.Rmd
+
+# So far, not 100% done.  gemma complains with 4 phenotypes and some marginals still missing... #
+
+
+### 1a. Make phenotype file for blups
+```{r make pheno files for GWAS}
+### read in blups
+b.dat <- read.csv(file="./data/slopeNS.blups.csv")
+
+##make a phenotype file
+pref="./GWA/snps/sweden_200_MAF10.bimbam"
+dat <- b.dat
+row.names(dat)=paste(dat$id)
+dat=dat[,-1]
+acclist=scan(paste(pref, ".acclist", sep=""), sep=",")
+
+##make a table of phenos in the same order as the genotype
+phen=dat[paste(acclist), ]
+colnames(phen) <- paste("blup", colnames(phen), sep="_")
+phenfile=paste(pref, ".blups.slopeNS.phen.txt", sep="")
+
+#write.table(phen, phenfile, sep="\t", row.names=F, col.names=F)
+```
+
+### 1b. Run marginal GWAS with gemma - do this later!!! not so important ATM (first 3 need to be rerun)
+```{r eval=FALSE, results='hide'}
+
+##run gemma using gemma-wrapper
+## to get system() to work in .Rstudio, you need to open .RStudio in the commmand line to inhert setup.  
+## command is:
+## open -a RStudio
+
+for(n in 1:ncol(phen)){
+    pheno=colnames(phen)[n]
+    print(pheno)
+    system(paste("/Users/daniele.filiault/.gem/ruby/2.0.0/bio-gemma-wrapper-0.98.1/bin/gemma-wrapper --loco --json --cache-dir ./GWA/.gemma-cache --input ./GWA/output_gemma_marginal/K.json -- -lmm 4 -g ", pref, ".geno.gz -a ", pref, ".map -p ", phenfile, " -n ", n , " > ./GWA/output_gemma_marginal/out_marginal_", pheno, sep=""))
+}
+```
+
+
+## 2.  Mvlmm for 2011 for all 4 N-S slope comparisons (4 phenos total)
+Troubleshooting why all 4 won't work  
+1 and 3 ok  
+1,3,5 ok
+3,5,7try next
+try all four again?
+```{r, 2011gwas, eval=TRUE}
+n=c(3,5,7) ## column numbers of phen file to include
+sel=paste(n, collapse=" ")
+pheno=paste(colnames(phen)[n], collapse="_")
+system(paste("/Users/daniele.filiault/.gem/ruby/2.0.0/bio-gemma-wrapper-0.98.1/bin/gemma-wrapper --loco --json --cache-dir ./GWA/.gemma-cache --input ./GWA/output_gemma_loco/K.json -- -lmm 4 -g ", pref, ".geno.gz -a ", pref, ".map -p ", phenfile, " -n ", sel , " > ./GWA/output_gemma_mvlmm/out_mvlmm_", pheno, sep=""))
+```
+Run GWAS
+```{r, 2012gwas, eval=TRUE}
+n=c(2,4,6,8) ## column numbers of phen file to include
+sel=paste(n, collapse=" ")
+pheno=paste(colnames(phen)[n], collapse="_")
+system(paste("/Users/daniele.filiault/.gem/ruby/2.0.0/bio-gemma-wrapper-0.98.1/bin/gemma-wrapper --loco --json --cache-dir ./GWA/.gemma-cache --input ./GWA/output_gemma_loco/K.json -- -lmm 4 -g ", pref, ".geno.gz -a ", pref, ".map -p ", phenfile, " -n ", sel , " > ./GWA/output_gemma_mvlmm/out_mvlmm_", pheno, sep=""))
+
+```
+
+Make manhattan plot and extract pvals and betas
+```{r 2011 manhattan}
+##make a manhattan plot
+n=c(1,3,5,7)
+pheno=paste(colnames(phen)[n], collapse="_")
+x=unlist(strsplit(scan(paste("./GWA/output_gemma_mvlmm/out_mvlmm_", pheno,sep=""), what="character")[10], ","))[7]
+### had to play with this a bit to deal with a warning message that made my output different from Ben'sf=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+### ulimate output is the corresponding assoc.txt file in the gemma-cache
+f=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+p=read.delim(f, header=T, sep="\t")
+##make a manhattan plot
+colnames(p)[3]="pos"
+colnames(p)=gsub("p_wald", "pval", colnames(p))
+p$score=-log10(p$pval)
+p=p[p$af>=0.1,]
+p$fdr_pval=p.adjust(p$pval, "fdr")
+mlmmsignif=p[p$fdr_pval<=0.1,]
+source("./scripts/GWA_functions.R")
+jpeg(paste("./GWA/manhattans/mvlmm_gwa_", pheno, ".jpeg", sep=""),res=600, unit="in", width=8, height=4, pointsize=12)
+manhattan(p)
+dev.off()
+
+```
+
+Output betas for use elsewhere
+```{r output betas 2011, eval=TRUE}
+blup.betas2011 <- p
+save(blup.betas2011, file="./data/blup.betas.slopesNS.2011.Rdat")
+#rm(blup.betas2011)
+```
+
+## 3.   Mvlmm for 2012 for all 4 N-S slope comparisons (4 phenos total)
+
+Run GWAS
+```{r, 2012gwas, eval=TRUE}
+n=c(2,4,6,8)  ## column numbers of phen file to include
+sel=paste(n, collapse=" ")
+pheno=paste(colnames(phen)[n], collapse="_")
+system(paste("/Users/daniele.filiault/.gem/ruby/2.0.0/bio-gemma-wrapper-0.98.1/bin/gemma-wrapper --loco --json --cache-dir ./GWA/.gemma-cache --input ./GWA/output_gemma_loco/K.json -- -lmm 4 -g ", pref, ".geno.gz -a ", pref, ".map -p ", phenfile, " -n ", sel , " > ./GWA/output_gemma_mvlmm/out_mvlmm_", pheno, sep=""))
+
+```
+
+Make manhattan plot and extract pvals and betas
+```{r 2012 manhattan}
+##make a manhattan plot
+n=c(2,4,6,8) 
+pheno=paste(colnames(phen)[n], collapse="_")
+x=unlist(strsplit(scan(paste("./GWA/output_gemma_mvlmm/out_mvlmm_", pheno,sep=""), what="character")[10], ","))[7]
+### had to play with this a bit to deal with a warning message that made my output different from Ben'sf=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+### ulimate output is the corresponding assoc.txt file in the gemma-cache
+f=substring(gsub("]]", "", x), 2, (nchar(x)-3))
+p=read.delim(f, header=T, sep="\t")
+##make a manhattan plot
+colnames(p)[3]="pos"
+colnames(p)=gsub("p_wald", "pval", colnames(p))
+p$score=-log10(p$pval)
+p=p[p$af>=0.1,]
+p$fdr_pval=p.adjust(p$pval, "fdr")
+mlmmsignif=p[p$fdr_pval<=0.1,]
+source("./scripts/GWA_functions.R")
+jpeg(paste("./GWA/manhattans/mvlmm_gwa_", pheno, ".jpeg", sep=""),res=600, unit="in", width=8, height=4, pointsize=12)
+manhattan(p)
+dev.off()
+
+#fig_nums("manhattan2", caption="Manhattan plot - all sites fitness 2012")
+#include_graphics(paste("./GWA/manhattans/mvlmm_gwa_", pheno, ".jpeg", sep=""))
+```
+
+Output betas for use elsewhere
+```{r output betas 2012, eval=TRUE}
+blup.betas2012 <- p
+save(blup.betas2012, file="./data/blup.betas.slopesNS.2012.Rdat")
+#rm(betas2012)
+```

@@ -1,0 +1,248 @@
+---
+title: "38.fitness.BLUPS.with.Kgroups.Rmd"
+author: "DLF"
+date: "5/25/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lme4) # mixed models
+library(statmod) 
+library(merTools)
+library(MuMIn) # for calculating R2 of mixed models
+library(RColorBrewer)
+library(pander)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ecodist)
+library(gridExtra)
+library(pander)
+library(knitr)
+library(afex)
+
+setwd("/groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens/")
+#setwd("/Volumes/field_experiments/adaptation_sweden/common.gardens/")
+```
+
+## Introduction
+
+Expanding some of the linear model analyses from 27.fitness.BLUPS.Rmd, incorporating K.groups from
+29.BLUP.heatmap.by.K.Rmd.
+
+
+### 1. prep data
+
+```{r data prep}
+
+#fitness estimates
+d11=readRDS(file="./data/d11_for_analysis.rds")
+d12=readRDS(file="./data/d12_for_analysis.rds")
+
+##restrict to fitness
+traits=c("fitness")
+
+d11$year=2011
+d12$year=2012
+
+d11=d11[, c("year", "exp", "block", "id", "fitness")]
+d12=d12[, c("year", "exp", "block", "id", "fitness")]
+
+d=rbind(d11, d12)
+d$region[d$exp%in%c("ULL", "RAT")]="S"
+d$region[d$exp%in%c("RAM", "ADA")]="N"
+d$year=as.factor(d$year)
+d=d[, c("year", "region", "exp","block", "id", "fitness")]
+d=na.omit(d)
+
+# add K.groups
+kg <- read.table('./data/Kmatrix.6cluster.membership.txt',stringsAsFactors=FALSE)
+d <- merge(d, kg, by.x="id", by.y="row.names", all.x=TRUE)
+d$id <- as.factor(d$id)
+d$K.group <- as.factor(d$K.group)
+d$ye <- paste(d$exp, d$year, sep="_")
+
+# K.matrix
+K <- read.table("./data/K.matrix.200Swedes.txt")
+## need accession names
+pref="./GWA/snps/sweden_200_MAF10.bimbam"
+acclist=scan(paste(pref, ".acclist", sep=""), sep=",")
+rownames(K) <- acclist
+colnames(K) <- acclist
+K <- as.matrix(K)
+
+# BLUPs from 27.fitness.BLUPS.Rmd
+blups <- read.csv(file="./data/marginal.blups.csv", stringsAsFactors=FALSE)
+blups.l <- blups %>% pivot_wider(id_cols=id,names_from=c(exp,year),values_from=fb)%>%as.data.frame()
+blups.l <- blups.l[order(as.character(blups.l$id)),]
+blups.l$id <- as.character(blups.l$id)
+#blups.l$id==colnames(K) #OK! same order
+
+# add K groups to BLUPS
+blups.k <- merge(blups, kg, by.x="id", by.y="row.names", all.x=TRUE)
+blups.lk <- merge(blups.l, kg, by.x="id", by.y="row.names", all.x=TRUE)
+
+# write blups for Mayela
+write.table(blups.lk, file="./data/fitness.BLUPS.with.Kgroup.txt",quote=FALSE)
+```
+
+### 2. Mantel test genetic relatedness versus fitness relatedness
+How much does genetic relatedness explain fitness patterns
+```{r genetic fitness mantel, eval=FALSE}
+k.dist <- dist(K)
+
+m.test <- apply(blups.l[,2:9], 2, function(x){
+  up.dist <- dist(x)
+  up.mantel <- mantel(up.dist ~ k.dist, mrank=TRUE)
+  return(up.mantel)
+})
+
+m.test <- t(m.test)
+m.test
+pdf("./figures/mantel.test.fitness.genetic.relatedness.pdf", height=4, width=8.5)
+grid.table(m.test)
+dev.off()
+```
+
+### 3. Fitness models with K groups instead of individual IDs.
+```{r fitness K group normal model, eval=FALSE}
+load(file="./data/38.fitness.BLUPS.with.Kgroups.Rdata")
+
+#lm3 <- lm(fitness~id*year*exp + exp:year/block, data=d) is used in 27.fitness.BLUPS.Rmd
+# add K groups with id nested inside?
+
+#lm1 <- lm(fitness~K.group/id, data=d)
+anova(lm1) ## K.group and id significant
+
+#lm2 <- lm(fitness~year*K.group/id, data=d)
+anova(lm2) # all significant
+
+#lm3 <- lm(fitness~year*exp*K.group/id, data=d)
+anova(lm3)
+pander(anova(lm3))
+
+#lm4 <- lm(fitness~year*exp*K.group/id + exp:year/block, data=d)
+#anova(lm4)
+
+lm5 <- lm(fitness~year*exp*K.group + exp:year/block, data=d)
+anova(lm5)
+pander(anova(lm5))
+#save.image(file="./data/38.fitness.BLUPS.with.Kgroups.Rdata")
+```
+
+
+### 4. Models by K.group
+Instead of trying to specify this insane model all at once, how about doing one model per K group and then asking for GxE differences among lines of each K group?
+```{r fitness modeling by K group}
+lm.k1 <- lm(fitness~id*year*exp + exp:year/block, data=d[d$K.group=="K1",])
+lm.k2 <- lm(fitness~id*year*exp + exp:year/block, data=d[d$K.group=="K2",])
+lm.k3 <- lm(fitness~id*year*exp + exp:year/block, data=d[d$K.group=="K3",])
+lm.k4 <- lm(fitness~id*year*exp + exp:year/block, data=d[d$K.group=="K4",])
+lm.k5 <- lm(fitness~id*year*exp + exp:year/block, data=d[d$K.group=="K5",])
+lm.k6 <- lm(fitness~id*year*exp + exp:year/block, data=d[d$K.group=="K6",])
+
+pander(anova(lm.k1))
+pander(anova(lm.k2))
+pander(anova(lm.k3))
+pander(anova(lm.k4))
+pander(anova(lm.k5))
+pander(anova(lm.k6))
+```
+
+### 5. expand random effects models with K groups and id nesting
+```{r raneff with K.groups}
+#old best model from 27.fitness.BLUPs.Rmd
+mm7 <- lmer(fitness~exp*year + (1|exp:year:block) + (1|exp:year:id), data=d)
+#VarCorr(mm7)
+#anova(mm7)
+#summary(mm7)
+print(mm7@call)
+r.squaredGLMM(mm7)
+
+# add K.group, with id nested within
+mm1 <- lmer(fitness~exp*year*K.group + (1|exp:year:K.group:id) + (1|exp:year:block), data=d)
+#VarCorr(mm1)
+#anova(mm1)
+#summary(mm1)
+pander(anova(mm1))
+print(mm1@call)
+r.squaredGLMM(mm1)
+## R2m is from marginal(fixed effects)
+## R2c is from entire model
+
+# add K.group, no id effects
+mm2 <- lmer(fitness~exp*year*K.group + (1|exp:year:block), data=d)
+print(mm2@call)
+r.squaredGLMM(mm2)
+
+## mm1 without block effects
+mm3 <- lmer(fitness~exp*year*K.group + (1|exp:year:K.group:id), data=d)
+print(mm3@call)
+r.squaredGLMM(mm3)
+
+anova(mm7, mm1)
+anova(mm1, mm2)
+anova(mm3, mm1)
+```
+
+### 6. extract BLUPs from K.group models
+```{r K.group model ID BLUPs}
+
+blups.noK <- ranef(mm1)[[1]]
+blups.noK <- as.data.frame(blups.noK)
+desc <- do.call(rbind,strsplit(rownames(blups.noK),":"))
+colnames(desc) <- c("exp","year","K","id")
+blups.noK <- cbind(blups.noK, desc)
+colnames(blups.noK)[1] <- "fb"
+
+hist(blups.noK$fb)
+pdf(file="./figures/blup.noK.effect.fitness.boxplot.by.year.site.pdf", width=10, height=6)
+with(blups.noK, boxplot(fb~year+exp, col=c(rep(brewer.pal(9, "Paired")[4],4), rep(brewer.pal(9, "Paired")[3],4))))
+dev.off()
+
+## write BLUPS to file
+write.csv(blups.noK, file="./data/marginal.blups.noK.effect.csv", quote=FALSE,row.names=FALSE)
+
+```
+
+### 7. Rank-correlations between experiments
+```{r rank cor K.groupmodel blups}
+blups.noK.l <- blups.noK %>% pivot_wider(id_cols=id,names_from=c(exp,year),values_from=fb)%>%as.data.frame()
+pw <- combn(colnames(blups.noK.l[2:9]),2)
+
+#blups from tests from models with K.groups
+ct.noK <- apply(pw,2,function(x){
+  up.dat <- blups.noK.l[,colnames(blups.noK.l)%in%x]
+  up.test <- cor.test(~get(x[1]) + get(x[2]), data=up.dat, method="spearman")
+  out.dat <- cbind(up.test$p.value, up.test$estimate)
+  return(out.dat)
+})
+ct.noK <- matrix(ct.noK, ncol=2,byrow=TRUE)
+colnames(ct.noK) <- c("p.Kfixedeff","rho.Kfixedeff")
+
+#blups from tests from models without K.groups
+ct <- apply(pw,2,function(x){
+  up.dat <- blups.l[,colnames(blups.l)%in%x]
+  up.test <- cor.test(~get(x[1]) + get(x[2]), data=up.dat, method="spearman")
+  out.dat <- cbind(up.test$p.value, up.test$estimate)
+  return(out.dat)
+})
+ct <- matrix(ct, ncol=2,byrow=TRUE)
+colnames(ct) <- c("p.noKmodel","rho.noKmodel")
+
+sp.cor <- as.data.frame(t(pw))
+sp.cor <- cbind(sp.cor, ct.noK, ct)
+sp.cor <- sp.cor[,c(1:2,5,3,6,4)]
+sp.cor$rho.diff <- sp.cor$rho.noKmodel-sp.cor$rho.Kfixedeff
+sp.cor <- sp.cor[order(sp.cor$rho.diff),]
+
+wilcox.test(sp.cor$rho.Kfixedeff,sp.cor$rho.noKmodel,paired=TRUE)
+
+id.model <- sp.cor$p.noKmodel<0.05
+K.model <- sp.cor$p.Kfixedeff<0.05
+sig.tests <- cbind(id.model, K.model)
+sp.cor <- cbind(sp.cor, sig.tests)
+```
+
+

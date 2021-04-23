@@ -1,0 +1,190 @@
+---
+title: "39.parse.climate.associations.mantel.Rmd"
+author: "Daniele Filiault"
+date: "6/1/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("/Volumes/field_experiments/adaptation_sweden/select.and.resequence/002.scripts/00.allele.freq.change.fxns.R")
+#source("/groups/nordborg/projects/field_experiments/adaptation_sweden/select.and.resequence/002.scripts/00.allele.freq.change.fxns.R")
+library(ggplot2)
+library(viridis)
+```
+
+## Introduction
+Parsing the Hancock-style parital Mantel tests as developed in 37.climate.associations.manted.Rmd and done in ./scripts/partial.mantel.climate.R
+
+## 1. read in common data
+```{r load data}
+# genotypes
+# loading SNPs using a script from 00.allele.freq.change.fxns.R
+#all.gts.file <- "/groups/nordborg/projects/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/02_2.3M_Swedes220.175k.prior15.gauss4.ts99.5.BIALLELIC.csv"
+all.gts.file <- "/Volumes/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/02_2.3M_Swedes220.175k.prior15.gauss4.ts99.5.BIALLELIC.csv"
+## this is the data set used for genotyping these samples (from Fernando)
+min.MAF <- 0.1
+max.NAF <- 0.05 ## remove if NA rate is higher than this
+### set these so agree with Ben's GWAS filtering so our SNPs overlap
+gts <- prep.SAF(all.gts.file=all.gts.file, min.MAF=min.MAF, max.NAF=max.NAF)
+# reads in file, recodes to NA, 0 (ref), 0,5 (het), 1 (alt)
+pos <- gts[,1:2]
+
+up.dir = "./data/001.partial.mantel.climate/"
+out.dir <- "./data/002.partial.mantel.climate.parsed/"
+chrs <- c("CHR1", "CHR2", "CHR3", "CHR4", "CHR5")
+chr.lengths <- c(30427671,19698289,23459830,18585056,26975502)
+```
+
+
+```{r parse climate variables}
+cvs <- c(paste("BIO", 1:19, sep=""),"PC1","PC2","PC3","PC4")
+up.var <- "PC1"
+sig.snps <- as.list(1:length(cvs))
+
+for(up.c in 1:length(cvs)){
+  up.var <- cvs[up.c]
+  print(up.var)
+  up.dat <- as.list(rep(NA,5))
+  up.files <- dir(up.dir)[grep(up.var, dir(up.dir))]
+  for(up.chr in 1:5){
+    ucfile <- up.files[grep(up.files[up.chr], up.files)]
+    load(paste(up.dir,ucfile, sep="")) #test.m
+    up.dat[[up.chr]] <- test.m
+  }
+  up.dat <- do.call(rbind, up.dat)
+  colnames(up.dat) <- c("mantelr", "pval1","pval2", "pval3", "llim", "ulim")
+  up.dat <- as.data.frame(up.dat, stringsAsFactors=FALSE)
+  up.dat <- cbind(pos, up.dat)
+
+  # get significant associations and write output file
+  sig.dat <- up.dat[up.dat$pval3==0.001,]
+  out.file <- paste(out.dir, up.var,".significant.csv", sep="")
+  write.csv(sig.dat, out.file)
+  sig.dat$cv <- up.var
+  sig.snps[[up.c]] <- sig.dat
+  
+  # manhattan plot significant correlation coefficiants
+  sig.dat$Chromosome <- as.factor(sig.dat$Chromosome)
+  up.plot <- ggplot(data=sig.dat, aes(x=Position/1000000, y=mantelr, color=Chromosome)) + 
+    geom_point() +
+    facet_grid(.~Chromosome) +
+    labs(title = up.var, y = "Mantel coefficient", x="Position (MB)") +
+    scale_colour_brewer(palette="Paired")
+
+  ggsave(file=paste(out.dir,up.var,"mantel.coefficient.manhattan.pdf"), width=12, height=4, plot=up.plot)
+}
+
+# column names
+#mantelr = Mantel coefficient.
+#pval1 = one-tailed p-value (null hypothesis: r <= 0).
+#pval2 = one-tailed p-value (null hypothesis: r >= 0).
+#pval3 = two-tailed p-value (null hypothesis: r = 0).
+#llim  = lower confidence limit.
+#ulim  =  upper confidence limit.
+```
+
+```{r parse sig snps}
+sig.snps <- do.call(rbind,sig.snps)
+sig.snps <- sig.snps[order(sig.snps$mantelr, decreasing=TRUE),]
+sig.snps.out <- sig.snps
+colnames(sig.snps.out)[1:2] <- c("chr","pos")
+write.csv(sig.snps, file=paste(out.dir,"all.sig.snps.csv", sep=""),quote=FALSE, row.names=FALSE)
+
+top.snps <- sig.snps[1:(nrow(sig.snps)*0.01),]
+top.snps$Chromosome <- as.factor(top.snps$Chromosome)
+
+c.col <- c("#aa7cc3","#5bb748","#ca53b5","#a7b344","#7663cf","#d69e3b","#588dcc","#c9522e","#47b4a3","#d33f60","#61b271","#9e466d","#5d7934","#de7e98","#956b30","#d98a65")
+ts.plot <- ggplot(data=top.snps, aes(x=Position/1000000, y=mantelr, color=cv)) + 
+    geom_point() +
+    facet_grid(.~Chromosome) +
+    labs(title = "Top 1% of sig assoc SNPs", y = "Mantel coefficient", x="Position (MB)") +
+    scale_colour_viridis(discrete = TRUE, option = "D")
+
+ggsave(file=paste(out.dir,"top.1per.mantel.coefficient.manhattan.pdf"), width=12, height=4, plot=ts.plot)
+
+table(top.snps$cv)
+
+top.snps.out <- top.snps
+colnames(top.snps.out)[1:2] <- c("chr","pos")
+write.csv(top.snps.out, file=paste(out.dir,"top1per.all.snps.csv",sep=""), quote=FALSE,row.names=FALSE)
+```
+
+How often is a particular SNP significant across these variables?
+
+```{r sig across variables}
+sig.snps$id <- paste(sig.snps$Chromosome, sig.snps$Position, sep="_")
+ss.table <- table(sig.snps$id)
+hist(ss.table, xlab="number of climate variables associated")
+
+cv.table <- table(sig.snps$cv)
+cv.table <- cv.table[order(cv.table)]
+cv.table
+
+ugh <- with(sig.snps, table(cv,id))
+ugh <- ugh[c(1,12:19,2:11,20:23),]
+ugh <- apply(ugh, 2, function(x){paste(x, collapse="")})
+cv.pattern <- table(ugh)
+cv.pattern <- cv.pattern[order(cv.pattern,decreasing=TRUE)]
+cv.pattern[1:40]
+```
+
+```{r top1%cutoff}
+sig.snps.s <- split(sig.snps, sig.snps$cv)
+sig.snps.1p <- lapply(sig.snps.s, function(x){
+  x <- x[order(x$mantelr,decreasing=TRUE),]
+  len.x <- nrow(x)
+  p.x <- ceiling(len.x*0.01)
+  out.snps <- x[1:p.x,]
+  return(out.snps)
+  })
+
+sig.snps.1p <- do.call(rbind, sig.snps.1p)
+colnames(sig.snps.1p)[1:2] <- c("chr","pos")
+write.csv(sig.snps.1p, file=paste(out.dir,"top1per.sig.assoc.csv",sep=""), quote=FALSE)
+```
+
+```{r top0.1%cutoff}
+sig.snps.s <- split(sig.snps, sig.snps$cv)
+sig.snps.01p <- lapply(sig.snps.s, function(x){
+  x <- x[order(x$mantelr,decreasing=TRUE),]
+  len.x <- nrow(x)
+  p.x <- ceiling(len.x*0.001)
+  out.snps <- x[1:p.x,]
+  return(out.snps)
+  })
+
+sig.snps.01p <- do.call(rbind, sig.snps.01p)
+colnames(sig.snps.01p)[1:2] <- c("chr","pos")
+write.csv(sig.snps.01p, file=paste(out.dir,"toppoint1per.sig.assoc.csv",sep=""), quote=FALSE)
+```
+
+## quick check of preliminary vardec analysis
+```{r prelim vardec check}
+
+setwd("./data/003.selection.scans/002.var.decomp.results/")
+a.res <- read.table(file="angela.like.onepercent.50kb.txt",stringsAsFactors=FALSE)
+a.res$scan = "climate.mantel"
+
+c.res <- read.table(file="christian.sweeps.20kb.txt",stringsAsFactors=FALSE)
+c.res <- c.res[,1:5]
+c.res$scan <- "christian.sweep"
+
+sg.res <- read.table(file="swedish.genome.paper.20kb.txt",stringsAsFactors=FALSE)
+sg.res <- sg.res[,1:5]
+sg.res$scan <- "genomes.paper"
+
+res <- rbind(a.res,c.res,sg.res)
+colnames(res) <- c("exp","pval","cis","trans","error","scan")
+res$total <- res$cis + res$trans + res$error
+res$per.cis <- res$cis/res$total
+
+res.tab <- res[,c(1,2,6,8)]
+ reshape(my.df,
+           idvar = "ID",
+           timevar = "TIME",
+           direction = "wide")
+ ugh <- reshape(res.tab, idvar="exp", timevar="scan", direction="wide")
+ write.table(ugh, file="prelim.vardec.resutls.txt", quote=FALSE,row.names=FALSE)
+```
+

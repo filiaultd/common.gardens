@@ -1,0 +1,178 @@
+---
+title: "45.plot.GWAS.overlap"
+author: "Daniele Filiault"
+date: "8/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(RColorBrewer)
+library(dplyr)
+library(tidyr)
+library(wesanderson)
+#scale_fill_manual(values=wes_palette(n=5, name="Darjeeling1")) 
+library(gridExtra)
+library(gplots)
+library(ggpubr)
+
+
+#setwd("/Volumes/field_experiments/adaptation_sweden/common.gardens")
+setwd("/groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens/")
+```
+
+## Introduction
+
+Developing data visualization to look at overlap in GWAS hits between marginal GWAS for fitness and slope
+
+### Read in data
+```{r load data}
+f <- system("ls ./data/limix/*limix.results.csv", intern=TRUE)
+f <- f[-grep("PC", f)]
+f <- f[-grep("BIO", f)]
+
+if(exists("all.dat")){rm(all.dat)}
+
+for (up in 1:length(f)){
+  print(f[up])
+  up.dat <- read.csv(f[up],stringsAsFactors=FALSE)
+  up.n <- strsplit(f[up], split="[.]")[[1]][2]
+  up.n <- gsub("/data/limix/","",up.n)
+  up.dat <- up.dat[,1:3]
+  colnames(up.dat)[3] <- up.n
+  if(exists("all.dat")){
+    all.dat <- merge(all.dat, up.dat, all=TRUE)
+  }else {all.dat <- up.dat}
+}
+
+up.dat$chrom <- factor(up.dat$chrom)
+```
+
+### plot pairwise by chromosome - function based on colnames
+
+```{r pairwise filter}
+xv <- "ULL_2011"
+yv <- "ULL_2012"
+pcutoff <- 3
+
+pair.filter <- function(xv, yv, pcutoff){
+  up.dat <- all.dat[,c(1:2,which(colnames(all.dat)%in%c(xv, yv)))]
+  up.dat[,3:4] <- apply(up.dat[,3:4],2,function(x){-log10(x)})
+  ## subset to cases in which at least one pval meets cutoff criteria
+  up.max <- apply(up.dat,1, function(x){max(x[3:4], na.rm=TRUE)>pcutoff})
+  up.dat <- up.dat[up.max==TRUE,]
+  up.dat$chrom <- factor(up.dat$chrom)
+  return(up.dat)
+}
+
+
+filt.dat1 <-pair.filter(xv="mu1",yv="mu2",pcutoff <- 3)
+```
+
+
+```{r plot pairwise fxn}
+pair.plot <- function(xv, yv, filt.dat){
+  up.p <- ggplot(filt.dat, aes(x=get(xv), y=get(yv), color=chrom)) +
+  geom_point() +
+  #scale_color_manual(values=wes_palette(n=5, name="Darjeeling1")) +
+  scale_color_brewer(palette="Paired") +
+  xlab(xv) +
+  ylab(yv) +
+  theme_linedraw()
+  
+  print(up.p)
+}
+  
+pair.plot(xv="mu1", yv="mu2", filt.dat=filt.dat1)
+```
+
+```{r plot between years, same site, fitness}
+#adal
+a.plot <- pair.plot(xv="ADA_2011",yv="ADA_2012", filt.dat=pair.filter(xv="ADA_2011",yv="ADA_2012",pcutoff <- 3))
+m.plot <- pair.plot(xv="RAM_2011",yv="RAM_2012", filt.dat=pair.filter(xv="RAM_2011",yv="RAM_2012",pcutoff <- 3))
+u.plot <- pair.plot(xv="ULL_2011",yv="ULL_2012", filt.dat=pair.filter(xv="ULL_2011",yv="ULL_2012",pcutoff <- 3))
+r.plot <- pair.plot(xv="RAT_2011",yv="RAT_2012", filt.dat=pair.filter(xv="RAT_2011",yv="RAT_2012",pcutoff <- 3))
+
+pdf("./figures/fitness.pval.pairwise.between.years.pdf",width=10, height=8)
+fig.fit.year <- ggarrange(a.plot,m.plot,u.plot,r.plot,
+          ncol = 2, nrow = 2)
+annotate_figure(fig.fit.year, top = text_grob("fitness p-values - between years", face = "bold", size = 20))
+dev.off()
+```
+
+
+```{r plot between sites within 2011}
+au1.plot <- pair.plot(xv="ADA_2011",yv="ULL_2011", filt.dat=pair.filter(xv="ADA_2011",yv="ULL_2011",pcutoff <- 3))
+ar1.plot <- pair.plot(xv="ADA_2011",yv="RAT_2011", filt.dat=pair.filter(xv="ADA_2011",yv="RAT_2011",pcutoff <- 3))
+mu1.plot <- pair.plot(xv="RAM_2011",yv="ULL_2011", filt.dat=pair.filter(xv="RAM_2011",yv="ULL_2011",pcutoff <- 3))
+mr1.plot <- pair.plot(xv="RAM_2011",yv="RAT_2011", filt.dat=pair.filter(xv="RAM_2011",yv="RAT_2011",pcutoff <- 3))
+am1.plot <- pair.plot(xv="ADA_2011",yv="RAM_2011", filt.dat=pair.filter(xv="ADA_2011",yv="RAM_2011",pcutoff <- 3))
+ur1.plot <- pair.plot(xv="ULL_2011",yv="RAT_2011", filt.dat=pair.filter(xv="ULL_2011",yv="RAT_2011",pcutoff <- 3))
+
+pdf("./figures/fitness.pval.pairwise.2011.pdf",width=10, height=12)
+fig.fit.year <- ggarrange(au1.plot,ar1.plot,mu1.plot,mr1.plot, am1.plot,ur1.plot,
+          ncol = 2, nrow = 3)
+annotate_figure(fig.fit.year, top = text_grob("fitness p-values - 2011", face = "bold", size = 20))
+dev.off()
+```
+
+```{r plot between sites within 2012}
+au2.plot <- pair.plot(xv="ADA_2012",yv="ULL_2012", filt.dat=pair.filter(xv="ADA_2012",yv="ULL_2012",pcutoff <- 3))
+ar2.plot <- pair.plot(xv="ADA_2012",yv="RAT_2012", filt.dat=pair.filter(xv="ADA_2012",yv="RAT_2012",pcutoff <- 3))
+mu2.plot <- pair.plot(xv="RAM_2012",yv="ULL_2012", filt.dat=pair.filter(xv="RAM_2012",yv="ULL_2012",pcutoff <- 3))
+mr2.plot <- pair.plot(xv="RAM_2012",yv="RAT_2012", filt.dat=pair.filter(xv="RAM_2012",yv="RAT_2012",pcutoff <- 3))
+am2.plot <- pair.plot(xv="ADA_2012",yv="RAM_2012", filt.dat=pair.filter(xv="ADA_2012",yv="RAM_2012",pcutoff <- 3))
+ur2.plot <- pair.plot(xv="ULL_2012",yv="RAT_2012", filt.dat=pair.filter(xv="ULL_2012",yv="RAT_2012",pcutoff <- 3))
+
+pdf("./figures/fitness.pval.pairwise.2012.pdf",width=10, height=12)
+fig.fit.year <- ggarrange(au2.plot,ar2.plot,mu2.plot,mr2.plot, am2.plot, ur2.plot,
+          ncol = 2, nrow = 3)
+annotate_figure(fig.fit.year, top = text_grob("fitness p-values - 2012", face = "bold", size = 20))
+dev.off()
+```
+
+```{r plot between years, same site, slope}
+#adal
+ars.plot <- pair.plot(xv="ar1",yv="ar2", filt.dat=pair.filter(xv="ar1",yv="ar2",pcutoff <- 3))
+aus.plot <- pair.plot(xv="au1",yv="au2", filt.dat=pair.filter(xv="au1",yv="au2",pcutoff <- 3))
+mrs.plot <- pair.plot(xv="mr1",yv="mr2", filt.dat=pair.filter(xv="mr1",yv="mr2",pcutoff <- 3))
+mus.plot <- pair.plot(xv="mu1",yv="mu2", filt.dat=pair.filter(xv="mu1",yv="mu2",pcutoff <- 3))
+
+pdf("./figures/slope.pval.pairwise.between.years.pdf",width=10, height=8)
+fig.fit.year <- ggarrange(ars.plot,aus.plot,mrs.plot,mus.plot,
+          ncol = 2, nrow = 2)
+annotate_figure(fig.fit.year, top = text_grob("slope p-values - between years", face = "bold", size = 20))
+dev.off()
+
+```
+```{r plot between slopes within 2011}
+ar.au1.plot <- pair.plot(xv="ar1",yv="au1", filt.dat=pair.filter(xv="ar1",yv="au1",pcutoff <- 3))
+ar.mu1.plot <- pair.plot(xv="ar1",yv="mu1", filt.dat=pair.filter(xv="ar1",yv="mu1",pcutoff <- 3))
+ar.mr1.plot <- pair.plot(xv="ar1",yv="mr1", filt.dat=pair.filter(xv="ar1",yv="mr1",pcutoff <- 3))
+au.mr1.plot <- pair.plot(xv="au1",yv="mr1", filt.dat=pair.filter(xv="au1",yv="mr1",pcutoff <- 3))
+au.mu1.plot <- pair.plot(xv="au1",yv="mu1", filt.dat=pair.filter(xv="au1",yv="mu1",pcutoff <- 3))
+mr.mu1.plot <- pair.plot(xv="mr1",yv="mu1", filt.dat=pair.filter(xv="mr1",yv="mu1",pcutoff <- 3))
+
+pdf("./figures/slope.pval.pairwise.2011.pdf",width=10, height=12)
+fig.fit.year <- ggarrange(ar.au1.plot, ar.mu1.plot, ar.mr1.plot, au.mr1.plot, au.mu1.plot, mr.mu1.plot,
+          ncol = 2, nrow = 3)
+annotate_figure(fig.fit.year, top = text_grob("slope p-values - 2011", face = "bold", size = 20))
+dev.off()
+```
+
+```{r plot between slopes within 2012}
+ar.au2.plot <- pair.plot(xv="ar2",yv="au2", filt.dat=pair.filter(xv="ar2",yv="au2",pcutoff <- 3))
+ar.mu2.plot <- pair.plot(xv="ar2",yv="mu2", filt.dat=pair.filter(xv="ar2",yv="mu2",pcutoff <- 3))
+ar.mr2.plot <- pair.plot(xv="ar2",yv="mr2", filt.dat=pair.filter(xv="ar2",yv="mr2",pcutoff <- 3))
+au.mr2.plot <- pair.plot(xv="au2",yv="mr2", filt.dat=pair.filter(xv="au2",yv="mr2",pcutoff <- 3))
+au.mu2.plot <- pair.plot(xv="au2",yv="mu2", filt.dat=pair.filter(xv="au2",yv="mu2",pcutoff <- 3))
+mr.mu2.plot <- pair.plot(xv="mr2",yv="mu2", filt.dat=pair.filter(xv="mr2",yv="mu2",pcutoff <- 3))
+
+pdf("./figures/slope.pval.pairwise.2012.pdf",width=10, height=12)
+fig.fit.year <- ggarrange(ar.au2.plot, ar.mu2.plot, ar.mr2.plot, au.mr2.plot, au.mu2.plot, mr.mu2.plot,
+          ncol = 2, nrow = 3)
+annotate_figure(fig.fit.year, top = text_grob("slope p-values - 2012", face = "bold", size = 20))
+dev.off()
+```

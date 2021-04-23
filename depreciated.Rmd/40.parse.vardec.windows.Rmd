@@ -1,0 +1,255 @@
+---
+title: "40.parse.vardec.windows"
+author: "DLF"
+date: "7/22/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(wesanderson)
+
+setwd("/groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens/")
+```
+
+## Introduction
+
+Parsing results of limix vardec in genome windows for fitness.  Run in the script:
+/users/daniele.filiault/limix/003.Daniele.scripts/Vardec.windows.py and  Vardec.windows.py
+
+## By chromosome results
+```{r read chromosome dat}
+fs <- dir("./data/limix")
+fs <- fs[grep("chr", fs)]
+fs <- fs[-grep("all.chr",fs)]
+chr.dat <- as.list(1:8)
+for(up in 1:8){
+  up.dat <- read.csv(file=paste("./data/limix/",fs[up], sep=""), stringsAsFactors=FALSE)
+  up.exp <- strsplit(fs[up],".",fixed=TRUE)[[1]][1]
+  up.site <- strsplit(up.exp,"_")[[1]][1]
+  up.year <- strsplit(up.exp,"_")[[1]][2]
+  up.dat$site <-up.site
+  up.dat$year <- up.year
+  up.dat$exp <- up.exp
+  chr.dat[[up]] <- up.dat
+}
+
+chr.dat <- do.call(rbind,chr.dat)
+chr.dat$total <- chr.dat$cis + chr.dat$trans + chr.dat$error
+chr.dat$cis.per <- (chr.dat$cis/chr.dat$total)*100
+chr.dat$trans.per <- (chr.dat$trans/chr.dat$total)*100
+chr.dat$error.per <- (chr.dat$error/chr.dat$total)*100
+```
+
+```{r plot chr data}
+#reshape dataframe
+chr.min <- chr.dat[,c(1,8,9,10,12,13,14)]
+colnames(chr.min) <- gsub(".per","", colnames(chr.min))
+chr.min <- chr.min %>%
+  gather(part, percent, cis:error)
+chr.min$part <- factor(chr.min$part, levels=c("cis","trans", "error"))
+
+chr.plot <- ggplot(data=chr.min, aes(x=chr, y=percent, fill=part)) +
+  geom_bar(stat="identity") +
+ facet_grid(vars(site), vars(year))
+
+print(chr.plot)
+
+pdf(file="./figures/vardec.by.chromosome.pdf", width=6, height=6)
+print(chr.plot)
+dev.off()
+```
+
+## By windows results
+## big windows first (200kb)
+```{r read big window dat}
+fs <- dir("./data/limix")
+fs <- fs[grep("200000", fs)]
+
+### this is my "test" run, it is RAT_2011
+up <- 7
+up.dat <- read.csv(paste("./data/limix/",fs[up],sep=""),stringsAsFactors=FALSE)
+up.dat$chr <- factor(up.dat$chr)
+up.dat$total <- up.dat$cis + up.dat$trans + up.dat$error
+up.dat$per.cis <-  (up.dat$cis/up.dat$total)*100
+
+ggplot(up.dat, aes(x=start, y=num_snps, color=chr)) + geom_point() + facet_grid(cols=vars(chr))
+
+plot(up.dat$per.cis, up.dat$num_snps) # not really strong relationship
+
+test.cis.plot <- ggplot(up.dat, aes(x=start/1000000, y=per.cis, color=chr)) + 
+  geom_point() + 
+  facet_grid(cols=vars(chr))+ 
+  ggtitle("RAT_2011, 200KB windows") +
+  xlab("window start (Mbp)") + ylab("percent variance explained in cis")
+
+print(test.cis.plot)
+
+pdf("./figures/test.cis.RAT_2011.200KB.windows.pdf", width=7, height=3.5)
+print(test.cis.plot)
+dev.off()
+```
+
+
+## All chromosomes simultaneously - fitness
+## Run in Vardec.all.chromosome.ipynb
+```{r read all chr dat - fitness}
+chr_lengths<-c(30427671,19698289,23459830,18585056,26975502)
+
+fs <- dir("./data/limix")
+fs <- fs[grep("all.chromosome", fs)]
+fs <- fs[grep("201", fs)]
+
+ac.dat <- as.list(rep(NA,8))
+for(up.f in 1:length(ac.dat)){
+  up.file <- paste("./data/limix/",fs[[up.f]],sep="")
+  up.dat <- read.csv(up.file, stringsAsFactors=TRUE)
+  up.exp <- strsplit(fs[[up.f]],".",fixed=TRUE)[[1]][1]
+  up.dat$exp <- up.exp
+  tot.var <- sum(up.dat$var_exp)
+  up.dat$per_var <- up.dat$var_exp/tot.var
+  up.dat$pvar.by.mb <- up.dat$per_var/(c(chr_lengths,0)/1000000)
+  ac.dat[[up.f]] <- up.dat
+}
+ac.dat <- do.call(rbind, ac.dat)
+ly <- do.call(rbind,strsplit(ac.dat$exp,"_"))
+colnames(ly) <- c("site", "year")
+ac.dat <- cbind(ac.dat,ly)
+```
+
+```{r plot all chr barplots - fitness}
+
+allchr.plot1 <- ggplot(data=ac.dat, aes(x=exp, y=per_var, fill=chr)) +
+  geom_bar(stat="identity") +
+ facet_grid(vars(chr))
+
+allchr.plot2 <- ggplot(data=ac.dat, aes(x=chr, y=per_var, fill=chr)) +
+  geom_bar(stat="identity") +
+  facet_grid(vars(site, year))
+
+### is this proportional to chromosome length???
+allchr.plot3 <- ggplot(data=ac.dat[ac.dat$chr!="error",], aes(x=chr, y=pvar.by.mb, fill=chr)) +
+  geom_bar(stat="identity") +
+  facet_grid(vars(site, year)) +
+  scale_fill_brewer(palette="Paired") +
+  #scale_fill_manual(values=wes_palette(n=5, name="Darjeeling1")) +
+  ylab("percent variance/Mb") +
+  xlab("chromosome")
+
+### plot with short site names
+ac.dat$site.s <- ac.dat$site
+ac.dat$site.s <- gsub("ADA","NA", ac.dat$site.s)
+ac.dat$site.s <- gsub("RAM","NM", ac.dat$site.s)
+ac.dat$site.s <- gsub("ULL","SU", ac.dat$site.s)
+ac.dat$site.s <- gsub("RAT","SR", ac.dat$site.s)
+ac.dat$site.s <- factor(ac.dat$site.s, levels=c("NA","NM","SR","SU"))
+
+allchr.plot3s <- ggplot(data=ac.dat[ac.dat$chr!="error",], aes(x=chr, y=pvar.by.mb, fill=chr)) +
+  geom_bar(stat="identity") +
+  facet_grid(vars(site.s, year)) +
+  scale_fill_brewer(palette="Paired") +
+  #scale_fill_manual(values=wes_palette(n=5, name="Darjeeling1")) +
+  ylab("percent variance explained/Mb") +
+  xlab("chromosome")
+
+pdf("./figures/per.var.explained.by.norm.chr.pdf", width=5, height=5)
+print(allchr.plot3s)
+dev.off()
+
+```
+## In small windows (40kb), non-overlapping, min SNP number=10.
+```{r read small window dat}
+fs <- dir("./data/limix")
+fs <- fs[grep("40000slide", fs)] ### RAM_2011 is still not working, but let's plot the others.  If we want it, I can troubleshoot RAM_2011 later.
+
+### plot these in windows
+for(up in 1:7){
+  up.dat <- read.csv(paste("./data/limix/",fs[up],sep=""),stringsAsFactors=FALSE)
+  up.exp <- strsplit(fs[up],".", fixed=TRUE)[[1]][1]
+  up.dat$chr <- factor(up.dat$chr)
+  up.dat$total <- up.dat$cis + up.dat$trans + up.dat$error
+  up.dat$per.cis <-  (up.dat$cis/up.dat$total)*100
+
+  #ggplot(up.dat, aes(x=start, y=num_snps, color=chr)) + geom_point() + facet_grid(cols=vars(chr))
+
+  #plot(up.dat$per.cis, up.dat$num_snps) 
+
+  test.cis.plot <- ggplot(up.dat, aes(x=start/1000000, y=per.cis, color=chr)) + 
+    geom_point() + 
+    facet_grid(cols=vars(chr))+ 
+    scale_color_manual(values=wes_palette(n=5, name="Darjeeling1"))+
+    ggtitle(paste(up.exp, "40KB windows_non-overlapping", sep=" ")) +
+    xlab("window start (Mbp)") + ylab("percent variance explained in cis")
+
+  print(test.cis.plot)
+
+  pdf(file=paste("./figures/",up.exp,".40KB.nonoverlap.windows.vardec.pdf",sep=""), width=10, height=3.5)
+  print(test.cis.plot)
+dev.off()
+}
+```
+## All chromosomes simultaneously - blup slopes
+## Run in Vardec.all.chromosome.ipynb
+```{r read all chr dat - fitness}
+chr_lengths<-c(30427671,19698289,23459830,18585056,26975502)
+
+fs <- dir("./data/limix")
+fs <- fs[grep("all.chromosome", fs)]
+fs <- fs[-grep("201", fs)]
+
+ac.dat <- as.list(rep(NA,8))
+for(up.f in 1:length(ac.dat)){
+  up.file <- paste("./data/limix/",fs[[up.f]],sep="")
+  up.dat <- read.csv(up.file, stringsAsFactors=TRUE)
+  up.exp <- strsplit(fs[[up.f]],".",fixed=TRUE)[[1]][1]
+  up.dat$slope <- up.exp
+  tot.var <- sum(up.dat$var_exp)
+  up.dat$per_var <- up.dat$var_exp/tot.var
+  up.dat$pvar.by.mb <- up.dat$per_var/(c(chr_lengths,0)/1000000)
+  ac.dat[[up.f]] <- up.dat
+}
+ac.dat <- do.call(rbind, ac.dat)
+
+slope.index <- as.data.frame(unique(ac.dat$slope))
+colnames(slope.index)[1] <- "slope"
+slope.index$north <- c(rep("NA",4), rep("NM",4))
+slope.index$south <- c(rep("SR",2), rep("SU",2), rep("SR",2), rep("SU",2))
+slope.index$year <- rep(c("2011","2012"),4)
+ac.dat <- merge(ac.dat, slope.index)
+ac.dat$slope.s <- paste(ac.dat$north, ac.dat$south, sep="_")
+```
+
+```{r plot all chr barplots - slope}
+
+allchr.plot1 <- ggplot(data=ac.dat, aes(x=slope, y=per_var, fill=chr)) +
+  geom_bar(stat="identity") +
+ facet_grid(vars(chr))
+
+
+### is this proportional to chromosome length???
+allchr.plot3 <- ggplot(data=ac.dat[ac.dat$chr!="error",], aes(x=chr, y=pvar.by.mb, fill=chr)) +
+  geom_bar(stat="identity") +
+  facet_grid(vars(south, north, year)) +
+  scale_fill_brewer(palette="Paired") +
+  #scale_fill_manual(values=wes_palette(n=5, name="Darjeeling1")) +
+  ylab("percent variance/Mb") +
+  xlab("chromosome")
+
+### plot with combined site names
+
+allchr.plot3s <- ggplot(data=ac.dat[ac.dat$chr!="error",], aes(x=chr, y=pvar.by.mb, fill=chr)) +
+  geom_bar(stat="identity") +
+  facet_grid(vars(slope.s, year)) +
+  scale_fill_brewer(palette="Paired") +
+  #scale_fill_manual(values=wes_palette(n=5, name="Darjeeling1")) +
+  ylab("percent variance explained/Mb") +
+  xlab("chromosome")
+
+pdf("./figures/per.var.explained.by.norm.slope.chr.pdf", width=5, height=5)
+print(allchr.plot3s)
+dev.off()
+
+```

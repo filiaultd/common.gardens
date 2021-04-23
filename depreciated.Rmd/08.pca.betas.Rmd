@@ -1,0 +1,175 @@
+---
+title: "08.pca.betas"
+author: "Daniele Filiault"
+date: "6/25/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+From GWAS, I have betas for fitness per site, per year.  Within a year (or maybe all combos?) what explains variation?  Try to approach this with PCA.
+
+### Prep data
+```{r prepration}
+#betas 2011
+load("./data/betas2011.Rdat")
+
+#betas 2012
+load("./data/betas2012.Rdat")
+
+sites <- c("Åda","Ram","Ull","Rat")
+```
+
+
+## 2011, all sites
+
+```{r pca 2011}
+up.dat <- betas2011[,8:11]
+colnames(up.dat) <- sites
+
+library(corrplot)
+corrplot(cor(up.dat), method="ellipse", type="upper", diag=FALSE,addCoef.col="black")
+
+s.2011.pca <- prcomp(up.dat)
+s.2011.pca
+summary(s.2011.pca)
+
+library(ggfortify)
+
+autoplot(prcomp(up.dat), data = up.dat, loadings = TRUE)
+
+
+
+
+```
+
+## 2012, all sites
+
+```{r pca 2012}
+up.dat <- betas2012[,8:11]
+colnames(up.dat) <- sites
+
+library(corrplot)
+corrplot(cor(up.dat), method="ellipse", type="upper", diag=FALSE,addCoef.col="black")
+
+s.2012.pca <- prcomp(up.dat)
+s.2012.pca
+summary(s.2012.pca)
+
+library(ggfortify)
+
+autoplot(prcomp(up.dat), data = up.dat, loadings = TRUE)
+
+
+
+
+```
+
+
+
+## both years, all sites
+
+```{r pca both}
+
+up.dat <- merge(betas2011[,c(2,8:11)],betas2012[, c(2,8:11)], by="rs")
+up.dat <- up.dat[,2:9]
+colnames(up.dat) <- c(paste(sites,"2011", sep="_"), paste(sites,"2012", sep="_"))
+
+library(corrplot)
+corrplot(cor(up.dat), method="ellipse", type="upper", diag=FALSE,addCoef.col="black", order="original")
+segments(4.5,4.5,4.5,8.5, lwd=3)
+segments(4.5,4.5,8.5,4.5, lwd=3)
+segments(4.5,8.5,8.5,8.5, lwd=3)
+segments(8.5,4.5,8.5,8.5, lwd=3)
+
+## corrplot as pdf
+
+up.dat.simple <- up.dat
+colnames(up.dat.simple) <- c("N2_2011","N1_2011", "S1_2011", "S2_2011", "N2_2012", "N1_2012", "S1_2012", "S2_2012")
+up.dat.simple <- up.dat.simple[,c(2,1,3:4,6,5,7:8)]
+pdf("./figures/beta.correlations.pdf", width=6, height=6)
+corrplot(cor(up.dat.simple), method="ellipse", type="upper", diag=FALSE,addCoef.col="black", order="original")
+segments(4.5,4.5,4.5,8.5, lwd=3)
+segments(4.5,4.5,8.5,4.5, lwd=3)
+segments(4.5,8.5,8.5,8.5, lwd=3)
+segments(8.5,4.5,8.5,8.5, lwd=3)
+dev.off()
+
+## also do corrplot with dendrogram
+
+library(heatmaply)
+my_cor <- cor(up.dat.simple, use="na.or.complete")
+colfunc<-colorRampPalette(c("red","white","royalblue"))
+heatmaply_cor(my_cor, colors= colfunc(100),cellnote=my_cor,cellnote_textposition="middle center")
+### since these are interactive plots in plotly, they are hard to save statically, so I saved this one manually from the window
+#file="./figures/correlation.dendrogram.fitness.beta.values.jpg")
+
+
+
+
+
+
+
+all.pca <- prcomp(up.dat)
+all.pca
+summary(all.pca)
+
+library(ggfortify)
+
+autoplot(prcomp(up.dat), data = up.dat, loadings = TRUE)
+
+```
+
+Let's just explicity check the proportion of variance explained via a linear model pairwise between sites:
+```{r lm both}
+lm.names <- combn(colnames(up.dat),2)
+
+all.models <- as.list(1:ncol(lm.names))
+
+for(up in 1:ncol(lm.names)){
+  up.col <- lm.names[,up]
+  lm.up <- lm(unlist(up.dat[,colnames(up.dat)==up.col[1]])~unlist(up.dat[,colnames(up.dat)==up.col[2]]))
+  all.models[[up]] <- lm.up
+}
+names(all.models) <- apply(lm.names, 2, function(x){paste(x, collapse="_")})
+
+am.rsq <- unlist(lapply(all.models, function(x) {summary(x)$adj.r.squared}))
+am.rsq <- am.rsq[order(am.rsq)]
+
+par(mar=c(10,4,4,2))
+barplot(am.rsq, las=2, ylab="adjusted R2")
+par(mar=c(5,4,4,2) +0.1)
+
+pdf("./figures/adjR2values.betas.between.sites.years.pdf", width=8, height=6)
+par(mar=c(10,4,4,2))
+barplot(am.rsq, las=2, ylab="adjusted R2")
+par(mar=c(5,4,4,2) +0.1)
+dev.off()
+```
+
+
+So from all of this, I think that the correlation matrix is probably the most useful for getting some general ideas across about common SNP effects in the data:
+
+1.  The strongest correlations are between the two northern sites, both in 2011 and 2012.  So SNPs tend to have more common effects in North than in South, in general.  This is stronger in 2012, where both sites had negative adaptation signals - in 2011, local adaptation in Ramsta and not Adal.
+
+2.  There is a certain amount of effect sharing across (most) sites, even across years.  Rat 2012 is really the exception to this.  No correlation with either Adal or Ram in 2011, and the lowest correlation within 2012.  Even Rat 2012 vs Rat 2011 is quite different.
+
+3.  Overall correlations are stronger in 2012 than in 2011.  Consistant with idea that positive local adaptation in South and negative local adaptation in North in 2012 - more alleles have common effects.
+
+4.  Ullstorp is the most consistant site in terms of consistent effects (also in terms of adaptation).
+
+5.  Despite a high correlation of Ada and Ram 2011, there are differing signs of local adaptation between these 2 sites.
+
+6.  What do common effects represent - common negative or common positive effects of fitness?  Or a mix of both?  How to tell?
+
+7.  Still, a large proportion of variance remains unexplained by this "identity"/common effect!
+
+8.  So this brings an easy lead-in to the SnR data - can you predict the AFD based on these estimates or not?
+
+
+
+
