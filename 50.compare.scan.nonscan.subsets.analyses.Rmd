@@ -64,10 +64,9 @@ win.size <- 10000
 sg.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
 sg.dat <- sg.dat[,1:2]
 colnames(sg.dat) <- c("chr", "pos")
-ss.dat <- sg.dat
 
 # run analysis
-compare.by.scan.nonscan(af.dat=af.dat, ss.dat=ss.dat, up.scan.name="swedishgenomes", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+compare.by.scan.nonscan(af.dat=af.dat, ss.dat=sg.dat, up.scan.name="swedishgenomes", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
 ```
 
 ## 3. Fournier-Level - all experiments
@@ -85,7 +84,7 @@ compare.by.scan.nonscan(af.dat=af.dat, ss.dat=fl.dat, up.scan.name="fournierleve
 ```
 
 
-## 4. Fournier-Level - Oulu (FIN) experiments only
+## 4a. Fournier-Level - Oulu (FIN) experiments only
 ```{r fournierlevelFIN data}
 fl.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
 FIN.dat <- fl.dat[fl.dat$Location=="FIN",]
@@ -96,6 +95,40 @@ colnames(FIN.dat) <- c("chr", "pos")
 compare.by.scan.nonscan(af.dat=af.dat, ss.dat=FIN.dat, up.scan.name="fournierlevelFIN", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
 ```
 
+## 4b. Fournier-Level - Spain (SP) experiments only
+```{r fournierlevelSP data}
+fl.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
+SP.dat <- fl.dat[fl.dat$Location=="SP",]
+SP.dat <- SP.dat[,1:2]
+colnames(SP.dat) <- c("chr", "pos")
+# subset for SP experiment
+
+compare.by.scan.nonscan(af.dat=af.dat, ss.dat=SP.dat, up.scan.name="fournierlevelSP", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+```
+
+## 4c. Fournier-Level - German (GER) experiments only
+```{r fournierlevelGER data}
+fl.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
+GER.dat <- fl.dat[fl.dat$Location=="GER",]
+GER.dat <- GER.dat[,1:2]
+colnames(GER.dat) <- c("chr", "pos")
+# subset for GER experiment
+
+compare.by.scan.nonscan(af.dat=af.dat, ss.dat=GER.dat, up.scan.name="fournierlevelGER", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+```
+
+## 4d. Fournier-Level - UK (UK) experiments only
+```{r fournierlevelSP data}
+fl.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
+UK.dat <- fl.dat[fl.dat$Location=="UK",]
+UK.dat <- UK.dat[,1:2]
+colnames(UK.dat) <- c("chr", "pos")
+# subset for UK experiment
+
+compare.by.scan.nonscan(af.dat=af.dat, ss.dat=UK.dat, up.scan.name="fournierlevelUK", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+```
+
+
 ## 5. Hancock GEA 
 ```{r hancock data}
 # prep data
@@ -104,7 +137,7 @@ ha.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
 ha.dat <- ha.dat[,2:3]
 colnames(ha.dat) <- c("chr", "pos")
 
-compare.by.scan.nonscan(af.dat=ha.dat, ss.dat=fl.dat, up.scan.name="hancock", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+compare.by.scan.nonscan(af.dat=af.dat, ss.dat=ha.dat, up.scan.name="hancock", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
 ```
 
 ## 6. Huber sweeps
@@ -116,33 +149,114 @@ ns.dat <- ns.dat[,1:2]
 colnames(ns.dat) <- c("chr", "pos")
 ## input is 2 columns giving chr and pos
 
-compare.by.scan.nonscan(af.dat=ns.dat, ss.dat=fl.dat, up.scan.name="huber", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+compare.by.scan.nonscan(af.dat=af.dat, ss.dat=ns.dat, up.scan.name="huber", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
 ```
 
 ## 7. Horton sweeps
-```{r horton1}
+```{r horton FST}
+up.scan.file <- "./data/003.selection.scans/selection_scans_horton/global.all.fsts"
+fst.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+fst.dat <- fst.dat[order(fst.dat$fst, decreasing=TRUE),]
+#take top 1%
+fst.dat <- fst.dat[1:(nrow(fst.dat)*0.01),]
+fst.dat <- fst.dat[,2:3]
+colnames(fst.dat) <- c("chr", "pos")
 
-
-
-```
-
-```{r horton2}
-
-
-
-```
-
-
-```{r horton3}
-
-
-
+compare.by.scan.nonscan(af.dat=af.dat, ss.dat=fst.dat, up.scan.name="hortonFST", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
 
 ```
 
-## 8. Assman lab GEA data?
+```{r horton CLR}
+up.scan.file <- "./data/003.selection.scans/selection_scans_horton/allCLR.txt"
+clr.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+clr.dat <- clr.dat[order(clr.dat$meanCLR, decreasing=TRUE),]
+#take top 1%
+clr.dat <- clr.dat[1:(nrow(clr.dat)*0.01),]
+clr.dat <- clr.dat[,1:2]
+colnames(clr.dat) <- c("chr", "pos")
 
-## 9. Lasky data
+compare.by.scan.nonscan(af.dat=af.dat, ss.dat=clr.dat, up.scan.name="hortonCLR", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
 
-## 10. Agren cross data
+```
+
+
+```{r horton PHS}
+up.scan.file <- "./data/003.selection.scans/selection_scans_horton/phsscores.pos.txt"
+phs.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+phs.dat <- phs.dat[order(phs.dat$PHS, decreasing=TRUE),]
+#take top 1%
+phs.dat <- phs.dat[1:(nrow(phs.dat)*0.01),]
+phs.dat <- phs.dat[,1:2]
+colnames(phs.dat) <- c("chr", "pos")
+
+
+compare.by.scan.nonscan(af.dat=af.dat, ss.dat=phs.dat, up.scan.name="hortonPHS", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+```
+
+## 8. Exposito-Alonso data (GWA, AGWA)
+```{r exposito GWA}
+up.scan.file <- "./data/003.selection.scans/exposito_2018/S3_gwa.csv"
+egwas.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+egwas.dat <- egwas.dat[,1:2]
+colnames(egwas.dat) <- c("chr", "pos")
+
+
+compare.by.scan.nonscan(af.dat=af.dat, ss.dat=egwas.dat, up.scan.name="exposGWAS", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+```
+
+```{r exposito AGWA}
+up.scan.file <- "./data/003.selection.scans/exposito_2018/S4_agwa.csv"
+agwas.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+agwas.dat <- agwas.dat[,1:2]
+colnames(agwas.dat) <- c("chr", "pos")
+### this is only 5 loci
+
+compare.by.scan.nonscan(af.dat=af.dat, ss.dat=agwas.dat, up.scan.name="exposAGWAS", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+```
+
+## 9. Price data (LFMM, GEMMA, BAYESCAN, AFD.LD)
+```{r price LFMM}
+up.scan.file <- "./data/003.selection.scans/price_2020/LFMM_MinTmpCldM_K_8_q_values"
+plfmm.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+plfmm.dat <- plfmm.dat[plfmm.dat$q_value<0.1,]
+plfmm.dat <- plfmm.dat[,1:2]
+colnames(plfmm.dat) <- c("chr", "pos")
+
+
+compare.by.scan.nonscan(af.dat=af.dat, ss.dat=plfmm.dat, up.scan.name="priceLFMM", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+```
+
+```{r price GEMMA}
+up.scan.file <- "./data/003.selection.scans/price_2020/GEMMA_MinTmpCldM_q_values"
+pgemma.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+pgemma.dat <- pgemma.dat[pgemma.dat$q_value<0.1,]
+pgemma.dat <- pgemma.dat[,1:2]
+colnames(pgemma.dat) <- c("chr", "pos")
+
+
+compare.by.scan.nonscan(af.dat=af.dat, ss.dat=pgemma.dat, up.scan.name="priceGEMMA", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+```
+
+```{r price BAYESCAN}
+up.scan.file <- "./data/003.selection.scans/price_2020/BAYESCAN_FDR_FINAL"
+pbayes.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+pbayes.dat <- pbayes.dat[pbayes.dat$FDR<0.1,]
+pbayes.dat <- pbayes.dat[,1:2]
+colnames(pbayes.dat) <- c("chr", "pos")
+
+
+compare.by.scan.nonscan(af.dat=af.dat, ss.dat=pbayes.dat, up.scan.name="priceBAYES", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+```
+
+```{r price AFD.LD}
+up.scan.file <- "./data/003.selection.scans/price_2020/AFD_LD_Italy_Sweden_pops"
+pal.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+pal.dat <- pal.dat[pal.dat$AFD>0.7 & pal.dat$LD>0.19,] #cutoff -> AFD>0.7 and LD>0.19 (95th percentiles)
+pal.dat <- pal.dat[,1:2]
+colnames(pal.dat) <- c("chr", "pos")
+
+
+compare.by.scan.nonscan(af.dat=af.dat, ss.dat=pal.dat, up.scan.name="priceAFDLD", win.size=10000, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+```
+## 10. Agren cross data - different script, need to define windows manually rather than around bp
 

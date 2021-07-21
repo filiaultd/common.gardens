@@ -1,0 +1,30 @@
+---
+title: "48.AFD.genome.scan.subsets.analyses.Rmd"
+author: "Daniele Filiault"
+date: "4/26/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE, purl=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = '/Volumes/field_experiments/adaptation_sweden/common.gardens/')
+
+library(ggpmisc)
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+library(tidyr)
+library(ggpubr)
+library(cowplot)
+library(viridis)
+library(rcompanion)
+library(multcompView)
+library(egg)
+source("./50.compare.scan.nonscan.subsets.functions.R") ### functions for analysis
+```
+
+
+## Introduction
+
+Looks at patterns of beta versus home allele, home allele frequency, and difference between home and away allele frequency for selection scan datasets.    
+Functions developed in 48.AFD.genome.scan.subsets.functions.Rmd

@@ -81,6 +81,28 @@ scan.snps <- function(ss.dat, win.size, home.beta){
 ## there is now a column called "scan" that ==TRUE if overlapping genome scan
 
 
+## ----filter by scan data function rel positions--------------------------
+
+scan.snps.rel.pos <- function(ss.dat, win.size, home.beta){
+  ## add column to home.beta that says whether a SNP is in the dataset or not
+  ss.dat$start <- ss.dat$rel.pos-win.size
+  ss.dat$stop <- ss.dat$rel.pos+win.size
+
+  ss.pos <- apply(ss.dat,1, function(x){
+    out.dat <- home.beta[home.beta$rel.pos>=x[4] & home.beta$rel.pos<=x[5],c("chrom", "pos","rel.pos")]
+  })
+  ss.pos <- do.call(rbind, ss.pos)
+  ss.pos <- unique(ss.pos) #68750 positions
+  ss.pos$scan <- TRUE
+
+  home.beta.ss <- merge(home.beta, ss.pos, all.x=TRUE)
+  home.beta.ss[is.na(home.beta.ss$scan),"scan"] <- FALSE
+  home.beta.ss$scan <- factor(home.beta.ss$scan, levels=c("TRUE", "FALSE"))
+  return(home.beta.ss)
+}
+## there is now a column called "scan" that ==TRUE if overlapping genome scan
+
+
 ## ----home allele difference scan/nonscan function------------------------
 
 #turns pvalue to symbols
@@ -262,12 +284,12 @@ scan.nonscan.afd.plot.output <- function(n.comp.afd.boxplots, s.comp.afd.boxplot
 ## ----assemble into function----------------------------------------------
 
 #general input variables for testing
-af.dat <- af.dat
-ss.dat <- ss.dat # ss.dat is selection scan data matrix with 2 columns: chr and pos
-up.scan.name <- "swedishgenomes"
-win.size <- 10000
-gwas.res.files.n <- gwas.res.files.n #path to GWAS results files of N experiments
-gwas.res.files.s <- gwas.res.files.s #path to GWAS results files of S experiments
+#af.dat <- af.dat
+#ss.dat <- ss.dat # ss.dat is selection scan data matrix with 2 columns: chr and pos
+#up.scan.name <- "swedishgenomes"
+#win.size <- 10000
+#gwas.res.files.n <- gwas.res.files.n #path to GWAS results files of N experiments
+#gwas.res.files.s <- gwas.res.files.s #path to GWAS results files of S experiments
 
 compare.by.scan.nonscan <- function(af.dat, ss.dat, up.scan.name, win.size, gwas.res.files.n, gwas.res.files.s){
   ## test effect of home allele

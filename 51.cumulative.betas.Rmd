@@ -1,0 +1,2226 @@
+---
+title: "51.cumulative.betas"
+author: "Daniele Filiault"
+date: "5/25/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(gridExtra)
+library(ggpmisc)
+library(tidyr)
+library(ggpubr)
+library(cowplot)
+library(dplyr)
+library(viridis)
+library(lemon)
+library(glue)
+source("./50.compare.scan.nonscan.subsets.functions.R")
+
+#setwd("/Volumes/field_experiments/adaptation_sweden/common.gardens/")
+```
+
+## Introduction
+
+Still looking for a good way of presenting relationships between allele frequencies and beta for multiple experiments at once.  Joy suggested some sort of plot of cumulative betas vs beta or AFD or something???  I don't quite get it, but I will try.
+
+## ## 1. Load AFD data
+
+```{r load data}
+### allele frequency data from script 46.allele.freq.differences.Kgroups
+load("./data/pop.af.dat.Rdat")
+load("./data/allele.freq.GWAS.snps.Rdata")#afg
+```
+
+```{r prep AFD data}
+### combine AFD datasets
+colnames(pop.af.dat)[1:2] <- c("chrom", "pos")
+pos <- do.call(rbind,strsplit(rownames(afg),"_"))
+colnames(pos) <- c("chrom", "pos")
+pos <- as.data.frame(pos)
+afg <- cbind(afg, pos)
+af.dat <- merge(pop.af.dat, afg, by=c("chrom", "pos"), all=TRUE)
+```
+
+## 2. Add GWAS data and polarize by most frequent local allele - Northern experiments
+
+```{r polarize and sum betas north}
+### GWAS run in gemma in /groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens/28.BLUP.GWAS.Rmd
+
+gwas.res.files.n <- c("./res/gemma_marginal/gemma_lmm_blup_RAM_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAM_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ADA_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ADA_2012.rds")
+gwas.res.files.s <- c("./res/gemma_marginal/gemma_lmm_blup_RAT_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAT_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ULL_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ULL_2012.rds")
+
+n.af.sum <- as.list(1:4)
+n.afd.sum <- as.list(1:4)
+  
+for(up.fn in 1:4){
+  up.f <- gwas.res.files.n[up.fn]
+  print(up.f)    
+  up.dat <- add.gwas(up.gwa.file=up.f, home.allele="ANORTH", away.allele="ASOUTH")
+  up.pheno <- get.p.name(up.gwa.file=up.f)
+  up.short.name <- short.p.name(p.name=up.pheno)
+  # get AFD bins
+  breaks <- seq(0.5,1,0.1)
+  # specify interval/bin labels
+  tags <- c("[.5-.6)","[.6-.7)","[.7-.8)","[.8-.9)","[.9-1)")  # bucketing values into bins north/south
+  up.dat$ahome.bins <- cut(up.dat$ahome, breaks=breaks, include.lowest=TRUE, right=FALSE, labels=tags)
+  up.dat$ahome.bins <- factor(up.dat$ahome.bins, levels = c(tags, "[1]"),ordered = TRUE)
+  # add fixed bins
+  up.dat[up.dat$ahome==1, 35] <- "[1]"
+  
+  af.ord <- up.dat[!is.na(up.dat$home.beta),]
+  af.ord <- af.ord[order(af.ord$ahome, af.ord$home.beta),]
+  af.ord$csum <- cumsum(af.ord$home.beta)
+  #normalize to abs(max(cumsum))==1
+  max.cs <- max(abs(af.ord$csum))
+  af.ord$csum.norm <- af.ord$csum/max.cs
+  #weighted betas
+  af.ord$w.beta <- af.ord$home.beta * af.ord$ahome
+  af.ord$csum.wb <- cumsum(af.ord$w.beta)
+  #normalize
+  max.cs <- max(abs(af.ord$csum.wb))
+  af.ord$csum.wb.norm <- af.ord$csum.wb/max.cs
+  af.out <- af.ord[,c("ahome","ahome.bins","csum","csum.norm","csum.wb", "csum.wb.norm","home.beta")]
+  af.out$exp <- up.short.name
+  af.out$index <- 1:nrow(af.out)
+  n.af.sum[[up.fn]] <- af.out
+  
+  afd.ord <- up.dat[!is.na(up.dat$home.beta),]
+  afd.ord <- afd.ord[order(afd.ord$ha.afd, afd.ord$home.beta),]
+  afd.ord$csum <- cumsum(afd.ord$home.beta)
+  #normalize to abs(max(cumsum))==1
+  max.cs <- max(abs(afd.ord$csum))
+  afd.ord$csum.norm <- afd.ord$csum/max.cs
+  #weighted betas
+  afd.ord$w.beta <- afd.ord$home.beta * afd.ord$ahome
+  afd.ord$csum.wb <- cumsum(afd.ord$w.beta)
+  max.cs <- max(abs(afd.ord$csum.wb))
+  afd.ord$csum.wb.norm <- afd.ord$csum.wb/max.cs
+  afd.out <- afd.ord[,c("ha.afd","csum","csum.norm","csum.wb", "csum.wb.norm","home.beta")]
+  afd.out$exp <- up.short.name
+  afd.out$index <- 1:nrow(afd.out)
+  n.afd.sum[[up.fn]] <- afd.out
+}
+
+n.af.sum <- do.call(rbind, n.af.sum)
+n.af.fixed <- aggregate(index~exp, data=n.af.sum[n.af.sum$ahome==1,], FUN=min)
+
+n.afd.sum <- do.call(rbind, n.afd.sum)
+n.afd.fixed <- aggregate(index~exp, data=n.afd.sum[n.afd.sum$ha.afd>=0.9,], FUN=min)
+
+```
+
+```{r plot beta cumsum north}
+
+af.plot <- ggplot(data=n.af.sum, aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ahome)) +
+  scale_color_viridis(direction=-1) +
+  facet_wrap(~exp, ncol=2) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=n.af.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+af.nfile <- "./figures/51.figures/cumulative.beta.AF.north.jpg"
+ggsave(af.nfile, plot=af.plot, width=8, height=6)
+
+afd.plot <- ggplot(data=n.afd.sum, aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ha.afd)) +
+  scale_color_viridis(direction=-1)+
+  facet_wrap(~exp, ncol=2) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=n.afd.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+afd.nfile <- "./figures/51.figures/cumulative.beta.ADF.north.jpg"
+ggsave(afd.nfile, plot=afd.plot, width=8, height=6)
+
+afw.plot <- ggplot(data=n.af.sum, aes(x=index,y=csum.wb.norm)) +
+  geom_point(aes(color=ahome)) +
+  scale_color_viridis(direction=-1) +
+  facet_wrap(~exp, ncol=2) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative weighted beta (normalized)") +
+  geom_vline(data=n.af.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+af.nfile.w <- "./figures/51.figures/cumulative.weighted.beta.AF.north.jpg"
+ggsave(af.nfile.w, plot=afw.plot, width=8, height=6)
+
+afdw.plot <- ggplot(data=n.afd.sum, aes(x=index,y=csum.wb.norm)) +
+  geom_point(aes(color=ha.afd)) +
+  scale_color_viridis(direction=-1)+
+  facet_wrap(~exp, ncol=2) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative weighted beta (normalized)") +
+  geom_vline(data=n.afd.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+afd.nfile.w <- "./figures/51.figures/cumulative.weighted.beta.ADF.north.jpg"
+ggsave(afd.nfile.w, plot=afdw.plot, width=8, height=6)
+
+```
+
+## 3. Add GWAS data and polarize by most frequent local allele - Southern experiments
+
+```{r polarize and sum betas south}
+### GWAS run in gemma in /groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens/28.BLUP.GWAS.Rmd
+
+gwas.res.files.s <- c("./res/gemma_marginal/gemma_lmm_blup_RAT_2011.rds", "./res/gemma_marginal/gemma_lmm_blup_RAT_2012.rds", "./res/gemma_marginal/gemma_lmm_blup_ULL_2011.rds","./res/gemma_marginal/gemma_lmm_blup_ULL_2012.rds")
+
+s.af.sum <- as.list(1:4)
+s.afd.sum <- as.list(1:4)
+  
+for(up.fn in 1:4){
+  up.f <- gwas.res.files.s[up.fn]
+  print(up.f)    
+  up.dat <- add.gwas(up.gwa.file=up.f, home.allele="ASOUTH", away.allele="ANORTH")
+  up.pheno <- get.p.name(up.gwa.file=up.f)
+  up.short.name <- short.p.name(p.name=up.pheno)
+  # get AFD bins
+  breaks <- seq(0.5,1,0.1)
+  # specify interval/bin labels
+  tags <- c("[.5-.6)","[.6-.7)","[.7-.8)","[.8-.9)","[.9-1)")  # bucketing values into bins north/south
+  up.dat$ahome.bins <- cut(up.dat$ahome, breaks=breaks, include.lowest=TRUE, right=FALSE, labels=tags)
+  up.dat$ahome.bins <- factor(up.dat$ahome.bins, levels = c(tags, "[1]"),ordered = TRUE)
+  # add fixed bins
+  up.dat[up.dat$ahome==1, 35] <- "[1]"
+  
+  af.ord <- up.dat[!is.na(up.dat$home.beta),]
+  af.ord <- af.ord[order(af.ord$ahome, af.ord$home.beta),]
+  af.ord$csum <- cumsum(af.ord$home.beta)
+  #normalize to abs(max(cumsum))==1
+  max.cs <- max(abs(af.ord$csum))
+  af.ord$csum.norm <- af.ord$csum/max.cs
+  #weighted betas
+  af.ord$w.beta <- af.ord$home.beta * af.ord$ahome
+  af.ord$csum.wb <- cumsum(af.ord$w.beta)
+  #normalize
+  max.cs <- max(abs(af.ord$csum.wb))
+  af.ord$csum.wb.norm <- af.ord$csum.wb/max.cs
+  af.out <- af.ord[,c("ahome","ahome.bins","csum","csum.norm","csum.wb", "csum.wb.norm","home.beta")]
+  af.out$exp <- up.short.name
+  af.out$index <- 1:nrow(af.out)
+  s.af.sum[[up.fn]] <- af.out
+  
+  afd.ord <- up.dat[!is.na(up.dat$home.beta),]
+  afd.ord <- afd.ord[order(afd.ord$ha.afd, afd.ord$home.beta),]
+  afd.ord$csum <- cumsum(afd.ord$home.beta)
+  #normalize to abs(max(cumsum))==1
+  max.cs <- max(abs(afd.ord$csum))
+  afd.ord$csum.norm <- afd.ord$csum/max.cs
+  #weighted betas
+  afd.ord$w.beta <- afd.ord$home.beta * afd.ord$ahome
+  afd.ord$csum.wb <- cumsum(afd.ord$w.beta)
+  max.cs <- max(abs(afd.ord$csum.wb))
+  afd.ord$csum.wb.norm <- afd.ord$csum.wb/max.cs
+  afd.out <- afd.ord[,c("ha.afd","csum","csum.norm","csum.wb", "csum.wb.norm","home.beta")]
+  afd.out$exp <- up.short.name
+  afd.out$index <- 1:nrow(afd.out)
+  s.afd.sum[[up.fn]] <- afd.out
+}
+
+s.af.sum <- do.call(rbind, s.af.sum)
+s.af.fixed <- aggregate(index~exp, data=s.af.sum[s.af.sum$ahome==1,], FUN=min)
+
+s.afd.sum <- do.call(rbind, s.afd.sum)  
+s.afd.fixed <- aggregate(index~exp, data=s.afd.sum[s.afd.sum$ha.afd>=0.9,], FUN=min)
+
+```
+
+```{r plot beta cumsum south}
+
+s.af.plot <- ggplot(data=s.af.sum, aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ahome)) +
+  scale_color_viridis(direction=-1) +
+  facet_wrap(~exp, ncol=2) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=s.af.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+af.sfile <- "./figures/51.figures/cumulative.beta.AF.south.jpg"
+ggsave(af.sfile, plot=s.af.plot, width=8, height=6)
+
+s.afd.plot <- ggplot(data=s.afd.sum, aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ha.afd)) +
+  scale_color_viridis(direction=-1)+
+  facet_wrap(~exp, ncol=2) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=s.afd.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+
+afd.sfile <- "./figures/51.figures/cumulative.beta.ADF.south.jpg"
+ggsave(afd.sfile, plot=s.afd.plot, width=8, height=6)
+
+s.afw.plot <- ggplot(data=s.af.sum, aes(x=index,y=csum.wb.norm)) +
+  geom_point(aes(color=ahome)) +
+  scale_color_viridis(direction=-1) +
+  facet_wrap(~exp, ncol=2) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative weighted beta (normalized)") + 
+  geom_vline(data=s.af.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+
+af.sfile.w <- "./figures/51.figures/cumulative.weighted.beta.AF.south.jpg"
+ggsave(af.sfile.w, plot=s.afw.plot, width=8, height=6)
+
+s.afdw.plot <- ggplot(data=s.afd.sum, aes(x=index,y=csum.wb.norm)) +
+  geom_point(aes(color=ha.afd)) +
+  scale_color_viridis(direction=-1)+
+  facet_wrap(~exp, ncol=2) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative weighted beta (normalized)") +
+  geom_vline(data=s.afd.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+afd.sfile.w <- "./figures/51.figures/cumulative.weighted.beta.ADF.south.jpg"
+ggsave(afd.sfile.w, plot=s.afdw.plot, width=8, height=6)
+
+```
+
+## 4. Same plots for selection scan subsets (coplot with observed) - sweep detection datasets
+
+# function to subset a dataset for SNPs in a selection scan
+# input is chr pos of selection scan SNPs
+# output is a list.  First element is AF data, second is AFD data
+
+```{r selection scan subset fxn}
+# prep data
+up.scan.file <- "./data/003.selection.scans/Swedish.genomes.paper.sweeps.simple.csv"
+up.scan.name <- "swedishgenomes"
+win.size <- 10000
+sg.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
+sg.dat <- sg.dat[,1:2]
+ss.dat <- sg.dat
+colnames(sg.dat) <- c("chr", "pos")
+gwas.files <- gwas.res.files.n
+
+#prep home beta data
+# don't need this per se, but am going to use it so I can reuse a function used in a previous script
+home.beta <- polarize.beta(af.dat=af.dat, gwas.res.files.n=gwas.res.files.n, gwas.res.files.s=gwas.res.files.s)
+
+
+### the function!
+subset.scan.csum <- function(gwas.files, ss.dat, up.scan.name, win.size, home.beta, home.allele, away.allele){
+  #summary variables
+  scan.af.sum <- as.list(1:4)
+  scan.afd.sum <- as.list(1:4)
+
+  for(up.fn in 1:4){
+    up.f <- gwas.files[up.fn]
+    print(up.f)    
+    up.dat <- add.gwas(up.gwa.file=up.f, home.allele=home.allele, away.allele=away.allele)
+    up.pheno <- get.p.name(up.gwa.file=up.f)
+    up.short.name <- short.p.name(p.name=up.pheno)
+    #determine whether SNP is in scan
+    scan.beta <- scan.snps(ss.dat=ss.dat, win.size=win.size, home.beta=home.beta)
+    scan.dat <- merge(scan.beta[scan.beta$scan==TRUE,1:2], up.dat)
+  
+    # process cumsum AF of subset
+    af.ord <- scan.dat[!is.na(scan.dat$home.beta),]
+    af.ord <- af.ord[order(af.ord$ahome, af.ord$home.beta),]
+    af.ord$csum <- cumsum(af.ord$home.beta)
+    #weighted betas
+    af.ord$w.beta <- af.ord$home.beta * af.ord$ahome
+    af.ord$csum.wb <- cumsum(af.ord$w.beta)
+    af.out <- af.ord[,c("ahome","csum","csum.wb", "home.beta")]
+    af.out$exp <- up.short.name
+    af.out$index <- 1:nrow(af.out)
+    scan.af.sum[[up.fn]] <- af.out
+  
+    # process cumsum AFD of subset
+    afd.ord <- scan.dat[!is.na(scan.dat$home.beta),]
+    afd.ord <- afd.ord[order(afd.ord$ha.afd, af.ord$home.beta),]
+    afd.ord$csum <- cumsum(afd.ord$home.beta)
+    #weighted betas
+    afd.ord$w.beta <- afd.ord$home.beta * afd.ord$ahome
+    afd.ord$csum.wb <- cumsum(afd.ord$w.beta)
+    afd.out <- afd.ord[,c("ha.afd","csum","csum.wb", "home.beta")]
+    afd.out$exp <- up.short.name
+    afd.out$index <- 1:nrow(af.out)
+    scan.afd.sum[[up.fn]] <- afd.out
+  }
+
+  scan.af.sum <- do.call(rbind, scan.af.sum)
+  scan.af.sum$scan <- up.scan.name
+  scan.afd.sum <- do.call(rbind, scan.afd.sum)
+  scan.afd.sum$scan <- up.scan.name
+  scan.sum <-list(scan.af.sum, scan.afd.sum)
+  return(scan.sum)
+}
+
+
+#n.test <- subset.scan.csum(gwas.files=gwas.res.files.n, ss.dat=sg.dat, up.scan.name="swedishgenomes", win.size=10000, home.beta=home.beta, home.allele="ANORTH", away.allele="ASOUTH")
+
+
+```
+
+
+## 5. North data - sweep signal datasets
+
+#prep North data for sweep signal scans
+```{r sweeps north}
+# common variables
+gwas.files <- gwas.res.files.n
+win.size=10000
+home.allele="ANORTH"
+away.allele="ASOUTH"
+
+scannames <- c("swedishgenomes","huber","hortonFST","hortonCLR","hortonPHS","priceBayescan","priceAFDLD")
+
+n.sweep.dat <- as.list(1:length(scannames))
+
+### 1. swedish genomes
+up.scan <- 1
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/Swedish.genomes.paper.sweeps.simple.csv"
+sg.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
+sg.dat <- sg.dat[,1:2]
+colnames(sg.dat) <- c("chr", "pos")
+ss.dat <- sg.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+n.sweep.dat[[up.scan]] <- up.ss.dat
+
+### 2. Huber scans
+up.scan <- 2
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/christian.intervals.csv"
+ns.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
+ss.dat <- ns.dat[,1:2]
+colnames(ss.dat) <- c("chr", "pos")
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+n.sweep.dat[[up.scan]] <- up.ss.dat
+
+### 3. Horton FST
+up.scan <- 3
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/selection_scans_horton/global.all.fsts"
+fst.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+fst.dat <- fst.dat[order(fst.dat$fst, decreasing=TRUE),]
+#take top 1%
+fst.dat <- fst.dat[1:(nrow(fst.dat)*0.01),]
+fst.dat <- fst.dat[,2:3]
+colnames(fst.dat) <- c("chr", "pos")
+ss.dat <- fst.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+n.sweep.dat[[up.scan]] <- up.ss.dat
+
+### 4. Horton CLR
+up.scan <- 4
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/selection_scans_horton/allCLR.txt"
+clr.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+clr.dat <- clr.dat[order(clr.dat$meanCLR, decreasing=TRUE),]
+#take top 1%
+clr.dat <- clr.dat[1:(nrow(clr.dat)*0.01),]
+clr.dat <- clr.dat[,1:2]
+colnames(clr.dat) <- c("chr", "pos")
+ss.dat <- clr.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+n.sweep.dat[[up.scan]] <- up.ss.dat
+
+### 5. Horton PHS
+up.scan <- 5
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/selection_scans_horton/phsscores.pos.txt"
+phs.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+phs.dat <- phs.dat[order(phs.dat$PHS, decreasing=TRUE),]
+#take top 1%
+phs.dat <- phs.dat[1:(nrow(phs.dat)*0.01),]
+phs.dat <- phs.dat[,1:2]
+colnames(phs.dat) <- c("chr", "pos")
+ss.dat <- phs.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+n.sweep.dat[[up.scan]] <- up.ss.dat
+
+### 6. Price Bayescan
+up.scan <- 6
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/price_2020/BAYESCAN_FDR_FINAL"
+pbayes.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+pbayes.dat <- pbayes.dat[pbayes.dat$FDR<0.1,]
+pbayes.dat <- pbayes.dat[,1:2]
+colnames(pbayes.dat) <- c("chr", "pos")
+ss.dat <- pbayes.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+n.sweep.dat[[up.scan]] <- up.ss.dat
+
+### 7. Price AFD.LD
+up.scan <- 7
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/price_2020/AFD_LD_Italy_Sweden_pops"
+pal.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+pal.dat <- pal.dat[pal.dat$AFD>0.7 & pal.dat$LD>0.19,] #cutoff -> AFD>0.7 and LD>0.19 (95th percentiles)
+pal.dat <- pal.dat[,1:2]
+colnames(pal.dat) <- c("chr", "pos")
+ss.dat <- pal.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+n.sweep.dat[[up.scan]] <- up.ss.dat
+```
+
+# process N sweep scans to consolidate, normalize, and add observed data
+```{r process N sweep scans - AF dat}
+n.af.ss <- lapply(n.sweep.dat, function(x){x[[1]]})
+n.af.ss <- do.call(rbind, n.af.ss)
+# need to normalize this by experiment
+nas.s <- split(n.af.ss, n.af.ss$exp)
+nao.s <- split(n.af.sum, n.af.sum$exp)
+n.af.max <- lapply(nao.s, function(x){max(abs(x$csum))})
+for(up in 1:4){
+  nas.s[[up]]$csum.norm <- nas.s[[up]]$csum/n.af.max[[up]]
+}
+n.af.ss <- do.call(rbind, nas.s)
+n.obs <- n.af.sum[,colnames(n.af.sum)%in%colnames(n.af.ss)]
+n.obs$scan <- "genome"
+n.af.ss <- n.af.ss[,order(colnames(n.af.ss))]
+n.obs <- n.obs[, order(colnames(n.obs))]
+n.ss.af.dat <- rbind(n.obs, n.af.ss)
+n.ss.af.fixed <- aggregate(index~exp+scan, data=n.ss.af.dat[n.ss.af.dat$ahome==1,], FUN=min)
+```
+
+```{r process N sweep scans - AFD dat}
+n.afd.ss <- lapply(n.sweep.dat, function(x){x[[2]]})
+n.afd.ss <- do.call(rbind, n.afd.ss)
+# need to normalize this by experiment
+nas.s <- split(n.afd.ss, n.afd.ss$exp)
+nao.s <- split(n.afd.sum, n.afd.sum$exp)
+n.af.max <- lapply(nao.s, function(x){max(abs(x$csum))})
+for(up in 1:4){
+  nas.s[[up]]$csum.norm <- nas.s[[up]]$csum/n.af.max[[up]]
+}
+n.afd.ss <- do.call(rbind, nas.s)
+n.obs <- n.afd.sum[,colnames(n.afd.sum)%in%colnames(n.afd.ss)]
+n.obs$scan <- "genome"
+n.afd.ss <- n.afd.ss[,order(colnames(n.afd.ss))]
+n.obs <- n.obs[, order(colnames(n.obs))]
+n.ss.afd.dat <- rbind(n.obs, n.afd.ss)
+n.ss.afd.fixed <- aggregate(index~exp+scan, data=n.ss.afd.dat[n.ss.afd.dat$ha.afd>=0.9,], FUN=min)
+```
+
+#make the N sweep scan plots 
+```{r plot N ss data}
+n.ss.af.plot <- ggplot(data=n.ss.af.dat, aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ahome)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=n.ss.af.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+n.ss.af.file <- "./figures/51.figures/n.ss.af.plot.jpg"
+ggsave(n.ss.af.file, plot=n.ss.af.plot, width=8, height=10)
+
+## zoom in on scans only
+
+n.ss.af.plot.zoom <- ggplot(data=n.ss.af.dat[n.ss.af.dat$scan!="genome",], aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ahome)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp, drop=TRUE) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=n.ss.af.fixed[n.ss.af.fixed$scan!="genome",], aes(xintercept=index), linetype="dashed", color="purple") 
+
+n.ss.af.zoom.file <- "./figures/51.figures/n.ss.af.plot.zoom.jpg"
+ggsave(n.ss.af.zoom.file, plot=n.ss.af.plot.zoom, width=8, height=10)
+
+
+n.ss.afd.plot <- ggplot(data=n.ss.afd.dat, aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ha.afd)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)")+
+  geom_vline(data=n.ss.afd.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+n.ss.afd.file <- "./figures/51.figures/n.ss.afd.plot.jpg"
+ggsave(n.ss.afd.file, plot=n.ss.afd.plot, width=8, height=10)
+
+## zoom in on scans only
+
+n.ss.afd.plot.zoom <- ggplot(data=n.ss.afd.dat[n.ss.afd.dat$scan!="genome",], aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ha.afd)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp, drop=TRUE) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=n.ss.afd.fixed[n.ss.afd.fixed$scan!="genome",], aes(xintercept=index), linetype="dashed", color="purple")
+
+n.ss.afd.zoom.file <- "./figures/51.figures/n.ss.afd.plot.zoom.jpg"
+ggsave(n.ss.afd.zoom.file, plot=n.ss.afd.plot.zoom, width=8, height=10)
+
+```
+
+# north selection scan ecdf plots
+```{r ecdf N ss dat}
+n.ss.af.dat$scan <- as.factor(n.ss.af.dat$scan)
+n.ss.afd.dat$scan <- as.factor(n.ss.afd.dat$scan)
+
+## ecdfs for allele freq and AFD
+n.ss.af.ecdf.plot <- ggplot(n.ss.af.dat, aes(x=ahome, colour = scan)) + stat_ecdf(size=1.5) + scale_color_brewer(palette = "Set2") + ylab("proportion of SNPs") +xlab("home allele frequency")
+n.ss.afd.ecdf.plot <- ggplot(n.ss.afd.dat, aes(x=ha.afd, colour = scan)) + stat_ecdf(size=1.5) + scale_color_brewer(palette = "Set2") + ylab("proportion of SNPs") + xlab("allele frequency difference")
+n.ss.ecdf.plot <- grid_arrange_shared_legend(n.ss.af.ecdf.plot, n.ss.afd.ecdf.plot, nrow=1, position="right")
+n.ss.ecdf.file <- "./figures/51.figures/n.ss.ecdf.jpg"
+ggsave(n.ss.ecdf.file, plot=n.ss.ecdf.plot, width=10, height=6)
+
+## ecdfs for betas
+n.ss.beta.ecdf.plot <- ggplot(n.ss.afd.dat, aes(x=home.beta, colour = scan)) + 
+  stat_ecdf(size=1.5) + 
+  scale_color_brewer(palette = "Set2") + 
+  ylab("proportion of SNPs") + 
+  xlab("home allele effect") +
+  facet_wrap(.~exp, ncol=2)
+n.ss.beta.ecdf.file <-  "./figures/51.figures/n.ss.ecdf.betas.jpg"
+ggsave(plot=n.ss.beta.ecdf.plot, file=n.ss.beta.ecdf.file, width=9, height=8)
+
+### make two samples for talk 30JUN21
+
+ggsave(plot=n.ss.af.ecdf.plot, file="./figures/51.figures/n.ss.af.ecdf.plot.jpg", width=6, height=5)
+
+n.ss.beta.ecdf.plot.NM <- ggplot(n.ss.afd.dat[n.ss.afd.dat$exp=="NM_2011",], aes(x=home.beta, colour = scan)) + stat_ecdf(size=1.5) + scale_color_brewer(palette = "Set2") + ylab("proportion of SNPs") + xlab("home allele effect in NM_2011")
+
+ggsave(plot=n.ss.beta.ecdf.plot.NM, file="./figures/51.figures/n.ss.beta.ecdf.plot.NM.jpg", width=6, height=5)
+
+test.plot <- grid_arrange_shared_legend(n.ss.af.ecdf.plot, n.ss.beta.ecdf.plot.NM, nrow=1, position="right")
+test.file <- "./figures/51.figures/test.plot.jpg"
+ggsave(test.file, plot=test.plot, width=8, height=5)
+```
+
+
+## 6. South data - sweep signal datasets
+
+#prep South data for sweep signal scans
+```{r sweeps south}
+# common variables
+gwas.files <- gwas.res.files.s
+win.size=10000
+home.allele="ASOUTH"
+away.allele="ANORTH"
+
+scannames <- c("swedishgenomes","huber","hortonFST","hortonCLR","hortonPHS","priceBayescan","priceAFDLD")
+
+s.sweep.dat <- as.list(1:length(scannames))
+
+### 1. swedish genomes
+up.scan <- 1
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/Swedish.genomes.paper.sweeps.simple.csv"
+sg.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
+sg.dat <- sg.dat[,1:2]
+colnames(sg.dat) <- c("chr", "pos")
+ss.dat <- sg.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+s.sweep.dat[[up.scan]] <- up.ss.dat
+
+### 2. Huber scans
+up.scan <- 2
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/christian.intervals.csv"
+ns.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
+ss.dat <- ns.dat[,1:2]
+colnames(ss.dat) <- c("chr", "pos")
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+s.sweep.dat[[up.scan]] <- up.ss.dat
+
+### 3. Horton FST
+up.scan <- 3
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/selection_scans_horton/global.all.fsts"
+fst.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+fst.dat <- fst.dat[order(fst.dat$fst, decreasing=TRUE),]
+#take top 1%
+fst.dat <- fst.dat[1:(nrow(fst.dat)*0.01),]
+fst.dat <- fst.dat[,2:3]
+colnames(fst.dat) <- c("chr", "pos")
+ss.dat <- fst.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+s.sweep.dat[[up.scan]] <- up.ss.dat
+
+### 4. Horton CLR
+up.scan <- 4
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/selection_scans_horton/allCLR.txt"
+clr.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+clr.dat <- clr.dat[order(clr.dat$meanCLR, decreasing=TRUE),]
+#take top 1%
+clr.dat <- clr.dat[1:(nrow(clr.dat)*0.01),]
+clr.dat <- clr.dat[,1:2]
+colnames(clr.dat) <- c("chr", "pos")
+ss.dat <- clr.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+s.sweep.dat[[up.scan]] <- up.ss.dat
+
+### 5. Horton PHS
+up.scan <- 5
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/selection_scans_horton/phsscores.pos.txt"
+phs.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+phs.dat <- phs.dat[order(phs.dat$PHS, decreasing=TRUE),]
+#take top 1%
+phs.dat <- phs.dat[1:(nrow(phs.dat)*0.01),]
+phs.dat <- phs.dat[,1:2]
+colnames(phs.dat) <- c("chr", "pos")
+ss.dat <- phs.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+s.sweep.dat[[up.scan]] <- up.ss.dat
+
+### 6. Price Bayescan
+up.scan <- 6
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/price_2020/BAYESCAN_FDR_FINAL"
+pbayes.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+pbayes.dat <- pbayes.dat[pbayes.dat$FDR<0.1,]
+pbayes.dat <- pbayes.dat[,1:2]
+colnames(pbayes.dat) <- c("chr", "pos")
+ss.dat <- pbayes.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+s.sweep.dat[[up.scan]] <- up.ss.dat
+
+### 7. Price AFD.LD
+up.scan <- 7
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/price_2020/AFD_LD_Italy_Sweden_pops"
+pal.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+pal.dat <- pal.dat[pal.dat$AFD>0.7 & pal.dat$LD>0.19,] #cutoff -> AFD>0.7 and LD>0.19 (95th percentiles)
+pal.dat <- pal.dat[,1:2]
+colnames(pal.dat) <- c("chr", "pos")
+ss.dat <- pal.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+s.sweep.dat[[up.scan]] <- up.ss.dat
+```
+
+# process S sweep scans to consolidate, normalize, and add observed data
+```{r process S sweep scans - AF dat}
+s.af.ss <- lapply(s.sweep.dat, function(x){x[[1]]})
+s.af.ss <- do.call(rbind, s.af.ss)
+# need to normalize this by experiment
+nas.s <- split(s.af.ss, s.af.ss$exp)
+nao.s <- split(s.af.sum, s.af.sum$exp)
+s.af.max <- lapply(nao.s, function(x){max(abs(x$csum))})
+for(up in 1:4){
+  nas.s[[up]]$csum.norm <- nas.s[[up]]$csum/s.af.max[[up]]
+}
+s.af.ss <- do.call(rbind, nas.s)
+s.obs <- s.af.sum[,colnames(s.af.sum)%in%colnames(s.af.ss)]
+s.obs$scan <- "genome"
+s.af.ss <- s.af.ss[,order(colnames(s.af.ss))]
+s.obs <- s.obs[, order(colnames(s.obs))]
+s.ss.af.dat <- rbind(s.obs, s.af.ss)
+
+s.ss.af.fixed <- aggregate(index~exp+scan, data=s.ss.af.dat[s.ss.af.dat$ahome==1,], FUN=min)
+
+```
+
+```{r process S sweep scans - AFD dat}
+s.afd.ss <- lapply(s.sweep.dat, function(x){x[[2]]})
+s.afd.ss <- do.call(rbind, s.afd.ss)
+# need to normalize this by experiment
+nas.s <- split(s.afd.ss, s.afd.ss$exp)
+nao.s <- split(s.afd.sum, s.afd.sum$exp)
+n.afd.max <- lapply(nao.s, function(x){max(abs(x$csum))})
+for(up in 1:4){
+  nas.s[[up]]$csum.norm <- nas.s[[up]]$csum/n.afd.max[[up]]
+}
+s.afd.ss <- do.call(rbind, nas.s)
+s.obs <- s.afd.sum[,colnames(s.afd.sum)%in%colnames(s.afd.ss)]
+s.obs$scan <- "genome"
+s.afd.ss <- s.afd.ss[,order(colnames(s.afd.ss))]
+s.obs <- s.obs[, order(colnames(s.obs))]
+s.ss.afd.dat <- rbind(s.obs, s.afd.ss)
+
+s.ss.afd.fixed <- aggregate(index~exp+scan, data=s.ss.afd.dat[s.ss.afd.dat$ha.afd==1,], FUN=min)
+
+```
+
+
+#make the S sweep scan plots 
+```{r plot S ss data}
+s.ss.af.plot <- ggplot(data=s.ss.af.dat, aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ahome)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=s.ss.af.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+
+s.ss.af.file <- "./figures/51.figures/s.ss.af.plot.jpg"
+ggsave(s.ss.af.file, plot=s.ss.af.plot, width=8, height=10)
+
+##zoom in
+s.ss.af.plot.zoom <- ggplot(data=s.ss.af.dat[s.ss.af.dat$scan!="genome",], aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ahome)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp, drop=TRUE) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=s.ss.af.fixed[s.ss.af.fixed$scan!="genome",], aes(xintercept=index), linetype="dashed", color="purple") 
+s.ss.af.zoom.file <- "./figures/51.figures/s.ss.af.plot.zoom.jpg"
+ggsave(s.ss.af.zoom.file, plot=s.ss.af.plot.zoom, width=8, height=10)
+
+s.ss.afd.plot <- ggplot(data=s.ss.afd.dat, aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ha.afd)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=s.ss.afd.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+s.ss.afd.file <- "./figures/51.figures/s.ss.afd.plot.jpg"
+ggsave(s.ss.afd.file, plot=s.ss.afd.plot, width=8, height=10)
+
+##zoom in
+s.ss.afd.plot.zoom <- ggplot(data=s.ss.afd.dat[s.ss.afd.dat$scan!="genome",], aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ha.afd)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp, drop=TRUE) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=s.ss.afd.fixed[s.ss.afd.fixed$scan!="genome",], aes(xintercept=index), linetype="dashed", color="purple") 
+s.ss.afd.zoom.file <- "./figures/51.figures/s.ss.afd.plot.zoom.jpg"
+ggsave(s.ss.afd.zoom.file, plot=s.ss.afd.plot.zoom, width=8, height=10)
+```
+
+# south selection scan ecdf plots
+```{r ecdf S ss dat}
+s.ss.af.dat$scan <- as.factor(s.ss.af.dat$scan)
+s.ss.afd.dat$scan <- as.factor(s.ss.afd.dat$scan)
+s.ss.af.ecdf.plot <- ggplot(s.ss.af.dat, aes(x=ahome, colour = scan)) + stat_ecdf(size=1.5) + scale_color_brewer(palette = "Set2") + ylab("proportion of SNPs") + xlab("home allele frequency")
+s.ss.afd.ecdf.plot <- ggplot(s.ss.afd.dat, aes(x=ha.afd, colour = scan)) + stat_ecdf(size=1.5) + scale_color_brewer(palette = "Set2") + ylab("proportion of SNPs") + xlab("allele frequency difference")
+s.ss.beta.ecdf.plot <- ggplot(s.ss.afd.dat, aes(x=home.beta, colour = scan)) + stat_ecdf(size=1.5) + scale_color_brewer(palette = "Set2") + ylab("proportion of SNPs") + xlab("home allele effect")
+s.ss.ecdf.plot <- grid_arrange_shared_legend(s.ss.af.ecdf.plot, s.ss.afd.ecdf.plot, nrow=1, position="right")
+s.ss.ecdf.file <- "./figures/51.figures/s.ss.ecdf.jpg"
+ggsave(s.ss.ecdf.file, plot=s.ss.ecdf.plot, width=10, height=6)
+
+## ecdfs for betas
+s.ss.beta.ecdf.plot <- ggplot(s.ss.afd.dat, aes(x=home.beta, colour = scan)) + 
+  stat_ecdf(size=1.5) + 
+  scale_color_brewer(palette = "Set2") + 
+  ylab("proportion of SNPs") + 
+  xlab("home allele effect") +
+  facet_wrap(.~exp, ncol=2)
+s.ss.beta.ecdf.file <-  "./figures/51.figures/s.ss.ecdf.betas.jpg"
+ggsave(plot=s.ss.beta.ecdf.plot, file=s.ss.beta.ecdf.file, width=9, height=8)
+```
+
+## 7. North data - GEA datasets
+
+#prep North data for GEA scans
+```{r sweeps north}
+# common variables
+gwas.files <- gwas.res.files.n
+win.size=10000
+home.allele="ANORTH"
+away.allele="ASOUTH"
+
+scannames <- c("hancock","priceLFMM","priceGEMMA")
+
+n.gea.dat <- as.list(1:length(scannames))
+
+### 1. hancock paper
+up.scan <- 1
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/Hancock.tophits.txt"
+ha.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+ha.dat <- ha.dat[,2:3]
+colnames(ha.dat) <- c("chr", "pos")
+ss.dat <- ha.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+n.gea.dat[[up.scan]] <- up.ss.dat
+
+### 2. Price LFMM
+up.scan <- 2
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/price_2020/LFMM_MinTmpCldM_K_8_q_values"
+plfmm.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+plfmm.dat <- plfmm.dat[plfmm.dat$q_value<0.1,]
+plfmm.dat <- plfmm.dat[,1:2]
+colnames(plfmm.dat) <- c("chr", "pos")
+ss.dat <- plfmm.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+n.gea.dat[[up.scan]] <- up.ss.dat
+
+### 3. Price GEMMA
+up.scan <- 3
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/price_2020/GEMMA_MinTmpCldM_q_values"
+pgemma.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+pgemma.dat <- pgemma.dat[pgemma.dat$q_value<0.1,]
+pgemma.dat <- pgemma.dat[,1:2]
+colnames(pgemma.dat) <- c("chr", "pos")
+ss.dat <- pgemma.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+n.gea.dat[[up.scan]] <- up.ss.dat
+```
+
+# process N GEA to consolidate, normalize, and add observed data
+```{r process N sweep scans - AF dat}
+n.af.gea <- lapply(n.gea.dat, function(x){x[[1]]})
+n.af.gea <- do.call(rbind, n.af.gea)
+# need to normalize this by experiment
+nas.s <- split(n.af.gea, n.af.gea$exp)
+nao.s <- split(n.af.sum, n.af.sum$exp)
+n.af.max <- lapply(nao.s, function(x){max(abs(x$csum))})
+for(up in 1:4){
+  nas.s[[up]]$csum.norm <- nas.s[[up]]$csum/n.af.max[[up]]
+}
+n.af.gea <- do.call(rbind, nas.s)
+n.obs <- n.af.sum[,colnames(n.af.sum)%in%colnames(n.af.ss)]
+n.obs$scan <- "genome"
+n.af.gea <- n.af.gea[,order(colnames(n.af.gea))]
+n.obs <- n.obs[, order(colnames(n.obs))]
+n.gea.af.dat <- rbind(n.obs, n.af.gea)
+n.gea.af.fixed <- aggregate(index~exp+scan, data=n.gea.af.dat[n.gea.af.dat$ahome==1,], FUN=min)
+
+```
+
+```{r process N sweep scans - AFD dat}
+n.afd.gea <- lapply(n.gea.dat, function(x){x[[2]]})
+n.afd.gea <- do.call(rbind, n.afd.gea)
+# need to normalize this by experiment
+nas.s <- split(n.afd.gea, n.afd.gea$exp)
+nao.s <- split(n.afd.sum, n.afd.sum$exp)
+n.af.max <- lapply(nao.s, function(x){max(abs(x$csum))})
+for(up in 1:4){
+  nas.s[[up]]$csum.norm <- nas.s[[up]]$csum/n.af.max[[up]]
+}
+n.afd.gea <- do.call(rbind, nas.s)
+n.obs <- n.afd.sum[,colnames(n.afd.sum)%in%colnames(n.afd.gea)]
+n.obs$scan <- "genome"
+n.afd.gea <- n.afd.gea[,order(colnames(n.afd.gea))]
+n.obs <- n.obs[, order(colnames(n.obs))]
+n.gea.afd.dat <- rbind(n.obs, n.afd.gea)
+n.gea.afd.fixed <- aggregate(index~exp+scan, data=n.gea.afd.dat[n.gea.afd.dat$ha.afd >=0.9,], FUN=min)
+
+```
+
+#make the N gea  plots 
+```{r plot N GEA data}
+n.gea.af.plot <- ggplot(data=n.gea.af.dat, aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ahome)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=n.gea.af.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+n.gea.af.file <- "./figures/51.figures/n.gea.af.plot.jpg"
+ggsave(n.gea.af.file, plot=n.gea.af.plot, width=8, height=6)
+
+##zoom in
+n.gea.af.plot.zoom <- ggplot(data=n.gea.af.dat[n.gea.af.dat$scan!="genome",], aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ahome)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp, drop=TRUE) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=n.gea.af.fixed[n.gea.af.fixed$scan!="genome",], aes(xintercept=index), linetype="dashed", color="purple") 
+n.gea.af.zoom.file <- "./figures/51.figures/n.gea.af.plot.zoom.jpg"
+ggsave(n.gea.af.zoom.file, plot=n.gea.af.plot.zoom, width=8, height=5)
+
+
+n.gea.afd.plot <- ggplot(data=n.gea.afd.dat, aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ha.afd)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") + 
+  geom_vline(data=n.gea.afd.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+n.gea.afd.file <- "./figures/51.figures/n.gea.afd.plot.jpg"
+ggsave(n.gea.afd.file, plot=n.gea.afd.plot, width=8, height=6)
+
+
+##zoom in
+n.gea.afd.plot.zoom <- ggplot(data=n.gea.afd.dat[n.gea.afd.dat$scan!="genome",], aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ha.afd)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp, drop=TRUE) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=n.gea.afd.fixed[n.gea.afd.fixed$scan!="genome",], aes(xintercept=index), linetype="dashed", color="purple") 
+n.gea.afd.zoom.file <- "./figures/51.figures/n.gea.afd.plot.zoom.jpg"
+ggsave(n.gea.afd.zoom.file, plot=n.gea.afd.plot.zoom, width=8, height=5)
+
+```
+
+# north GEA ecdf plots
+```{r ecdf N gea dat}
+n.gea.af.dat$scan <- as.factor(n.gea.af.dat$scan)
+n.gea.af.dat$scan <- relevel(n.gea.af.dat$scan, "genome")
+n.gea.afd.dat$scan <- as.factor(n.gea.afd.dat$scan)
+n.gea.afd.dat$scan <- relevel(n.gea.afd.dat$scan, "genome")
+
+n.gea.af.ecdf.plot <- ggplot(n.gea.af.dat, aes(x=ahome, colour = scan)) + stat_ecdf(size=1.5) + scale_color_brewer(palette = "Set2") + ylab("proportion of SNPs") + xlab("home allele frequency")
+n.gea.afd.ecdf.plot <- ggplot(n.gea.afd.dat, aes(x=ha.afd, colour = scan)) + stat_ecdf(size=1.5) + scale_color_brewer(palette = "Set2") + ylab("proportion of SNPs") + xlab("allele frequency difference")
+n.gea.ecdf.plot <- grid_arrange_shared_legend(n.gea.af.ecdf.plot, n.gea.afd.ecdf.plot, nrow=1, position="right")
+n.gea.ecdf.file <- "./figures/51.figures/n.gea.ecdf.jpg"
+ggsave(n.gea.ecdf.file, plot=n.gea.ecdf.plot, width=10, height=6)
+
+## ecdfs for betas
+n.gea.beta.ecdf.plot <- ggplot(n.gea.afd.dat, aes(x=home.beta, colour = scan)) + 
+  stat_ecdf(size=1.5) + 
+  scale_color_brewer(palette = "Set2") + 
+  ylab("proportion of SNPs") + 
+  xlab("home allele effect") +
+  facet_wrap(.~exp, ncol=2)
+n.gea.beta.ecdf.file <-  "./figures/51.figures/n.gea.ecdf.betas.jpg"
+ggsave(plot=n.gea.beta.ecdf.plot, file=n.gea.beta.ecdf.file, width=9, height=8)
+```
+
+
+## 8. South data - GEA datasets
+
+#prep South data for GEA scans
+```{r sweeps north}
+# common variables
+gwas.files <- gwas.res.files.s
+win.size=10000
+home.allele="ASOUTH"
+away.allele="ANORTH"
+
+scannames <- c("hancock","priceLFMM","priceGEMMA")
+
+s.gea.dat <- as.list(1:length(scannames))
+
+### 1. hancock paper
+up.scan <- 1
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/Hancock.tophits.txt"
+ha.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+ha.dat <- ha.dat[,2:3]
+colnames(ha.dat) <- c("chr", "pos")
+ss.dat <- ha.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+s.gea.dat[[up.scan]] <- up.ss.dat
+
+### 2. Price LFMM
+up.scan <- 2
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/price_2020/LFMM_MinTmpCldM_K_8_q_values"
+plfmm.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+plfmm.dat <- plfmm.dat[plfmm.dat$q_value<0.1,]
+plfmm.dat <- plfmm.dat[,1:2]
+colnames(plfmm.dat) <- c("chr", "pos")
+ss.dat <- plfmm.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+s.gea.dat[[up.scan]] <- up.ss.dat
+
+### 3. Price GEMMA
+up.scan <- 3
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/price_2020/GEMMA_MinTmpCldM_q_values"
+pgemma.dat <- read.table(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+pgemma.dat <- pgemma.dat[pgemma.dat$q_value<0.1,]
+pgemma.dat <- pgemma.dat[,1:2]
+colnames(pgemma.dat) <- c("chr", "pos")
+ss.dat <- pgemma.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+s.gea.dat[[up.scan]] <- up.ss.dat
+```
+
+# process S GEA to consolidate, normalize, and add observed data
+```{r process S gea scans - AF dat}
+s.af.gea <- lapply(s.gea.dat, function(x){x[[1]]})
+s.af.gea <- do.call(rbind, s.af.gea)
+# need to normalize this by experiment
+nas.s <- split(s.af.gea, s.af.gea$exp)
+nao.s <- split(n.af.sum, n.af.sum$exp)
+n.af.max <- lapply(nao.s, function(x){max(abs(x$csum))})
+for(up in 1:4){
+  nas.s[[up]]$csum.norm <- nas.s[[up]]$csum/n.af.max[[up]]
+}
+s.af.gea <- do.call(rbind, nas.s)
+n.obs <- s.af.sum[,colnames(s.af.sum)%in%colnames(s.af.gea)]
+n.obs$scan <- "genome"
+s.af.gea <- s.af.gea[,order(colnames(s.af.gea))]
+n.obs <- n.obs[, order(colnames(n.obs))]
+s.gea.af.dat <- rbind(n.obs, s.af.gea)
+s.gea.af.fixed <- aggregate(index~exp+scan, data=s.gea.af.dat[s.gea.af.dat$ahome==1,], FUN=min)
+
+```
+
+```{r process S gea scans - AFD dat}
+s.afd.gea <- lapply(s.gea.dat, function(x){x[[2]]})
+s.afd.gea <- do.call(rbind, s.afd.gea)
+# need to normalize this by experiment
+nas.s <- split(s.afd.gea, s.afd.gea$exp)
+nao.s <- split(s.afd.sum, s.afd.sum$exp)
+n.af.max <- lapply(nao.s, function(x){max(abs(x$csum))})
+for(up in 1:4){
+  nas.s[[up]]$csum.norm <- nas.s[[up]]$csum/n.af.max[[up]]
+}
+s.afd.gea <- do.call(rbind, nas.s)
+n.obs <- s.afd.sum[,colnames(s.afd.sum)%in%colnames(s.afd.gea)]
+n.obs$scan <- "genome"
+s.afd.gea <- s.afd.gea[,order(colnames(s.afd.gea))]
+n.obs <- n.obs[, order(colnames(n.obs))]
+s.gea.afd.dat <- rbind(n.obs, s.afd.gea)
+s.gea.afd.fixed <- aggregate(index~exp+scan, data=s.gea.afd.dat[s.gea.afd.dat$ha.afd>=0.9,], FUN=min)
+
+```
+
+#make the S gea scan plots 
+```{r plot S GEA data}
+s.gea.af.plot <- ggplot(data=s.gea.af.dat, aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ahome)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=s.gea.af.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+s.gea.af.file <- "./figures/51.figures/s.gea.af.plot.jpg"
+ggsave(s.gea.af.file, plot=s.gea.af.plot, width=8, height=6)
+
+##zoom in
+s.gea.af.plot.zoom <- ggplot(data=s.gea.af.dat[s.gea.af.dat$scan!="genome",], aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ahome)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp, drop=TRUE) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=s.gea.af.fixed[s.gea.af.fixed$scan!="genome",], aes(xintercept=index), linetype="dashed", color="purple") 
+s.gea.af.zoom.file <- "./figures/51.figures/s.gea.af.plot.zoom.jpg"
+ggsave(s.gea.af.zoom.file, plot=s.gea.af.plot.zoom, width=8, height=5)
+
+s.gea.afd.plot <- ggplot(data=s.gea.afd.dat, aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ha.afd)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=s.gea.afd.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+s.gea.afd.file <- "./figures/51.figures/s.gea.afd.plot.jpg"
+ggsave(s.gea.afd.file, plot=s.gea.afd.plot, width=8, height=6)
+
+##zoom in
+s.gea.afd.plot.zoom <- ggplot(data=s.gea.afd.dat[s.gea.afd.dat$scan!="genome",], aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ha.afd)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp, drop=TRUE) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=s.gea.afd.fixed[s.gea.afd.fixed$scan!="genome",], aes(xintercept=index), linetype="dashed", color="purple") 
+s.gea.afd.zoom.file <- "./figures/51.figures/s.gea.afd.plot.zoom.jpg"
+ggsave(s.gea.afd.zoom.file, plot=s.gea.afd.plot.zoom, width=8, height=5)
+
+```
+
+# south gea ecdf plots
+```{r ecdf S gea dat}
+s.gea.af.dat$scan <- as.factor(s.gea.af.dat$scan)
+s.gea.af.dat$scan <- relevel(s.gea.af.dat$scan, "genome")
+s.gea.afd.dat$scan <- as.factor(s.gea.afd.dat$scan)
+s.gea.afd.dat$scan <- relevel(s.gea.afd.dat$scan, "genome")
+
+s.gea.af.ecdf.plot <- ggplot(s.gea.af.dat, aes(x=ahome, colour = scan)) + stat_ecdf(size=1.5) + scale_color_brewer(palette = "Set2") + ylab("proportion of SNPs") + xlab("home allele frequency")
+s.gea.afd.ecdf.plot <- ggplot(s.gea.afd.dat, aes(x=ha.afd, colour = scan)) + stat_ecdf(size=1.5) + scale_color_brewer(palette = "Set2") + ylab("proportion of SNPs") + xlab("allele frequency difference")
+s.gea.ecdf.plot <- grid_arrange_shared_legend(s.gea.af.ecdf.plot, s.gea.afd.ecdf.plot, nrow=1, position="right")
+s.gea.ecdf.file <- "./figures/51.figures/s.gea.ecdf.jpg"
+ggsave(s.gea.ecdf.file, plot=s.gea.ecdf.plot, width=10, height=6)
+
+## ecdfs for betas
+s.gea.beta.ecdf.plot <- ggplot(s.gea.afd.dat, aes(x=home.beta, colour = scan)) + 
+  stat_ecdf(size=1.5) + 
+  scale_color_brewer(palette = "Set2") + 
+  ylab("proportion of SNPs") + 
+  xlab("home allele effect") +
+  facet_wrap(.~exp, ncol=2)
+s.gea.beta.ecdf.file <-  "./figures/51.figures/s.gea.ecdf.betas.jpg"
+ggsave(plot=s.gea.beta.ecdf.plot, file=s.gea.beta.ecdf.file, width=9, height=8)
+```
+
+
+## 9. North data - field fitness datasets
+
+#prep North data for field fitness
+```{r field fitness north}
+# common variables
+gwas.files <- gwas.res.files.n
+win.size=10000
+home.allele="ANORTH"
+away.allele="ASOUTH"
+
+scannames <- c("flALL","flOULU","eaGWA","eaAGWA","asQTL")
+
+n.fit.dat <- as.list(1:length(scannames))
+
+# 1. Fournier-Level all
+up.scan <- 1
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/Fournier_Level_GWAs_Clim_Data.csv"
+fl.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
+fl.dat <- fl.dat[,1:2]
+colnames(fl.dat) <- c("chr", "pos")
+
+ss.dat <- fl.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+n.fit.dat[[up.scan]] <- up.ss.dat
+
+### 2. Fournier-Level Oulu only
+up.scan <- 2
+up.scan.name <- scannames[up.scan]
+fl.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
+FIN.dat <- fl.dat[fl.dat$Location=="FIN",]
+FIN.dat <- FIN.dat[,1:2]
+colnames(FIN.dat) <- c("chr", "pos")
+ss.dat <- FIN.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+n.fit.dat[[up.scan]] <- up.ss.dat
+
+### 3. exposito-alonso GWAS
+up.scan <- 3
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/exposito_2018/S3_gwa.csv"
+egwas.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+egwas.dat <- egwas.dat[,1:2]
+colnames(egwas.dat) <- c("chr", "pos")
+ss.dat <- egwas.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+n.fit.dat[[up.scan]] <- up.ss.dat
+
+### 4. exposito-alonso aGWAS
+up.scan <- 4
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/exposito_2018/S4_agwa.csv"
+agwas.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+agwas.dat <- agwas.dat[,1:2]
+colnames(agwas.dat) <- c("chr", "pos")
+ss.dat <- agwas.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+n.fit.dat[[up.scan]] <- up.ss.dat
+
+### 5. Ågren Schemske tradeoff QTL
+up.scan <- 5
+up.scan.name <- scannames[up.scan]
+win.size.qtl <- 50000  ## hard to know what to use here.  This is what they used in the Price 2020 paper
+up.scan.file <- "./data/003.selection.scans/agren.qtl/price.sup.tableS4.csv"
+qtl.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+qtl.dat <- qtl.dat[,1:2]
+colnames(qtl.dat) <- c("chr", "pos")
+ss.dat <- qtl.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size.qtl, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+n.fit.dat[[up.scan]] <- up.ss.dat
+```
+
+# process N field fitness to consolidate, normalize, and add observed data
+```{r process N fit scans - AF dat}
+n.af.fit <- lapply(n.fit.dat, function(x){x[[1]]})
+n.af.fit <- do.call(rbind, n.af.fit)
+# need to normalize this by experiment
+nas.s <- split(n.af.fit, n.af.fit$exp)
+nao.s <- split(n.af.sum, n.af.sum$exp)
+n.af.max <- lapply(nao.s, function(x){max(abs(x$csum))})
+for(up in 1:4){
+  nas.s[[up]]$csum.norm <- nas.s[[up]]$csum/n.af.max[[up]]
+}
+n.af.fit <- do.call(rbind, nas.s)
+n.obs <- n.af.sum[,colnames(n.af.sum)%in%colnames(n.af.fit)]
+n.obs$scan <- "genome"
+n.af.fit <- n.af.fit[,order(colnames(n.af.fit))]
+n.obs <- n.obs[, order(colnames(n.obs))]
+n.fit.af.dat <- rbind(n.obs, n.af.fit)
+n.fit.af.fixed <- aggregate(index~exp+scan, data=n.fit.af.dat[n.fit.af.dat$ahome==1,], FUN=min)
+
+```
+
+```{r process N fit scans - AFD dat}
+n.afd.fit <- lapply(n.fit.dat, function(x){x[[2]]})
+n.afd.fit <- do.call(rbind, n.afd.fit)
+# need to normalize this by experiment
+nas.s <- split(n.afd.fit, n.afd.fit$exp)
+nao.s <- split(s.afd.sum, s.afd.sum$exp)
+n.af.max <- lapply(nao.s, function(x){max(abs(x$csum))})
+for(up in 1:4){
+  nas.s[[up]]$csum.norm <- nas.s[[up]]$csum/n.af.max[[up]]
+}
+n.afd.fit <- do.call(rbind, nas.s)
+n.obs <- n.afd.sum[,colnames(n.afd.sum)%in%colnames(n.afd.fit)]
+n.obs$scan <- "genome"
+n.afd.fit <- n.afd.fit[,order(colnames(n.afd.fit))]
+n.obs <- n.obs[, order(colnames(n.obs))]
+n.fit.afd.dat <- rbind(n.obs, n.afd.fit)
+n.fit.afd.fixed <- aggregate(index~exp+scan, data=n.fit.afd.dat[n.fit.afd.dat$ha.afd>=0.9,], FUN=min)
+
+```
+
+#make the N fitness scan plots 
+```{r plot N field fitness data}
+n.fit.af.plot <- ggplot(data=n.fit.af.dat, aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ahome)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=n.fit.af.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+n.fit.af.file <- "./figures/51.figures/n.fit.af.plot.jpg"
+ggsave(n.fit.af.file, plot=n.fit.af.plot, width=8, height=6)
+
+##zoom in
+n.fit.af.plot.zoom <- ggplot(data=n.fit.af.dat[n.fit.af.dat$scan!="genome",], aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ahome)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp, drop=TRUE) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=n.fit.af.fixed[n.fit.af.fixed$scan!="genome",], aes(xintercept=index), linetype="dashed", color="purple") 
+n.fit.af.zoom.file <- "./figures/51.figures/n.fit.af.plot.zoom.jpg"
+ggsave(n.fit.af.zoom.file, plot=n.fit.af.plot.zoom, width=8, height=5)
+
+n.fit.afd.plot <- ggplot(data=n.fit.afd.dat, aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ha.afd)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=n.fit.afd.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+n.fit.afd.file <- "./figures/51.figures/n.fit.afd.plot.jpg"
+ggsave(n.fit.afd.file, plot=n.fit.afd.plot, width=8, height=6)
+
+##zoom in
+n.fit.afd.plot.zoom <- ggplot(data=n.fit.afd.dat[n.fit.afd.dat$scan!="genome",], aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ha.afd)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp, drop=TRUE) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=n.fit.afd.fixed[n.fit.afd.fixed$scan!="genome",], aes(xintercept=index), linetype="dashed", color="purple") 
+n.fit.afd.zoom.file <- "./figures/51.figures/n.fit.afd.plot.zoom.jpg"
+ggsave(n.fit.afd.zoom.file, plot=n.fit.afd.plot.zoom, width=8, height=5)
+
+```
+
+# north field fitness ecdf plots
+```{r ecdf N fit dat}
+n.fit.af.dat$scan <- as.factor(n.fit.af.dat$scan)
+n.fit.af.dat$scan <- relevel(n.fit.af.dat$scan, "genome")
+n.fit.afd.dat$scan <- as.factor(n.fit.afd.dat$scan)
+n.fit.afd.dat$scan <- relevel(n.fit.afd.dat$scan, "genome")
+
+n.fit.af.ecdf.plot <- ggplot(n.fit.af.dat, aes(x=ahome, colour = scan)) + stat_ecdf(size=1.5) + scale_color_brewer(palette = "Set2") + ylab("proportion of SNPs") + xlab("home allele frequency")
+n.fit.afd.ecdf.plot <- ggplot(n.fit.afd.dat, aes(x=ha.afd, colour = scan)) + stat_ecdf(size=1.5) + scale_color_brewer(palette = "Set2") + ylab("proportion of SNPs") + xlab("allele frequency difference")
+n.fit.ecdf.plot <- grid_arrange_shared_legend(n.fit.af.ecdf.plot, n.fit.afd.ecdf.plot, nrow=1, position="right")
+n.fit.ecdf.file <- "./figures/51.figures/n.fit.ecdf.jpg"
+ggsave(n.fit.ecdf.file, plot=n.fit.ecdf.plot, width=10, height=6)
+
+## ecdfs for betas
+n.fit.beta.ecdf.plot <- ggplot(n.fit.afd.dat, aes(x=home.beta, colour = scan)) + 
+  stat_ecdf(size=1.5) + 
+  scale_color_brewer(palette = "Set2") + 
+  ylab("proportion of SNPs") + 
+  xlab("home allele effect") +
+  facet_wrap(.~exp, ncol=2)
+n.fit.beta.ecdf.file <-  "./figures/51.figures/n.fit.ecdf.betas.jpg"
+ggsave(plot=n.fit.beta.ecdf.plot, file=n.fit.beta.ecdf.file, width=9, height=8)
+```
+
+
+
+## 10. South data - field fitness datasets
+
+#prep South data for field fitness
+```{r field fitness south}
+# common variables
+gwas.files <- gwas.res.files.s
+win.size=10000
+home.allele="ASOUTH"
+away.allele="ANORTH"
+
+scannames <- c("flALL","flOULU","eaGWA","eaAGWA","asQTL")
+
+s.fit.dat <- as.list(1:length(scannames))
+
+# 1. Fournier-Level all
+up.scan <- 1
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/Fournier_Level_GWAs_Clim_Data.csv"
+fl.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
+fl.dat <- fl.dat[,1:2]
+colnames(fl.dat) <- c("chr", "pos")
+
+ss.dat <- fl.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+s.fit.dat[[up.scan]] <- up.ss.dat
+
+### 2. Fournier-Level Oulu only
+up.scan <- 2
+up.scan.name <- scannames[up.scan]
+fl.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE)
+FIN.dat <- fl.dat[fl.dat$Location=="FIN",]
+FIN.dat <- FIN.dat[,1:2]
+colnames(FIN.dat) <- c("chr", "pos")
+ss.dat <- FIN.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+s.fit.dat[[up.scan]] <- up.ss.dat
+
+### 3. exposito-alonso GWAS
+up.scan <- 3
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/exposito_2018/S3_gwa.csv"
+egwas.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+egwas.dat <- egwas.dat[,1:2]
+colnames(egwas.dat) <- c("chr", "pos")
+ss.dat <- egwas.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+s.fit.dat[[up.scan]] <- up.ss.dat
+
+### 4. exposito-alonso aGWAS
+up.scan <- 4
+up.scan.name <- scannames[up.scan]
+up.scan.file <- "./data/003.selection.scans/exposito_2018/S4_agwa.csv"
+agwas.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+agwas.dat <- agwas.dat[,1:2]
+colnames(agwas.dat) <- c("chr", "pos")
+ss.dat <- agwas.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+s.fit.dat[[up.scan]] <- up.ss.dat
+
+### 5. Ågren Schemske tradeoff QTL
+up.scan <- 5
+up.scan.name <- scannames[up.scan]
+win.size.qtl <- 50000  ## hard to know what to use here.  This is what they used in the Price 2020 paper
+up.scan.file <- "./data/003.selection.scans/agren.qtl/price.sup.tableS4.csv"
+qtl.dat <- read.csv(up.scan.file, stringsAsFactors=FALSE, header=TRUE)
+qtl.dat <- qtl.dat[,1:2]
+colnames(qtl.dat) <- c("chr", "pos")
+ss.dat <- qtl.dat
+up.ss.dat <- subset.scan.csum(gwas.files=gwas.files, ss.dat=ss.dat, up.scan.name=up.scan.name, win.size=win.size.qtl, home.beta=home.beta, home.allele=home.allele, away.allele=away.allele)
+s.fit.dat[[up.scan]] <- up.ss.dat
+```
+
+# process S field fitness to consolidate, normalize, and add observed data
+```{r process S fit scans - AF dat}
+s.af.fit <- lapply(s.fit.dat, function(x){x[[1]]})
+s.af.fit <- do.call(rbind, s.af.fit)
+# need to normalize this by experiment
+nas.s <- split(s.af.fit, s.af.fit$exp)
+nao.s <- split(s.af.sum, s.af.sum$exp)
+n.af.max <- lapply(nao.s, function(x){max(abs(x$csum))})
+for(up in 1:4){
+  nas.s[[up]]$csum.norm <- nas.s[[up]]$csum/n.af.max[[up]]
+}
+s.af.fit <- do.call(rbind, nas.s)
+n.obs <- s.af.sum[,colnames(s.af.sum)%in%colnames(s.af.fit)]
+n.obs$scan <- "genome"
+s.af.fit <- s.af.fit[,order(colnames(s.af.fit))]
+n.obs <- n.obs[, order(colnames(n.obs))]
+s.fit.af.dat <- rbind(n.obs, s.af.fit)
+s.fit.af.fixed <- aggregate(index~exp+scan, data=s.fit.af.dat[s.fit.af.dat$ahome==1,], FUN=min)
+
+```
+
+```{r process S fit scans - AFD dat}
+s.afd.fit <- lapply(s.fit.dat, function(x){x[[2]]})
+s.afd.fit <- do.call(rbind, s.afd.fit)
+# need to normalize this by experiment
+nas.s <- split(s.afd.fit, s.afd.fit$exp)
+nao.s <- split(s.afd.sum, s.afd.sum$exp)
+n.af.max <- lapply(nao.s, function(x){max(abs(x$csum))})
+for(up in 1:4){
+  nas.s[[up]]$csum.norm <- nas.s[[up]]$csum/n.af.max[[up]]
+}
+s.afd.fit <- do.call(rbind, nas.s)
+n.obs <- s.afd.sum[,colnames(s.afd.sum)%in%colnames(s.afd.fit)]
+n.obs$scan <- "genome"
+s.afd.fit <- s.afd.fit[,order(colnames(s.afd.fit))]
+n.obs <- n.obs[, order(colnames(n.obs))]
+s.fit.afd.dat <- rbind(n.obs, s.afd.fit)
+s.fit.afd.fixed <- aggregate(index~exp+scan, data=s.fit.afd.dat[s.fit.afd.dat$ha.afd>=0.9,], FUN=min)
+
+```
+
+#make the S fitness scan plots 
+```{r plot S field fitness data}
+s.fit.af.plot <- ggplot(data=s.fit.af.dat, aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ahome)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=s.fit.af.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+s.fit.af.file <- "./figures/51.figures/s.fit.af.plot.jpg"
+ggsave(s.fit.af.file, plot=s.fit.af.plot, width=8, height=6)
+
+##zoom in
+s.fit.af.plot.zoom <- ggplot(data=s.fit.af.dat[s.fit.af.dat$scan!="genome",], aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ahome)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp, drop=TRUE) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=s.fit.af.fixed[s.fit.af.fixed$scan!="genome",], aes(xintercept=index), linetype="dashed", color="purple") 
+s.fit.af.zoom.file <- "./figures/51.figures/s.fit.af.plot.zoom.jpg"
+ggsave(s.fit.af.zoom.file, plot=s.fit.af.plot.zoom, width=8, height=5)
+
+s.fit.afd.plot <- ggplot(data=s.fit.afd.dat, aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ha.afd)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=s.fit.afd.fixed, aes(xintercept=index), linetype="dashed", color="purple")
+
+s.fit.afd.file <- "./figures/51.figures/s.fit.afd.plot.jpg"
+ggsave(s.fit.afd.file, plot=s.fit.afd.plot, width=8, height=6)
+
+##zoom in
+s.fit.afd.plot.zoom <- ggplot(data=s.fit.afd.dat[s.fit.afd.dat$scan!="genome",], aes(x=index,y=csum.norm)) +
+  geom_point(aes(color=ha.afd)) +
+  scale_color_viridis(direction=-1) +
+  facet_grid(scan~exp, drop=TRUE) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative beta (normalized)") +
+  geom_vline(data=s.fit.afd.fixed[s.fit.afd.fixed$scan!="genome",], aes(xintercept=index), linetype="dashed", color="purple") 
+s.fit.afd.zoom.file <- "./figures/51.figures/s.fit.afd.plot.zoom.jpg"
+ggsave(s.fit.afd.zoom.file, plot=s.fit.afd.plot.zoom, width=8, height=5)
+
+```
+
+# south field fitness ecdf plots
+```{r ecdf S fit dat}
+s.fit.af.dat$scan <- as.factor(s.fit.af.dat$scan)
+s.fit.af.dat$scan <- relevel(s.fit.af.dat$scan, "genome")
+s.fit.afd.dat$scan <- as.factor(s.fit.afd.dat$scan)
+s.fit.afd.dat$scan <- relevel(s.fit.afd.dat$scan, "genome")
+
+s.fit.af.ecdf.plot <- ggplot(s.fit.af.dat, aes(x=ahome, colour = scan)) + stat_ecdf(size=1.5) + scale_color_brewer(palette = "Set2") + ylab("proportion of SNPs") + xlab("home allele frequency")
+s.fit.afd.ecdf.plot <- ggplot(s.fit.afd.dat, aes(x=ha.afd, colour = scan)) + stat_ecdf(size=1.5) + scale_color_brewer(palette = "Set2") + ylab("proportion of SNPs") + xlab("allele frequency difference")
+s.fit.ecdf.plot <- grid_arrange_shared_legend(s.fit.af.ecdf.plot, s.fit.afd.ecdf.plot, nrow=1, position="right")
+s.fit.ecdf.file <- "./figures/51.figures/s.fit.ecdf.jpg"
+ggsave(s.fit.ecdf.file, plot=s.fit.ecdf.plot, width=10, height=6)
+
+## ecdfs for betas
+s.fit.beta.ecdf.plot <- ggplot(s.fit.afd.dat, aes(x=home.beta, colour = scan)) + 
+  stat_ecdf(size=1.5) + 
+  scale_color_brewer(palette = "Set2") + 
+  ylab("proportion of SNPs") + 
+  xlab("home allele effect") +
+  facet_wrap(.~exp, ncol=2)
+s.fit.beta.ecdf.file <-  "./figures/51.figures/s.fit.ecdf.betas.jpg"
+ggsave(plot=s.fit.beta.ecdf.plot, file=s.fit.beta.ecdf.file, width=9, height=8)
+```
+
+
+##11. Save processed cumulative betas by scan data
+These take forever to run and are useful...
+```{r save cumul beta by scan dat}
+scan.vars <- c("n.ss.afd.dat", "s.ss.afd.dat", "n.gea.afd.dat", "s.gea.afd.dat", "n.fit.afd.dat", "s.fit.afd.dat")
+out.dir <- "./data/51.data/"
+for(up in scan.vars){
+  up.file <- glue('{out.dir}{up}.Rdata')
+  up.dat <- get(up)
+  save(up.dat,file=up.file)
+}
+
+```
+
+##12. Genome-wide plots of cumulative betas in genome order
+
+### SNPs in genome order
+```{r polarize and sum betas north - genome order}
+### GWAS run in gemma in /groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens/28.BLUP.GWAS.Rmd
+
+ngenome.sum <- as.list(1:4)
+
+for(up.fn in 1:4){
+  up.f <- gwas.res.files.n[up.fn]
+  print(up.f)    
+  up.dat <- add.gwas(up.gwa.file=up.f, home.allele="ANORTH", away.allele="ASOUTH")
+  up.pheno <- get.p.name(up.gwa.file=up.f)
+  up.short.name <- short.p.name(p.name=up.pheno)
+  # get AFD bins
+  breaks <- seq(0.5,1,0.1)
+  # specify interval/bin labels
+  tags <- c("[.5-.6)","[.6-.7)","[.7-.8)","[.8-.9)","[.9-1)")  # bucketing values into bins north/south
+  up.dat$ahome.bins <- cut(up.dat$ahome, breaks=breaks, include.lowest=TRUE, right=FALSE, labels=tags)
+  up.dat$ahome.bins <- factor(up.dat$ahome.bins, levels = c(tags, "[1]"),ordered = TRUE)
+  # add fixed bins
+  up.dat[up.dat$ahome==1, 35] <- "[1]"
+  
+  af.ord <- up.dat[!is.na(up.dat$home.beta),]
+  af.ord <- af.ord[order(af.ord$chr, af.ord$pos),]
+  af.ord$csum <- cumsum(af.ord$home.beta)
+  #normalize to abs(max(cumsum))==1
+  max.cs <- max(abs(af.ord$csum))
+  af.ord$csum.norm <- af.ord$csum/max.cs
+  #weighted betas
+  af.ord$w.beta <- af.ord$home.beta * af.ord$ahome
+  af.ord$csum.wb <- cumsum(af.ord$w.beta)
+  #normalize
+  max.cs <- max(abs(af.ord$csum.wb))
+  af.ord$csum.wb.norm <- af.ord$csum.wb/max.cs
+  af.out <- af.ord[,c("ahome","ahome.bins","csum","csum.norm","csum.wb", "csum.wb.norm", "chrom", "pos")]
+  af.out$exp <- up.short.name
+  af.out$index <- 1:nrow(af.out)
+  ngenome.sum[[up.fn]] <- af.out
+}
+
+ngenome.sum <- do.call(rbind, ngenome.sum)
+ngenome.sum$chrom <- as.factor(ngenome.sum$chrom)
+ngenome.sum$exp <- factor(ngenome.sum$exp, levels=c("NA_2011","NM_2011","NA_2012","NM_2012"))
+
+### make positions relative
+fai.file <- "../../001.common.reference.files/001.TAIR10.genome/TAIR10_all.fas.fai"
+c.len <- read.table(fai.file, stringsAsFactors=FALSE)
+c.len <- cumsum(c.len[,2])
+c.add <- c(0,c.len)
+ng.s <- split(ngenome.sum, ngenome.sum$chrom)
+for(up in 1:5){
+  up.dat <- ng.s[[up]]
+  up.add <- c.add[up]
+  up.dat$rel.pos <- up.dat$pos+up.add
+  ng.s[[up]] <- up.dat
+}
+ngenome.sum <- do.call(rbind, ng.s)
+```
+
+
+```{r plot beta cumsum north genome order}
+n.genome.plot <- ggplot(data=ngenome.sum, aes(x=rel.pos/1000000,y=csum)) +
+  geom_point(aes(color=chrom)) +
+  scale_color_brewer(palette = "Paired") +
+  facet_wrap(~exp, ncol=1) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("genomic position (Mb)") +
+  ylab("cumulative beta") 
+
+ng.nfile <- "./figures/51.figures/cumulative.beta.north.genome.jpg"
+ggsave(ng.nfile, plot=n.genome.plot, width=6, height=8)
+
+```
+
+
+```{r polarize and sum betas south - genome order}
+### GWAS run in gemma in /groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens/28.BLUP.GWAS.Rmd
+
+sgenome.sum <- as.list(1:4)
+
+for(up.fn in 1:4){
+  up.f <- gwas.res.files.s[up.fn]
+  print(up.f)    
+  up.dat <- add.gwas(up.gwa.file=up.f, home.allele="ASOUTH", away.allele="ANORTH")
+  up.pheno <- get.p.name(up.gwa.file=up.f)
+  up.short.name <- short.p.name(p.name=up.pheno)
+  # get AFD bins
+  breaks <- seq(0.5,1,0.1)
+  # specify interval/bin labels
+  tags <- c("[.5-.6)","[.6-.7)","[.7-.8)","[.8-.9)","[.9-1)")  # bucketing values into bins north/south
+  up.dat$ahome.bins <- cut(up.dat$ahome, breaks=breaks, include.lowest=TRUE, right=FALSE, labels=tags)
+  up.dat$ahome.bins <- factor(up.dat$ahome.bins, levels = c(tags, "[1]"),ordered = TRUE)
+  # add fixed bins
+  up.dat[up.dat$ahome==1, 35] <- "[1]"
+  
+  af.ord <- up.dat[!is.na(up.dat$home.beta),]
+  af.ord <- af.ord[order(af.ord$chr, af.ord$pos),]
+  af.ord$csum <- cumsum(af.ord$home.beta)
+  #normalize to abs(max(cumsum))==1
+  max.cs <- max(abs(af.ord$csum))
+  af.ord$csum.norm <- af.ord$csum/max.cs
+  #weighted betas
+  af.ord$w.beta <- af.ord$home.beta * af.ord$ahome
+  af.ord$csum.wb <- cumsum(af.ord$w.beta)
+  #normalize
+  max.cs <- max(abs(af.ord$csum.wb))
+  af.ord$csum.wb.norm <- af.ord$csum.wb/max.cs
+  af.out <- af.ord[,c("ahome","ahome.bins","csum","csum.norm","csum.wb", "csum.wb.norm", "chrom", "pos")]
+  af.out$exp <- up.short.name
+  af.out$index <- 1:nrow(af.out)
+  sgenome.sum[[up.fn]] <- af.out
+}
+
+sgenome.sum <- do.call(rbind, sgenome.sum)
+sgenome.sum$chrom <- as.factor(sgenome.sum$chrom)
+sgenome.sum$exp <- factor(sgenome.sum$exp, levels=c("SR_2011","SU_2011","SR_2012","SU_2012"))
+
+### make positions relative
+sg.s <- split(sgenome.sum, sgenome.sum$chrom)
+for(up in 1:5){
+  up.dat <- sg.s[[up]]
+  up.add <- c.add[up]
+  up.dat$rel.pos <- up.dat$pos+up.add
+  sg.s[[up]] <- up.dat
+}
+sgenome.sum <- do.call(rbind, sg.s)
+
+```
+
+```{r plot beta cumsum south genome order}
+s.genome.plot <- ggplot(data=sgenome.sum, aes(x=rel.pos/1000000,y=csum)) +
+  geom_point(aes(color=chrom)) +
+  scale_color_brewer(palette = "Paired") +
+  facet_wrap(~exp, ncol=1) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("genomic position (Mb)") +
+  ylab("cumulative beta") 
+
+sg.nfile <- "./figures/51.figures/cumulative.beta.south.genome.jpg"
+ggsave(sg.nfile, plot=s.genome.plot, width=6, height=8)
+
+```
+
+### 13. plot SNPs in beta order by allele frequency bin
+
+```{r polarize and sum betas north - beta order}
+### GWAS run in gemma in /groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens/28.BLUP.GWAS.Rmd
+
+nbeta.sum <- as.list(1:4)
+
+for(up.fn in 1:4){
+  up.f <- gwas.res.files.n[up.fn]
+  print(up.f)    
+  up.dat <- add.gwas(up.gwa.file=up.f, home.allele="ANORTH", away.allele="ASOUTH")
+  up.pheno <- get.p.name(up.gwa.file=up.f)
+  up.short.name <- short.p.name(p.name=up.pheno)
+  # get AFD bins
+  breaks <- seq(0.5,1,0.1)
+  # specify interval/bin labels
+  tags <- c("[.5-.6)","[.6-.7)","[.7-.8)","[.8-.9)","[.9-1)")  # bucketing values into bins north/south
+  up.dat$ahome.bins <- cut(up.dat$ahome, breaks=breaks, include.lowest=TRUE, right=FALSE, labels=tags)
+  up.dat$ahome.bins <- factor(up.dat$ahome.bins, levels = c(tags, "[1]"),ordered = TRUE)
+  # add fixed bins
+  up.dat[up.dat$ahome==1, 35] <- "[1]"
+  
+  af.ord <- up.dat[!is.na(up.dat$home.beta),]
+  af.ord <- af.ord[order(af.ord$home.beta),]
+  af.ord$csum <- cumsum(af.ord$home.beta)
+  #normalize to abs(max(cumsum))==1
+  max.cs <- max(abs(af.ord$csum))
+  af.ord$csum.norm <- af.ord$csum/max.cs
+  #weighted betas
+  af.ord$w.beta <- af.ord$home.beta * af.ord$ahome
+  af.ord$csum.wb <- cumsum(af.ord$w.beta)
+  #normalize
+  max.cs <- max(abs(af.ord$csum.wb))
+  af.ord$csum.wb.norm <- af.ord$csum.wb/max.cs
+  #index within bins
+  af.s <- split(af.ord, af.ord$ahome.bins)
+  af.si <- lapply(af.s, function(x){
+    x$bin.index <- c(1:nrow(x))
+    return(x)
+  })
+  af.ord <- do.call(rbind, af.si)
+  af.out <- af.ord[,c("ahome","ahome.bins","csum","csum.norm","csum.wb", "csum.wb.norm", "chrom", "pos","home.beta","bin.index")]
+  af.out$exp <- up.short.name
+  af.out$index <- 1:nrow(af.out)
+  nbeta.sum[[up.fn]] <- af.out
+}
+
+nbeta.sum <- do.call(rbind, nbeta.sum)
+nbeta.sum$chrom <- as.factor(nbeta.sum$chrom)
+nbeta.sum$exp <- factor(nbeta.sum$exp, levels=c("NA_2011","NM_2011","NA_2012","NM_2012"))
+
+```
+
+```{r plot beta cumsum north beta order}
+n.beta.plot <- ggplot(data=nbeta.sum, aes(x=bin.index,y=home.beta)) +
+  geom_point(aes(color=ahome.bins), size=0.3) +
+  scale_color_brewer(palette = "Paired") +
+  facet_grid(exp~ahome.bins) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("beta") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+nb.nfile <- "./figures/51.figures/cumulative.beta.north.beta.jpg"
+ggsave(nb.nfile, plot=n.beta.plot, width=8, height=6)
+```
+
+
+```{r polarize and sum betas south - beta order}
+### GWAS run in gemma in /groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens/28.BLUP.GWAS.Rmd
+
+sbeta.sum <- as.list(1:4)
+
+for(up.fn in 1:4){
+  up.f <- gwas.res.files.s[up.fn]
+  print(up.f)    
+  up.dat <- add.gwas(up.gwa.file=up.f, home.allele="ASOUTH", away.allele="ANORTH")
+  up.pheno <- get.p.name(up.gwa.file=up.f)
+  up.short.name <- short.p.name(p.name=up.pheno)
+  # get AFD bins
+  breaks <- seq(0.5,1,0.1)
+  # specify interval/bin labels
+  tags <- c("[.5-.6)","[.6-.7)","[.7-.8)","[.8-.9)","[.9-1)")  # bucketing values into bins north/south
+  up.dat$ahome.bins <- cut(up.dat$ahome, breaks=breaks, include.lowest=TRUE, right=FALSE, labels=tags)
+  up.dat$ahome.bins <- factor(up.dat$ahome.bins, levels = c(tags, "[1]"),ordered = TRUE)
+  # add fixed bins
+  up.dat[up.dat$ahome==1, 35] <- "[1]"
+  
+  af.ord <- up.dat[!is.na(up.dat$home.beta),]
+  af.ord <- af.ord[order(af.ord$home.beta),]
+  af.ord$csum <- cumsum(af.ord$home.beta)
+  #normalize to abs(max(cumsum))==1
+  max.cs <- max(abs(af.ord$csum))
+  af.ord$csum.norm <- af.ord$csum/max.cs
+  #weighted betas
+  af.ord$w.beta <- af.ord$home.beta * af.ord$ahome
+  af.ord$csum.wb <- cumsum(af.ord$w.beta)
+  #normalize
+  max.cs <- max(abs(af.ord$csum.wb))
+  af.ord$csum.wb.norm <- af.ord$csum.wb/max.cs
+  #index within bins
+  af.s <- split(af.ord, af.ord$ahome.bins)
+  af.si <- lapply(af.s, function(x){
+    x$bin.index <- c(1:nrow(x))
+    return(x)
+  })
+  af.ord <- do.call(rbind, af.si)
+  af.out <- af.ord[,c("ahome","ahome.bins","csum","csum.norm","csum.wb", "csum.wb.norm", "chrom", "pos","home.beta","bin.index")]
+  af.out$exp <- up.short.name
+  af.out$index <- 1:nrow(af.out)
+  sbeta.sum[[up.fn]] <- af.out
+}
+
+sbeta.sum <- do.call(rbind, sbeta.sum)
+sbeta.sum$chrom <- as.factor(sbeta.sum$chrom)
+sbeta.sum$exp <- factor(sbeta.sum$exp, levels=c("SR_2011","SU_2011","SR_2012","SU_2012"))
+
+
+```
+
+```{r plot beta cumsum south beta order}
+s.beta.plot <- ggplot(data=sbeta.sum, aes(x=bin.index,y=home.beta)) +
+  geom_point(aes(color=ahome.bins), size=0.3) +
+  scale_color_brewer(palette = "Paired") +
+  facet_grid(exp~ahome.bins) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +  ### fix this!!!!
+  ylab("beta") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+sb.nfile <- "./figures/51.figures/cumulative.beta.south.beta.jpg"
+ggsave(sb.nfile, plot=s.beta.plot, width=8, height=6)
+
+```
+
+### 14. AF composition of beta bins
+
+```{r AF comp by beta North}
+
+af.beta.prop.n <- as.list(1:4)
+af.beta.abs.n <- as.list(1:4)
+up.exp <- levels(nbeta.sum$exp)
+
+for(up in 1:4){
+  up.dat <- nbeta.sum[nbeta.sum$exp==up.exp[up],]
+  up.dat$beta.bin <- cut(up.dat$home.beta,10)
+
+  prop.plot <- ggplot(data=up.dat, aes(x=beta.bin, fill=ahome.bins)) +
+    geom_bar(position="fill") +
+    coord_flip() +
+    ylab("proportion of SNPs") +
+    ggtitle(up.exp[up]) +
+    scale_fill_brewer(palette = "Paired") 
+  
+  abs.plot <- ggplot(data=up.dat, aes(x=beta.bin, fill=ahome.bins)) +
+    geom_bar() +
+    coord_flip() +
+    ylab("number of SNPs") +
+    ggtitle(up.exp[up]) +
+    scale_fill_brewer(palette = "Paired") 
+  
+  af.beta.prop.n[[up]] <- prop.plot
+  af.beta.abs.n[[up]] <- abs.plot
+}
+
+af.beta.n.plot <- grid.arrange(af.beta.prop.n[[1]], af.beta.abs.n[[1]], af.beta.prop.n[[2]],af.beta.abs.n[[2]],af.beta.prop.n[[3]],af.beta.abs.n[[3]],af.beta.prop.n[[4]],af.beta.abs.n[[4]], nrow = 4)
+af.beta.n.file <- "./figures/51.figures/AF.by.beta.bybin.north.jpg"
+ggsave(af.beta.n.file, plot=af.beta.n.plot, width=11, height=8)
+```
+
+
+```{r north mean and SD by AF bin}
+n.mean.beta <- aggregate(home.beta~exp+ahome.bins, nbeta.sum, mean)
+colnames(n.mean.beta)[3] <- "mean"
+n.sd.beta <- aggregate(home.beta~exp+ahome.bins, nbeta.sum, sd)
+colnames(n.sd.beta)[3] <- "sd"
+n.beta.sum <- merge(n.mean.beta, n.sd.beta)
+
+nmplot <- ggplot(n.beta.sum, aes(x=ahome.bins, y=mean, group=exp, color=exp)) + geom_line() 
+nsdplot <- ggplot(n.beta.sum, aes(x=ahome.bins, y=sd, group=exp, color=exp)) + geom_line() 
+n.bsum.plot <- grid.arrange(nmplot, nsdplot)
+ggsave(file="./figures/51.figures/north.beta.summary.by.AF.jpg", plot=n.bsum.plot, width=5, height=6)
+
+```
+
+```{r AF comp by beta South}
+
+af.beta.prop.s <- as.list(1:4)
+af.beta.abs.s <- as.list(1:4)
+up.exp <- levels(sbeta.sum$exp)
+
+for(up in 1:4){
+  up.dat <- sbeta.sum[sbeta.sum$exp==up.exp[up],]
+  up.dat$beta.bin <- cut(up.dat$home.beta,10)
+
+  prop.plot <- ggplot(data=up.dat, aes(x=beta.bin, fill=ahome.bins)) +
+    geom_bar(position="fill") +
+    coord_flip() +
+    ylab("proportion of SNPs") +
+    ggtitle(up.exp[up]) +
+    scale_fill_brewer(palette = "Paired") 
+  
+  abs.plot <- ggplot(data=up.dat, aes(x=beta.bin, fill=ahome.bins)) +
+    geom_bar() +
+    coord_flip() +
+    ylab("number of SNPs") +
+    ggtitle(up.exp[up]) +
+    scale_fill_brewer(palette = "Paired") 
+  
+  af.beta.prop.s[[up]] <- prop.plot
+  af.beta.abs.s[[up]] <- abs.plot
+}
+
+af.beta.s.plot <- grid.arrange(af.beta.prop.s[[1]], af.beta.abs.s[[1]], af.beta.prop.s[[2]],af.beta.abs.s[[2]],af.beta.prop.s[[3]],af.beta.abs.s[[3]],af.beta.prop.s[[4]],af.beta.abs.s[[4]], nrow = 4)
+af.beta.s.file <- "./figures/51.figures/AF.by.beta.bybin.south.jpg"
+ggsave(af.beta.s.file, plot=af.beta.s.plot, width=11, height=8)
+
+```
+
+```{r south mean and SD by AF bin}
+s.mean.beta <- aggregate(home.beta~exp+ahome.bins, sbeta.sum, mean)
+colnames(s.mean.beta)[3] <- "mean"
+s.sd.beta <- aggregate(home.beta~exp+ahome.bins, sbeta.sum, sd)
+colnames(s.sd.beta)[3] <- "sd"
+s.beta.sum <- merge(s.mean.beta, s.sd.beta)
+
+smplot <- ggplot(s.beta.sum, aes(x=ahome.bins, y=mean, group=exp, color=exp)) + geom_line() 
+ssdplot <- ggplot(s.beta.sum, aes(x=ahome.bins, y=sd, group=exp, color=exp)) + geom_line() 
+s.bsum.plot <- grid.arrange(smplot, ssdplot)
+ggsave(file="./figures/51.figures/south.beta.summary.by.AF.jpg", plot=s.bsum.plot, width=5, height=6)
+
+```
+
+### 15. plot SNPs in beta order by allele frequency difference bin
+
+```{r polarize and sum betas north - beta order by afd bin}
+### GWAS run in gemma in /groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens/28.BLUP.GWAS.Rmd
+
+nbeta.sum.afd <- as.list(1:4)
+
+for(up.fn in 1:4){
+  up.f <- gwas.res.files.n[up.fn]
+  print(up.f)    
+  up.dat <- add.gwas(up.gwa.file=up.f, home.allele="ANORTH", away.allele="ASOUTH")
+  up.pheno <- get.p.name(up.gwa.file=up.f)
+  up.short.name <- short.p.name(p.name=up.pheno)
+  
+  af.ord <- up.dat[!is.na(up.dat$home.beta),]
+  #index within bins
+  af.s <- split(af.ord, af.ord$ha.bins)
+  af.si <- lapply(af.s, function(x){
+    x <- x[order(x$home.beta),]
+    x$bin.index <- c(1:nrow(x))
+    return(x)
+  })
+  af.ord <- do.call(rbind, af.si)
+  af.out <- af.ord[,c("ahome","ha.bins", "chrom", "pos","home.beta","bin.index")]
+  af.out$exp <- up.short.name
+  af.out$index <- 1:nrow(af.out)
+  nbeta.sum.afd[[up.fn]] <- af.out
+}
+
+nbeta.sum.afd <- do.call(rbind, nbeta.sum.afd)
+nbeta.sum.afd$chrom <- as.factor(nbeta.sum.afd$chrom)
+nbeta.sum.afd$exp <- factor(nbeta.sum.afd$exp, levels=c("NA_2011","NM_2011","NA_2012","NM_2012"))
+
+```
+
+```{r plot beta cumsum north beta order}
+n.beta.plot.afd <- ggplot(data=nbeta.sum.afd, aes(x=bin.index,y=home.beta)) +
+  geom_point(aes(color=ha.bins)) +
+  scale_color_brewer(palette = "Paired") +
+  facet_grid(exp~ha.bins) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("SNP number") +
+  ylab("beta") 
+
+nb.nfile.afd <- "./figures/51.figures/cumulative.beta.north.beta.afd.jpg"
+ggsave(nb.nfile.afd, plot=n.beta.plot.afd, width=8, height=6)
+
+```
+
+
+```{r polarize and sum betas south - beta order by afd bin}
+### GWAS run in gemma in /groups/nordborg/projects/field_experiments/adaptation_sweden/common.gardens/28.BLUP.GWAS.Rmd
+
+sbeta.sum.afd <- as.list(1:4)
+
+for(up.fn in 1:4){
+  up.f <- gwas.res.files.s[up.fn]
+  print(up.f)    
+  up.dat <- add.gwas(up.gwa.file=up.f, home.allele="ASOUTH", away.allele="ANORTH")
+  up.pheno <- get.p.name(up.gwa.file=up.f)
+  up.short.name <- short.p.name(p.name=up.pheno)
+  
+  af.ord <- up.dat[!is.na(up.dat$home.beta),]
+  #index within bins
+  af.s <- split(af.ord, af.ord$ha.bins)
+  af.si <- lapply(af.s, function(x){
+    x <- x[order(x$home.beta),]
+    x$bin.index <- c(1:nrow(x))
+    return(x)
+  })
+  af.ord <- do.call(rbind, af.si)
+  af.out <- af.ord[,c("ahome","ha.bins", "chrom", "pos","home.beta","bin.index")]
+  af.out$exp <- up.short.name
+  af.out$index <- 1:nrow(af.out)
+  sbeta.sum.afd[[up.fn]] <- af.out
+}
+
+sbeta.sum.afd <- do.call(rbind, sbeta.sum.afd)
+sbeta.sum.afd$chrom <- as.factor(sbeta.sum.afd$chrom)
+sbeta.sum.afd$exp <- factor(sbeta.sum.afd$exp, levels=c("SR_2011","SU_2011","SR_2012","SU_2012"))
+
+```
+
+```{r plot beta cumsum south beta order}
+s.beta.plot.afd <- ggplot(data=sbeta.sum.afd, aes(x=bin.index,y=home.beta)) +
+  geom_point(aes(color=ha.bins)) +
+  scale_color_brewer(palette = "Paired") +
+  facet_grid(exp~ha.bins) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("SNP number") +
+  ylab("beta") 
+
+sb.nfile.afd <- "./figures/51.figures/cumulative.beta.south.beta.afd.jpg"
+ggsave(sb.nfile.afd, plot=s.beta.plot.afd, width=8, height=6)
+
+```
+
+### 16. AFD composition of beta bins
+
+```{r AFD comp by beta North}
+
+afd.beta.prop.n <- as.list(1:4)
+afd.beta.abs.n <- as.list(1:4)
+up.exp <- levels(nbeta.sum.afd$exp)
+
+for(up in 1:4){
+  up.dat <- nbeta.sum.afd[nbeta.sum.afd$exp==up.exp[up],]
+  up.dat$beta.bin <- cut(up.dat$home.beta,10)
+
+  prop.plot <- ggplot(data=up.dat, aes(x=beta.bin, fill=ha.bins)) +
+    geom_bar(position="fill") +
+    coord_flip() +
+    ylab("proportion of SNPs") +
+    ggtitle(up.exp[up]) +
+    scale_fill_brewer(palette = "Paired") 
+  
+  abs.plot <- ggplot(data=up.dat, aes(x=beta.bin, fill=ha.bins)) +
+    geom_bar() +
+    coord_flip() +
+    ylab("number of SNPs") +
+    ggtitle(up.exp[up]) +
+    scale_fill_brewer(palette = "Paired") 
+  
+  afd.beta.prop.n[[up]] <- prop.plot
+  afd.beta.abs.n[[up]] <- abs.plot
+}
+
+afd.beta.n.plot <- grid.arrange(afd.beta.prop.n[[1]], afd.beta.abs.n[[1]], afd.beta.prop.n[[2]],afd.beta.abs.n[[2]],afd.beta.prop.n[[3]],afd.beta.abs.n[[3]],afd.beta.prop.n[[4]],afd.beta.abs.n[[4]], nrow = 4)
+afd.beta.n.file <- "./figures/51.figures/AFD.by.beta.bybin.north.jpg"
+ggsave(afd.beta.n.file, plot=afd.beta.n.plot, width=11, height=11)
+```
+
+
+```{r north mean and SD by AFD bin}
+n.mean.beta.afd <- aggregate(home.beta~exp+ha.bins, nbeta.sum.afd, mean)
+colnames(n.mean.beta.afd)[3] <- "mean"
+n.sd.beta.afd <- aggregate(home.beta~exp+ha.bins, nbeta.sum.afd, sd)
+colnames(n.sd.beta.afd)[3] <- "sd"
+n.beta.sum.afd <- merge(n.mean.beta.afd, n.sd.beta.afd)
+
+nmplot <- ggplot(n.beta.sum.afd, aes(x=ha.bins, y=mean, group=exp, color=exp)) + geom_line() 
+nsdplot <- ggplot(n.beta.sum.afd, aes(x=ha.bins, y=sd, group=exp, color=exp)) + geom_line() 
+n.bsum.plot.afd <- grid.arrange(nmplot, nsdplot)
+ggsave(file="./figures/51.figures/north.beta.summary.by.AFD.jpg", plot=n.bsum.plot.afd, width=7, height=6)
+
+```
+
+
+```{r AFD comp by beta South}
+
+afd.beta.prop.s <- as.list(1:4)
+afd.beta.abs.s <- as.list(1:4)
+up.exp <- levels(sbeta.sum$exp)
+
+for(up in 1:4){
+  up.dat <- sbeta.sum.afd[sbeta.sum.afd$exp==up.exp[up],]
+  up.dat$beta.bin <- cut(up.dat$home.beta,10)
+
+  prop.plot <- ggplot(data=up.dat, aes(x=beta.bin, fill=ha.bins)) +
+    geom_bar(position="fill") +
+    coord_flip() +
+    ylab("proportion of SNPs") +
+    ggtitle(up.exp[up]) +
+    scale_fill_brewer(palette = "Paired") 
+  
+  abs.plot <- ggplot(data=up.dat, aes(x=beta.bin, fill=ha.bins)) +
+    geom_bar() +
+    coord_flip() +
+    ylab("number of SNPs") +
+    ggtitle(up.exp[up]) +
+    scale_fill_brewer(palette = "Paired") 
+  
+  afd.beta.prop.s[[up]] <- prop.plot
+  afd.beta.abs.s[[up]] <- abs.plot
+}
+
+adf.beta.s.plot <- grid.arrange(afd.beta.prop.s[[1]], afd.beta.abs.s[[1]], afd.beta.prop.s[[2]],afd.beta.abs.s[[2]],afd.beta.prop.s[[3]],afd.beta.abs.s[[3]],afd.beta.prop.s[[4]],afd.beta.abs.s[[4]], nrow = 4)
+afd.beta.s.file <- "./figures/51.figures/AFD.by.beta.bybin.south.jpg"
+ggsave(afd.beta.s.file, plot=adf.beta.s.plot, width=11, height=11)
+
+```
+
+
+```{r south mean and SD by AFD bin}
+s.mean.beta.afd <- aggregate(home.beta~exp+ha.bins, sbeta.sum.afd, mean)
+colnames(s.mean.beta.afd)[3] <- "mean"
+s.sd.beta.afd <- aggregate(home.beta~exp+ha.bins, sbeta.sum.afd, sd)
+colnames(s.sd.beta.afd)[3] <- "sd"
+s.beta.sum.afd <- merge(s.mean.beta.afd, s.sd.beta.afd)
+
+smplot <- ggplot(s.beta.sum.afd, aes(x=ha.bins, y=mean, group=exp, color=exp)) + geom_line() 
+ssdplot <- ggplot(s.beta.sum.afd, aes(x=ha.bins, y=sd, group=exp, color=exp)) + geom_line() 
+s.bsum.plot.afd <- grid.arrange(smplot, ssdplot)
+ggsave(file="./figures/51.figures/south.beta.summary.by.AFD.jpg", plot=s.bsum.plot.afd, width=7, height=6)
+
+```
+
+## 17. beta composition of AF bins
+```{r beta composition of AF bins north}
+
+beta.af.prop.n <- as.list(1:4)
+up.exp <- levels(nbeta.sum$exp)
+
+for(up in 1:4){
+  up.dat <- nbeta.sum[nbeta.sum$exp==up.exp[up],]
+  up.dat$beta.bin <- cut(up.dat$home.beta,10)
+
+  prop.plot <- ggplot(data=up.dat, aes(x=ahome.bins,fill = forcats::fct_rev(beta.bin))) +
+    geom_bar(position="fill") +
+    #coord_flip() +
+    ylab("proportion of SNPs") +
+    ggtitle(up.exp[up]) +
+    scale_fill_brewer(palette = "Paired") + 
+    labs(fill = "beta bin")
+  
+  beta.af.prop.n[[up]] <- prop.plot
+}
+
+beta.af.n.plot <- grid.arrange(beta.af.prop.n[[1]], beta.af.prop.n[[2]],beta.af.prop.n[[3]],beta.af.prop.n[[4]], ncol = 2)
+beta.af.n.file <- "./figures/51.figures/beta.by.AF.bybin.north.jpg"
+ggsave(beta.af.n.file, plot=beta.af.n.plot, width=10, height=8)
+```
+
+```{r beta composition of AF bins south}
+
+beta.af.prop.s <- as.list(1:4)
+up.exp <- levels(sbeta.sum$exp)
+
+for(up in 1:4){
+  up.dat <- sbeta.sum[sbeta.sum$exp==up.exp[up],]
+  up.dat$beta.bin <- cut(up.dat$home.beta,10)
+
+  prop.plot <- ggplot(data=up.dat, aes(x=ahome.bins, fill = forcats::fct_rev(beta.bin))) +
+    geom_bar(position="fill") +
+    #coord_flip() +
+    ylab("proportion of SNPs") +
+    ggtitle(up.exp[up]) +
+    scale_fill_brewer(palette = "Paired") + 
+    labs(fill = "beta bin")
+  
+  beta.af.prop.s[[up]] <- prop.plot
+}
+
+beta.af.s.plot <- grid.arrange(beta.af.prop.s[[1]], beta.af.prop.s[[2]],beta.af.prop.s[[3]],beta.af.prop.s[[4]], ncol = 2)
+beta.af.s.file <- "./figures/51.figures/beta.by.AF.bybin.south.jpg"
+ggsave(beta.af.s.file, plot=beta.af.s.plot, width=10, height=8)
+```
+
+## 18. beta composition of AFD bins
+```{r beta composition of AFD bins north}
+
+beta.afd.prop.n <- as.list(1:4)
+up.exp <- levels(nbeta.sum.afd$exp)
+
+for(up in 1:4){
+  up.dat <- nbeta.sum.afd[nbeta.sum.afd$exp==up.exp[up],]
+  up.dat$beta.bin <- cut(up.dat$home.beta,10)
+
+  prop.plot <- ggplot(data=up.dat, aes(x=ha.bins,fill = forcats::fct_rev(beta.bin))) +
+    geom_bar(position="fill") +
+    #coord_flip() +
+    ylab("proportion of SNPs") +
+    ggtitle(up.exp[up]) +
+    scale_fill_brewer(palette = "Paired") + 
+    labs(fill = "beta bin")
+  
+  beta.afd.prop.n[[up]] <- prop.plot
+}
+
+beta.afd.n.plot <- grid.arrange(beta.afd.prop.n[[1]], beta.afd.prop.n[[2]],beta.afd.prop.n[[3]],beta.afd.prop.n[[4]], ncol = 2)
+beta.afd.n.file <- "./figures/51.figures/beta.by.AFD.bybin.north.jpg"
+ggsave(beta.afd.n.file, plot=beta.afd.n.plot, width=14, height=8)
+```
+
+```{r beta composition of AFD bins south}
+
+beta.afd.prop.s <- as.list(1:4)
+up.exp <- levels(sbeta.sum.afd$exp)
+
+for(up in 1:4){
+  up.dat <- sbeta.sum.afd[sbeta.sum.afd$exp==up.exp[up],]
+  up.dat$beta.bin <- cut(up.dat$home.beta,10)
+
+  prop.plot <- ggplot(data=up.dat, aes(x=ha.bins, fill = forcats::fct_rev(beta.bin))) +
+    geom_bar(position="fill") +
+    #coord_flip() +
+    ylab("proportion of SNPs") +
+    ggtitle(up.exp[up]) +
+    scale_fill_brewer(palette = "Paired") + 
+    labs(fill = "beta bin")
+  
+  beta.afd.prop.s[[up]] <- prop.plot
+}
+
+beta.afd.s.plot <- grid.arrange(beta.afd.prop.s[[1]], beta.afd.prop.s[[2]],beta.afd.prop.s[[3]],beta.afd.prop.s[[4]], ncol = 2)
+beta.afd.s.file <- "./figures/51.figures/beta.by.AFD.bybin.south.jpg"
+ggsave(beta.afd.s.file, plot=beta.afd.s.plot, width=14, height=8)
+```
