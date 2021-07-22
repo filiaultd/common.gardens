@@ -48,15 +48,14 @@ af.dat <- merge(pop.af.dat, afg, by=c("chrom", "pos"), all=TRUE)
 #up.dat is dataframe to use, len.cs is length to add to each chromosome
 relpos <- function(up.dat, len.cs){
   ud.s <- split(up.dat, up.dat$chrom)
-  for(chr in 1:5){
+  for(chr in names(ud.s)){
     up.s <- ud.s[[chr]]
-    up.s$rel.pos <- up.s$pos + len.cs[chr]
+    up.s$rel.pos <- up.s$pos + len.cs[as.numeric(chr)]
     ud.s[[chr]] <- up.s
   }
   ud.s <- do.call(rbind, ud.s)
   return(ud.s)
 }
-
 ###############################################
 ### rotates a vector by a certain number of bp
 ################################################
