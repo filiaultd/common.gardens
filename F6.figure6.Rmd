@@ -1,10 +1,9 @@
 ---
-title: "54.parse.AFandAFD.rotations"
+title: "F6.figure6"
 author: "Daniele Filiault"
-date: "7/21/2021"
+date: "7/23/2021"
 output: html_document
 ---
-
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
@@ -18,7 +17,10 @@ library(ggpubr)
 
 ## Introduction
 
-Parsing rotations done in script(s) 53 to do genome rotation to get empirical distributions of Kologorov-Smirnov test values obtained in script 52
+Generates figure 6 of manuscript. 
+Results of rotations done in script(s) 53 to do genome rotation to get empirical distributions of Kologorov-Smirnov test values obtained in script 52 testing selection scan genome subsets vs entire genome distributions of AF, AFD, home beta.  See also script 54 for initial analysis
+
+## 01. load data
 
 ```{r load data}
 scans <- c("n.scan.rot", "s.scan.rot", "n.gea.rot", "s.gea.rot","n.fit.rot", "s.fit.rot")
@@ -50,43 +52,6 @@ all.dat <- all.dat[all.dat$exp!=5,]
 all.dat$scan.type <-  substring(all.dat$scan.type,3)
 all.dat$exp.site <- do.call(rbind,strsplit(all.dat$exp, "_"))[,1]
 all.dat$year <- do.call(rbind,strsplit(all.dat$exp, "_"))[,2]
-
-
-```
-
-## 01. plot distribution of KS values for AF/AFD and betas pairwise
-
-
-```{r AF beta KS plot}
-scannames <- unique(all.dat$scan)
-
-for(up.scan in scannames){
-  
-  up.af.plotfile <- glue('./figures/54.figures/{up.scan}.AF.beta.jpg')
-  up.afd.plotfile <- glue('./figures/54.figures/{up.scan}.AFD.beta.jpg')
-
-  scan.af.plot <- ggplot(dat=all.dat[all.dat$rotation!="observed" & all.dat$scan==up.scan, ], aes(x=beta.statistic, y=af.statistic)) + 
-    geom_point(alpha=0.09) + 
-    facet_grid(year~exp.site) + 
-    geom_point(data=all.dat[all.dat$rotation=="observed" & all.dat$scan==up.scan,], color="red", size=3) +
-    ggtitle(up.scan) +
-    theme_bw() +
-    xlab("betas KS statistic") +
-    ylab("allele frequencey KS statistic")
-  ggsave(scan.af.plot, file=up.af.plotfile, width=8, height=6)
-
-  scan.afd.plot <- ggplot(dat=all.dat[all.dat$rotation!="observed" & all.dat$scan==up.scan, ], aes(x=beta.statistic, y=afd.statistic)) + 
-    geom_point(alpha=0.09) + 
-    facet_grid(year~exp.site) + 
-    geom_point(data=all.dat[all.dat$rotation=="observed" & all.dat$scan==up.scan,], color="red", size=3) +
-    ggtitle(up.scan) +
-    xlab("beta KS statistic") +
-    ylab("allele frequencey difference KS statistic") +
-    theme_bw()
-  ggsave(scan.afd.plot, file=up.afd.plotfile, width=8, height=6)
-
-}
-
 
 ```
 
@@ -123,6 +88,12 @@ scan.pvals$n.af <- as.numeric(scan.pvals$n.af)
 scan.pvals$n.afd <- as.numeric(scan.pvals$n.afd)
 scan.pvals$n.beta <- as.numeric(scan.pvals$n.beta)
 
+## get proportions of rotations < observed
+n.rotations <- 1000
+scan.pvals$p.af <- scan.pvals$n.af/n.rotations
+scan.pvals$p.afd <- scan.pvals$n.afd/n.rotations
+scan.pvals$p.beta <- scan.pvals$n.beta/n.rotations
+
 ```
 
 ## 03. plot these "empirical pvalues" by experiment, one plot per scan type for clarity
@@ -137,39 +108,41 @@ scan.pvals$exp.site <- gsub("ULL", "SU", scan.pvals$exp.site)
 type.af.plots <- as.list(1:3)
 type.afd.plots <- as.list(1:3)
 
-types.long <- c("A  selection scan", "B  genotype environment association", "C  field fitness")
+types.af <- c("A  selection scan", "B  genotype environment association", "C  field fitness")
 pals <- c("Set2","Accent","Set1")
+types.afd <- c("D", "E", "F")
 
 for(up in 1:length(types)){
   up.t <- types[up]
-  up.title <- types.long[up]
+  up.title.af <- types.af[up]
+  up.title.afd <- types.afd[up]
   up.pal <- pals[up] 
   
-  af.pplot <- ggplot(data=scan.pvals[scan.pvals$scan.type==up.t,], aes(x=n.beta, y=n.af, color=scan)) +
+  af.pplot <- ggplot(data=scan.pvals[scan.pvals$scan.type==up.t,], aes(x=p.beta, y=p.af, color=scan)) +
     geom_point() +
     facet_grid(year~exp.site) +
     scale_color_brewer(palette=up.pal, name="scan name") +
     #scale_colour_viridis_d(name="scan name") +
-    xlab("number of rotations with KS less than observed (beta)") +
-    ylab("number of rotations with \nKS less than observed \n(allele frequency)") +
+    xlab("proportion of rotations with KS less than observed (beta)") +
+    ylab("proportion of rotations with \nKS less than observed \n(allele frequency)") +
     theme_bw() +
-    ggtitle(up.title) +
+    ggtitle(up.title.af) +
     theme(axis.text.x = element_text(angle = 45, hjust=1)) +
-    xlim(0,1000) +
-    ylim(0,1000)
+    xlim(0,1) +
+    ylim(0,1)
   type.af.plots[[up]] <- af.pplot
   
-  afd.pplot <- ggplot(data=scan.pvals[scan.pvals$scan.type==up.t,], aes(x=n.beta, y=n.afd, color=scan)) +
+  afd.pplot <- ggplot(data=scan.pvals[scan.pvals$scan.type==up.t,], aes(x=p.beta, y=p.afd, color=scan)) +
     geom_point() +
     facet_grid(year~exp.site) +
     scale_color_brewer(palette=up.pal, name="scan name") +
-    xlab("number of rotations with KS less than observed (beta)") +
-    ylab("number of rotations with \nKS less than observed \n(allele frequency difference)") +
+    xlab("proportion of rotations with KS less than observed (beta)") +
+    ylab("proportion of rotations with \nKS less than observed \n(allele frequency difference)") +
     theme_bw() +
-    ggtitle(up.title)+
+    ggtitle(up.title.afd)+
     theme(axis.text.x = element_text(angle = 45, hjust=1)) +
-    xlim(0,1000) +
-    ylim(0,1000)
+    xlim(0,1) +
+    ylim(0,1)
   type.afd.plots[[up]] <- afd.pplot
   }
 
@@ -183,11 +156,10 @@ af.figure <- ggarrange(type.af.plots[[1]] + rremove("ylab") + rremove("xlab"), t
                     ncol = 1, nrow = 3,
                     common.legend = FALSE,
                     align = "hv", 
+                    legend="none",
                     font.label = list(size = 10, color = "black", face = "bold", family = NULL, position = "top"))
 
-af.figure <- annotate_figure(af.figure, left = textGrob("number of rotations with KS less than observed (allele frequency)", rot = 90, vjust = 1, gp = gpar(cex = 1.1)), bottom = textGrob("number of rotations with KS less than observed (beta)                     ", gp = gpar(cex = 1.1)))
-
-ggsave(af.figure, file="./figures/54.figures/af.beta.all.jpg", width=7, height=9)
+af.figure <- annotate_figure(af.figure, left = textGrob("proportion of rotations with KS less than observed (allele frequency)", rot = 90, vjust = 1, gp = gpar(cex = 1)))
 
 ```
 
@@ -198,10 +170,30 @@ afd.figure <- ggarrange(type.afd.plots[[1]] + rremove("ylab") + rremove("xlab"),
                     ncol = 1, nrow = 3,
                     common.legend = FALSE,
                     align = "hv", 
+                    legend="none",
                     font.label = list(size = 10, color = "black", face = "bold", family = NULL, position = "top"))
 
-afd.figure <- annotate_figure(afd.figure, left = textGrob("number of rotations with KS less than observed (allele frequency difference)", rot = 90, vjust = 1, gp = gpar(cex = 1.1)), bottom = textGrob("number of rotations with KS less than observed (beta)                     ", gp = gpar(cex = 1.1)))
-
-ggsave(afd.figure, file="./figures/54.figures/afd.beta.all.jpg", width=7, height=9)
+afd.figure <- annotate_figure(afd.figure, left = textGrob("proportion of rotations with KS less than observed (allele frequency difference)", rot = 90, vjust = 1, gp = gpar(cex = 1)))
 
 ```
+
+```{r consolidate legends}
+legend_scan <- get_legend(type.af.plots[[1]])
+legend_gea <- get_legend(type.af.plots[[2]])
+legend_fit <- get_legend(type.af.plots[[3]])
+
+all.legends <- plot_grid(legend_scan, legend_gea, legend_fit, ncol=1, align = "v")
+```
+
+## 05. assemble final figure from these pieces
+
+```{r assembled figure}
+data.fig <- ggarrange(af.figure, NULL, afd.figure, ncol=3, common.legend=FALSE, widths=c(1, 0.07, 1))
+data.fig <- annotate_figure(data.fig,bottom = textGrob("proportion of rotations with KS less than observed (home beta)", gp = gpar(cex = 1)))
+
+assembled.fig <- ggarrange(data.fig, NULL, all.legends, ncol=3, common.legend=FALSE, widths = c(6,0.08, 0.9))
+
+ggsave(assembled.fig, file="./manuscript.figures/Figure6.jpg", width=12, height=8.5)
+```
+
+

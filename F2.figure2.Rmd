@@ -1,0 +1,110 @@
+---
+title: "F2.figure2"
+author: "Daniele Filiault"
+date: "7/26/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(glue)
+library(ggplot2)
+library(viridis)
+library(RColorBrewer)
+library(grid)
+library(ggpubr)
+library(dplyr)
+library(tidyr)
+library(pgirmess)
+library(ape)
+library(multcompView)
+```
+
+## Introduction
+
+Generates figure 2 of manuscript.
+Panel A - Fitness BLUPs by background group (original analysis in script 29)
+Panel B - Slug damage by background group
+Panel C - Relationship between slug damage and fitness BLUPs
+
+## 01. load data
+
+```{r load fitness BLUP data}
+#zscore normalized fitness BLUPs
+fit.blups <- read.table(file="./data/normalized.BLUPs.txt")
+
+## background group ID data
+kcl <- read.table(file="./data/K.groups.txt", stringsAsFactors=FALSE)
+
+fit.blups <- merge(fit.blups, kcl, by="row.names")
+fit.blups <- fit.blups[,colnames(fit.blups)%in%c("Row.names","K.group")==FALSE]
+```
+
+```{r load slug BLUP data}
+summary(cars)
+```
+
+
+## 02. do KW tests of fitness BLUP differences between groups
+```{r KW tests sig letters}
+
+### get labels for multiple testing
+get.tuk.lab <- function(up.kmc){
+  tlab <- up.kmc[[3]][,3]
+  names(tlab) <- rownames(up.kmc[[3]])
+  tlab <- data.frame(multcompLetters(tlab)['Letters'])
+  return(tlab)
+}
+
+tukey.normfit <- as.list(rep(NA,8)) 
+
+for(up in 1:8){
+  up.exp <- colnames(fit.blups[up])
+  up.kt <- kruskal.test(get(up.exp)~K.name, data=fit.blups)
+  up.ph <- kruskalmc(get(up.exp)~K.name, data=fit.blups)
+  out.ph <- get.tuk.lab(up.ph)
+
+  max.vals <- aggregate(fit.blups[,up],by=list(fit.blups$K.name), max, na.rm=TRUE)
+  total.max <- max(fit.blups[,1:8], na.rm=TRUE)
+  max.buffer <- data.frame(max.vals[,2] + (0.1*total.max))
+  Tukey_test <- cbind(max.buffer,out.ph, max.vals[,1])
+  colnames(Tukey_test) <- c("blup","Tukey_labels","K.name") # blup isn't really a good description of what this variable is, but i need to keep the name consistant with the blup data so it can be coplotted in ggplot2
+  Tukey_test$exp <- up.exp
+  tukey.normfit[[up]] <- Tukey_test
+}  
+
+tukey.normfit <- do.call(rbind, tukey.normfit)
+tuk.loc <- do.call(rbind, strsplit(tukey.normfit$exp,"_"))
+tukey.normfit$exp.site <- tuk.loc[,1]
+tukey.normfit$year <- tuk.loc[,2]
+```
+
+## 03. do KW tests of fitness BLUP differences between groups
+
+```{r plot fitness BLUP differences}
+fb.l <- fit.blups %>% pivot_longer(cols = 1:8,names_to = "exp", values_to = "blup") %>%as.data.frame()
+fb.loc <- do.call(rbind, strsplit(fb.l$exp,"_"))
+fb.l$exp.site <- fb.loc[,1]
+fb.l$year <- fb.loc[,2]
+  
+fb.l$K.name <- factor(fb.l$K.name, levels=c("B","S1","S2","C","N1","N2"))
+kcol <- brewer.pal(6, "Paired")[c(6,1,2,5,3,4)]
+
+fit.byk.plot <- ggplot(data=fb.l, aes(x=K.name, y=blup, fill=K.name)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  scale_fill_manual(values=kcol) +
+  theme_bw() +
+  labs(y="normalized fitness") +
+  theme(legend.position = "none") +
+  geom_text(data=tukey.normfit, aes(label=Tukey_labels)) +
+  facet_grid(year~exp.site)
+  
+
+
+
+
+
+```
+
+
