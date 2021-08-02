@@ -13,6 +13,7 @@ library(viridis)
 library(RColorBrewer)
 library(grid)
 library(ggpubr)
+library(ggh4x)
 library(dplyr)
 library(tidyr)
 library(pgirmess)
@@ -24,8 +25,8 @@ library(multcompView)
 
 Generates figure 2 of manuscript.
 Panel A - Fitness BLUPs by background group (original analysis in script 29)
-Panel B - Slug damage by background group
-Panel C - Relationship between slug damage and fitness BLUPs
+Panel B - Slug damage by background group (original analysis in script 34)
+Panel C - Relationship between slug damage and fitness BLUPs (original analysis in script 34)
 
 ## 01. load data
 
@@ -41,7 +42,30 @@ fit.blups <- fit.blups[,colnames(fit.blups)%in%c("Row.names","K.group")==FALSE]
 ```
 
 ```{r load slug BLUP data}
-summary(cars)
+# slug damage proportions from 01.CG.DLF.intial (mean of fitted values, glm, binomial with log link fxn)
+load("./data/slug.phenos.fitted.Rdat")
+
+#K matrix groups
+slug.phenos <- merge(slug.phenos, kcl, by.x="id", by.y="row.names", all=TRUE)
+
+#fitness blups
+fitness <- read.csv("./data/marginal.blups.csv", header=TRUE, stringsAsFactors=FALSE)
+fitness <- fitness[fitness$exp=="RAT" & fitness$year=="2011",]
+slug.phenos <- merge(slug.phenos, fitness[,c(1,4)], all=TRUE)
+
+#overwinter survival blups
+ows <- read.csv("./data/marginal.ows.blups.csv", header=TRUE,stringsAsFactors=FALSE)
+ows <- ows[ows$exp=="RAT" & ows$year=="2011",]
+slug.phenos <- merge(slug.phenos, ows[,c(1,4)], all=TRUE)
+
+# fecundity
+fecund <- read.csv("./data/marginal.fecundity.blups.csv", header=TRUE,stringsAsFactors=FALSE)
+fecund <- fecund[fecund$exp=="RAT" & fecund$year=="2011",]
+colnames(fecund)[1] <- "fecund"
+slug.phenos <- merge(slug.phenos, fecund[,c(1,4)],all=TRUE)
+
+#add descriptive k.group names
+slug.phenos$K.name <- factor(slug.phenos$K.name, levels=c("B","S1","S2","C","N1","N2"))
 ```
 
 
@@ -66,7 +90,7 @@ for(up in 1:8){
 
   max.vals <- aggregate(fit.blups[,up],by=list(fit.blups$K.name), max, na.rm=TRUE)
   total.max <- max(fit.blups[,1:8], na.rm=TRUE)
-  max.buffer <- data.frame(max.vals[,2] + (0.1*total.max))
+  max.buffer <- data.frame(max.vals[,2] + (0.15*total.max))
   Tukey_test <- cbind(max.buffer,out.ph, max.vals[,1])
   colnames(Tukey_test) <- c("blup","Tukey_labels","K.name") # blup isn't really a good description of what this variable is, but i need to keep the name consistant with the blup data so it can be coplotted in ggplot2
   Tukey_test$exp <- up.exp
@@ -77,34 +101,92 @@ tukey.normfit <- do.call(rbind, tukey.normfit)
 tuk.loc <- do.call(rbind, strsplit(tukey.normfit$exp,"_"))
 tukey.normfit$exp.site <- tuk.loc[,1]
 tukey.normfit$year <- tuk.loc[,2]
+tukey.normfit <- cbind(tukey.normfit, geo = ifelse(tukey.normfit$exp.site%in%c("NA","NM"), "North Experiments","South Experiments"))
+#tukey.normfit$exp.site <- factor(tukey.normfit$exp.site, levels=c("SR", "SU", "NA", "NM"))
+tukey.normfit$exp.site <- factor(tukey.normfit$exp.site, levels=c("NA", "NM", "SR", "SU"))
 ```
 
-## 03. do KW tests of fitness BLUP differences between groups
+## 03. do KW tests of fitness BLUP differences between groups - panel A
 
-```{r plot fitness BLUP differences}
+```{r plot fitness BLUP differences - panel A}
 fb.l <- fit.blups %>% pivot_longer(cols = 1:8,names_to = "exp", values_to = "blup") %>%as.data.frame()
 fb.loc <- do.call(rbind, strsplit(fb.l$exp,"_"))
 fb.l$exp.site <- fb.loc[,1]
 fb.l$year <- fb.loc[,2]
-  
+fb.l <- cbind(fb.l, geo = ifelse(fb.l$exp.site%in%c("NA","NM"), "North Experiments","South Experiments"))
+#fb.l$geo <- factor(fb.l$geo, levels=c("South Experiments", "North Experiments"))
+fb.l$geo <- factor(fb.l$geo, levels=c("North Experiments", "South Experiments"))
+#fb.l$exp.site <- factor(fb.l$exp.site, levels=c("SR", "SU", "NA", "NM"))
+fb.l$exp.site <- factor(fb.l$exp.site, levels=c("NA", "NM", "SR", "SU"))
+
 fb.l$K.name <- factor(fb.l$K.name, levels=c("B","S1","S2","C","N1","N2"))
 kcol <- brewer.pal(6, "Paired")[c(6,1,2,5,3,4)]
 
+# make variable for "home" annotation
+#ann <- unique(tukey.normfit[,c(4,5,6,7)])
+#ann$blup <- -3
+#ann$pos <- 5.5
+#ann$K.name <- "B"  ## dummy value so this works with ggplot
+
 fit.byk.plot <- ggplot(data=fb.l, aes(x=K.name, y=blup, fill=K.name)) +
   geom_boxplot() +
-  geom_jitter(width=0.1) +
+  geom_jitter(width=0.1, size=0.5) +
   scale_fill_manual(values=kcol) +
   theme_bw() +
   labs(y="normalized fitness") +
   theme(legend.position = "none") +
-  geom_text(data=tukey.normfit, aes(label=Tukey_labels)) +
-  facet_grid(year~exp.site)
+  xlab("genetic group") +
+  geom_text(data=tukey.normfit, aes(label=Tukey_labels), size=3) +
+  #geom_text(data=ann, aes(label="home\ngroups", x=pos)) +
+  #facet_grid(year~exp.site)
+  facet_nested(year~geo+exp.site)
   
-
-
-
-
-
 ```
 
 
+## 04. Plot slug damage by K group - panel B
+
+```{r slug by k Kruskal Wallace}
+up.exp <- "X2011_RAT_severeslug"
+up.ph <- kruskalmc(get(up.exp)~K.name, data=slug.phenos)
+out.ph <- get.tuk.lab(up.ph)
+max.vals <- aggregate(slug.phenos[,up.exp],by=list(slug.phenos$K.name), max, na.rm=TRUE)
+total.max <- max(slug.phenos[,up.exp], na.rm=TRUE)
+max.buffer <- data.frame(max.vals[,2] + (0.1*total.max))
+Tukey_test <- cbind(max.buffer,out.ph, max.vals[,1])
+colnames(Tukey_test) <- c(up.exp,"Tukey_labels","K.name") # blup isn't really a good description of what this variable is, but i need to keep the name consistant with the blup data so it can be coplotted in ggpl
+```
+
+```{r plot slug damage by K}
+
+slug.byk.plot <- ggplot(data=slug.phenos, aes(x=K.name, y=X2011_RAT_severeslug,fill=K.name)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1) +
+  theme_bw() +
+  labs(y="proportion severe\nslug damage",x="genetic group") +
+  scale_fill_manual(values = kcol) +
+  theme(legend.position = "none") +
+  geom_text(data=Tukey_test, aes(label=Tukey_labels), size=3)
+  
+```
+
+## 05. Plot slug damage vs fitness - panel C
+``` {r plot slug vs fitness}
+
+slug.fit <- ggplot(slug.phenos, aes(x=X2011_RAT_severeslug, y=fb, colour=K.name)) + 
+  geom_point() + 
+  scale_color_manual(values = kcol, name="genetic\ngroup") +
+  theme_bw() + 
+  labs(x="proportion severe slug damage", y="fitness BLUPs") + 
+  geom_smooth(method='lm',se=FALSE)
+
+```
+
+## 06. Combine plots
+```{r combine plots}
+
+lower.plots <- plot_grid(slug.byk.plot, NULL, slug.fit, labels = c('B','', 'C'), label_size = 12, ncol=3, rel_widths=c(0.44,0.02, 0.54))
+fig2 <- plot_grid(fit.byk.plot, NULL, lower.plots, labels = c('A','', ''), label_size = 12, ncol = 1, rel_heights = c(0.64, 0.02,0.34))
+
+ggsave(fig2, file="./manuscript.figures/Figure2.jpg", width=10, height=8)
+```

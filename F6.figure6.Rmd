@@ -13,6 +13,11 @@ library(viridis)
 library(RColorBrewer)
 library(grid)
 library(ggpubr)
+library(ggh4x)
+library(data.table)
+library(gtable)
+library(ggplotify)
+
 ```
 
 ## Introduction
@@ -46,16 +51,13 @@ for(up in 1:length(scans)){
 }
 all.dat <- do.call(rbind, all.dat)
 
-### at the moment, missing 1 fitness scans.  Need to rerun north fitness.
-#all.dat <- all.dat[all.dat$exp!=4,]
-all.dat <- all.dat[all.dat$exp!=5,]
 all.dat$scan.type <-  substring(all.dat$scan.type,3)
 all.dat$exp.site <- do.call(rbind,strsplit(all.dat$exp, "_"))[,1]
 all.dat$year <- do.call(rbind,strsplit(all.dat$exp, "_"))[,2]
 
 ```
 
-## 02. get number of rotations with smaller KS than observed for all exp/year by scan combinations
+## 02. get number of rotations with larger KS than observed for all exp/year by scan combinations
 
 ```{r get nrotations smaller than observed}
 expnames <- unique(all.dat$exp)
@@ -90,20 +92,180 @@ scan.pvals$n.beta <- as.numeric(scan.pvals$n.beta)
 
 ## get proportions of rotations < observed
 n.rotations <- 1000
-scan.pvals$p.af <- scan.pvals$n.af/n.rotations
-scan.pvals$p.afd <- scan.pvals$n.afd/n.rotations
-scan.pvals$p.beta <- scan.pvals$n.beta/n.rotations
+scan.pvals$p.af <- 1-(scan.pvals$n.af/n.rotations)
+scan.pvals$p.afd <- 1-(scan.pvals$n.afd/n.rotations)
+scan.pvals$p.beta <- 1-(scan.pvals$n.beta/n.rotations)
+
+## set experiment names and levels
+scan.pvals$exp.site <- gsub("ADA", "NA", scan.pvals$exp.site)
+scan.pvals$exp.site <- gsub("RAM", "NM", scan.pvals$exp.site)
+scan.pvals$exp.site <- gsub("RAT", "SR", scan.pvals$exp.site)
+scan.pvals$exp.site <- gsub("ULL", "SU", scan.pvals$exp.site)
+scan.pvals$exp.site <- factor(scan.pvals$exp.site, levels=c("NA", "NM", "SR", "SU"))
+scan.pvals <- cbind(scan.pvals, geo = ifelse(scan.pvals$exp.site%in%c("NA","NM"), "North Experiments","South Experiments"))
+scan.pvals$geo <- factor(scan.pvals$geo, levels=c("North Experiments", "South Experiments"))
 
 ```
+
+## 03. make betas pval heatmap
+
+```{r data prep heapmap beta pvals}
+scan.pvals$sig.beta <- sapply(scan.pvals$p.beta, function(x){
+  if(x<=0.001){xs <- "0.001"
+  } else if(x<=0.01){xs <- "0.01"
+  } else if(x<=0.050){xs <- "0.05"
+  } else(xs <- "ns")
+})
+
+scan.pvals$scan.type <- gsub("gea", "genome-\nenvironment\nassociation", scan.pvals$scan.type)
+scan.pvals$scan.type <- gsub("fit", "field\nfitness", scan.pvals$scan.type)
+scan.pvals$scan.type <- gsub("scan", "selection\nscan", scan.pvals$scan.type)
+
+```
+
+```{r plot heatmap beta pvals}
+f.sep <- 0.5
+p.colors <- c(viridis(3, begin=0.55, direction=-1), "grey95")
+
+beta.heatmap <- ggplot(scan.pvals, aes(1,1)) +
+  geom_tile(aes(fill = sig.beta)) +
+  facet_nested(scan.type+scan~exp.site + year,drop=T,space="free",scales="free") +
+  geom_text(aes(label=sprintf("%0.3f", round(p.beta, digits = 3)))) +
+  scale_fill_manual(values=p.colors) +
+  theme_bw() +
+  theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank(), axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank(), strip.text.y.right = element_text(angle = 0), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.spacing.x = unit(c(0, f.sep, 0 ,f.sep, 0, f.sep, 0) , 'lines'), panel.spacing.y = unit(c( 0,0,0,0,f.sep,0,0,f.sep,0,0,0,0,0,0) , 'lines')) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) + 
+  labs(fill = "empirical\npvalue")
+```
+
+## 04. make AF and AFD pval heatmap
+
+```{r reformatting for af and afd}
+allele.pvals <- scan.pvals
+allele.pvals <- cbind(allele.pvals, geo.l = ifelse(allele.pvals$exp.site%in%c("NA","NM"), "North","South"))
+allele.pvals <- allele.pvals[,c(2:3,9:10,14)]
+ap.l <- melt(data=allele.pvals, id.vars=c("scan", "scan.type","geo.l"), variable.name="al",value.name="pval")
+
+ap.l$sig.pval <- sapply(ap.l$pval, function(x){
+  if(x<=0.001){xs <- "0.001"
+  } else if(x<=0.01){xs <- "0.01"
+  } else if(x<=0.050){xs <- "0.05"
+  } else(xs <- "ns")
+})
+
+ap.l$al <- gsub("p.afd", "allele frequency difference", ap.l$al)
+ap.l$al <- gsub("p.af", "home allele frequency", ap.l$al)
+ap.l$al <- factor(ap.l$al, levels=c("home allele frequency", "allele frequency difference"))
+
+ap.t$scan.type <- gsub("\n","", ap.t$scan.type)
+```
+
+```{r heapmap allele pvals}
+
+allele.heatmap <- ggplot(ap.t, aes(1,1)) +
+  geom_tile(aes(fill = sig.pval)) +
+  facet_nested(scan.type+scan~al + geo.l) +
+  geom_text(aes(label=sprintf("%0.3f", round(pval, digits = 3)))) +
+  #geom_text(aes(label = pval)) +
+  scale_fill_manual(values=p.colors) +
+  theme_bw()  +
+  theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank(), axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank(), strip.text.y.right = element_text(margin = margin(0,0,0,0, "lines")), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.spacing.x = unit(c(0, f.sep, 0) , 'lines'), panel.spacing.y = unit(c( 0,0,0,0,f.sep,0,0,f.sep,0,0,0,0,0,0) , 'lines'), strip.text.y.right = element_blank(), legend.position = "none") +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0))
+
+# remove right strip
+plot.tab <- ggplotGrob(allele.heatmap)
+r.names <- plot.tab$layout$name[grep("strip-r",plot.tab$layout$name)]
+
+gtable_filter_remove <- function (x, name, trim = TRUE){
+  matches <- !(x$layout$name %in% name)
+  x$layout <- x$layout[matches, , drop = FALSE]
+  x$grobs <- x$grobs[matches]
+  if (trim) 
+    x <- gtable_trim(x)
+  x
+}
+
+allele.heatmap.grob <- gtable_filter_remove(plot.tab, r.names, trim=T)
+
+ah.ggplot = ggplotify::as.ggplot(allele.heatmap.grob)
+
+```
+
+## 06. combine plots
+
+```{r combine panels}
+
+fig6 <- ggarrange(NULL, ah.ggplot, beta.heatmap, ncol=3, widths = c(0.08, 0.8, 2.1), labels=c("", "A", "B" ), hjust=c(1))
+
+ggsave(fig6, file="./manuscript.figures/Figure6.jpg", width=14, height=8)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+## 07. old plot stuff below here
+
+```{r sandbox}
+
+ap.t <- ap.l
+ap.t$scan.type <- gsub("\n","", ap.t$scan.type)
+
+test.heatmap <- ggplot(ap.t, aes(1,1)) +
+  geom_tile(aes(fill = sig.pval)) +
+  facet_nested(scan.type+scan~al + geo.l) +
+  geom_text(aes(label=sprintf("%0.3f", round(pval, digits = 2)))) +
+  #geom_text(aes(label = pval)) +
+  scale_fill_manual(values=p.colors) +
+  theme_bw()  +
+  theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank(), axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank(), strip.text.y.right = element_text(), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.spacing.x = unit(c(0, f.sep, 0) , 'lines'), panel.spacing.y = unit(c( 0,0,0,0,f.sep,0,0,f.sep,0,0,0,0,0,0) , 'lines'), strip.text.y.right = element_blank(), legend.position = "none") +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0))
+
+
+
+
+
+
+plot.tab <- ggplotGrob(test.heatmap)
+r.names <- plot.tab$layout$name[grep("strip-r",plot.tab$layout$name)]
+
+gtable_filter_remove <- function (x, name, trim = TRUE){
+  matches <- !(x$layout$name %in% name)
+  x$layout <- x$layout[matches, , drop = FALSE]
+  x$grobs <- x$grobs[matches]
+  if (trim) 
+    x <- gtable_trim(x)
+  x
+}
+
+allele.heatmap.grob <- gtable_filter_remove(plot.tab, r.names, trim=T)
+
+p = ggplotify::as.ggplot(allele.heatmap.grob)
+
+fig6 <- ggarrange(NULL, p, beta.heatmap, ncol=3, widths = c(0.08, 0.8, 2.1), labels=c("", "A", "B" ), hjust=c(1))
+
+ggsave(fig6, file="./manuscript.figures/Figure6.jpg", width=14, height=8)
+
+
+```
+
 
 ## 03. plot these "empirical pvalues" by experiment, one plot per scan type for clarity
 
 ```{r generate AF/AFD and beta pval plots}
 types <- unique(scan.pvals$scan.type)
-scan.pvals$exp.site <- gsub("ADA", "NA", scan.pvals$exp.site)
-scan.pvals$exp.site <- gsub("RAM", "NM", scan.pvals$exp.site)
-scan.pvals$exp.site <- gsub("RAT", "SR", scan.pvals$exp.site)
-scan.pvals$exp.site <- gsub("ULL", "SU", scan.pvals$exp.site)
+
 
 type.af.plots <- as.list(1:3)
 type.afd.plots <- as.list(1:3)
@@ -118,9 +280,10 @@ for(up in 1:length(types)){
   up.title.afd <- types.afd[up]
   up.pal <- pals[up] 
   
-  af.pplot <- ggplot(data=scan.pvals[scan.pvals$scan.type==up.t,], aes(x=p.beta, y=p.af, color=scan)) +
+  af.pplot <- ggplot(data=scan.pvals[scan.pvals$scan.type==up.t,], aes(x=(p.beta), y=(p.af), color=scan)) +
     geom_point() +
-    facet_grid(year~exp.site) +
+    #facet_grid(year~exp.site) +
+    facet_nested(year~geo+exp.site) +
     scale_color_brewer(palette=up.pal, name="scan name") +
     #scale_colour_viridis_d(name="scan name") +
     xlab("proportion of rotations with KS less than observed (beta)") +
@@ -134,7 +297,8 @@ for(up in 1:length(types)){
   
   afd.pplot <- ggplot(data=scan.pvals[scan.pvals$scan.type==up.t,], aes(x=p.beta, y=p.afd, color=scan)) +
     geom_point() +
-    facet_grid(year~exp.site) +
+    #facet_grid(year~exp.site) +
+    facet_nested(year~geo+exp.site) +
     scale_color_brewer(palette=up.pal, name="scan name") +
     xlab("proportion of rotations with KS less than observed (beta)") +
     ylab("proportion of rotations with \nKS less than observed \n(allele frequency difference)") +
@@ -193,7 +357,5 @@ data.fig <- annotate_figure(data.fig,bottom = textGrob("proportion of rotations 
 
 assembled.fig <- ggarrange(data.fig, NULL, all.legends, ncol=3, common.legend=FALSE, widths = c(6,0.08, 0.9))
 
-ggsave(assembled.fig, file="./manuscript.figures/Figure6.jpg", width=12, height=8.5)
+ggsave(assembled.fig, file="./manuscript.figures/Figure6.jpg", width=12, height=9)
 ```
-
-

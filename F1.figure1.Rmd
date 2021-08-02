@@ -37,8 +37,8 @@ colnames(clim)[1]="id"
 k.dat <- read.table(file="./data/K.groups.txt", stringsAsFactors=FALSE)
 colnames(k.dat)[2] <- "id"
 clim <- merge(clim, k.dat, by.x="id")
-clim$K.name <- factor(clim$K.name, levels=c("S1","S2","C","B","N1","N2"))
-kcol <- brewer.pal(6, "Paired")[c(1,2,5,6,3,4)]
+clim$K.name <- factor(clim$K.name, levels=c("B","S1","S2","C","N1","N2"))
+kcol <- brewer.pal(6, "Paired")[c(6,1,2,5,3,4)]
 
 exp.sites <- clim_exp
 exp.sites <- exp.sites[c(1,3,4,8:15),]
@@ -49,7 +49,7 @@ exp.sites <- exp.sites[c(1,2,4,6,8,11),]
 exp.sites$simple.names <- c("NB","NA","NM","SU","SR","ST")
 
 ### get map coordinates
-map.bb=c(left=min(clim_exp$lon)-3, bottom=min(clim_exp$lat)-0.5,right=max(clim_exp$lon)+1.7, top=max(clim_exp$lat)+0.5)
+map.bb=c(left=min(clim_exp$lon)-3, bottom=min(clim_exp$lat)-0.5,right=max(clim_exp$lon)+1.6, top=max(clim_exp$lat)+0.5)
 map.s <- c(left=12.6, bottom=55.3, right=14.5, top=56.2)
 map.n <- c(left=18, bottom=62.75, right=18.6, top=63)
 
@@ -58,11 +58,11 @@ apikey <- Sys.getenv("GOOGLE_API_KEY")
 register_google(key = apikey)
 mapImageData1 <- get_stamenmap(map.bb, color = "bw",source = "stamen", maptype = "toner-lite", zoom=6, api_key=apikey, crop=T, force=T)
 mapImageS <- get_stamenmap(map.s, color = "bw", source="stamen", maptype = "toner-lite", zoom=8,api_key=apikey, crop=T, force=T)
-mapImageN <- get_stamenmap(map.n, color = "bw",source = "stamen", maptype = "toner-lite", zoom=8, api_key=apikey, crop=T, force=T)
+mapImageN <- get_stamenmap(map.n, color = "bw",source = "stamen", maptype = "toner-lite", zoom=11, api_key=apikey, crop=T, force=T)
   
 ```
 
-## 02. get map datagenerate maps
+## 02.generate maps
 
 ```{r draw maps}
 ## make maps
@@ -70,8 +70,10 @@ map <- ggmap(mapImageData1, darken=0.1) +
   geom_point(aes(x=lon, y=lat, col=K.name), data=clim, cex=2) + 
   #geom_point(aes(x=lon, y=lat), data=exp.sites, col="firebrick2", alpha=0.5, cex=2.5) + 
   scale_color_manual(values = kcol) + 
-  labs(x="longitude", y="latitude", colour = "genetic \nbackground \ngroup") +
-  theme(plot.title = element_text(hjust=0),legend.position="bottom")
+  labs(x="longitude", y="latitude", colour = "genetic\ngroup") +
+  theme(plot.title = element_text(hjust=0) ,legend.position="bottom") + 
+  guides(color = guide_legend(nrow=3))
+  
 map <- map + annotate("rect", xmin=map.s[1], xmax=map.s[3], ymin=map.s[2], ymax=map.s[4], alpha=0, color="black", size=0.4)
 map <- map + annotate("rect", xmin=map.n[1], xmax=map.n[3], ymin=map.n[2], ymax=map.n[4], alpha=0, color="black", size=0.4)
 
@@ -95,10 +97,9 @@ mapS <- mapS + geom_text(aes(x=lon, y=lat, label=simple.names), data=exp.sites, 
 ## 03. put maps together
 ```{r make composite figure}
 right.side <- plot_grid(mapN, mapS, labels = c('B', 'C'), label_size = 12, ncol=1)
-map.plot <- plot_grid(map, right.side, labels = c('A', ''), label_size = 12, ncol = 2)
+map.plot <- plot_grid(map, right.side, labels = c('A', ''), label_size = 12, ncol = 2, rel_widths=c(0.47,0.63))
 
-ggsave(map.plot, file="./manuscript.figures/Figure1.jpg", width=9, height=7)
-ggsave(map.plot, file="./manuscript.figures/Figure1.jpg", width=7, height=5.5)
+ggsave(map.plot, file="./manuscript.figures/Figure1.jpg", width=6.2, height=5.5)
 ```
 
 

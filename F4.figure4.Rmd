@@ -1,0 +1,180 @@
+---
+title: "F3.figure4"
+author: "Daniele Filiault"
+date: "7/29/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(RColorBrewer)
+library(grid)
+library(gridExtra)
+library(ggpubr)
+library(cowplot)
+library(ggh4x)
+library(viridis)
+```
+
+
+## Introduction
+
+Generates figure 4 of manuscript. 
+panel A is cumulative beta distribution by allele frequency difference
+panel B is  allele frequency difference by beta bin - numbers
+panel C is  allele frequency difference by beta bin - proportions
+
+## 01.  Get data
+Data and analysis is from script 51
+
+```{r get data}
+# for panel A
+load(file="./data/51.data/n.afd.sum.Rdat")
+load(file="./data/51.data/s.afd.sum.Rdat")
+
+# for panels B and C
+load(file="./data/51.data/nbeta.sum.afd")
+load(file="./data/51.data/sbeta.sum.afd")
+
+```
+
+  
+## 02. make cumulative beta plots
+```{r cumul beta data prep}
+afd.sum <- rbind(n.afd.sum, s.afd.sum)
+rm(n.afd.sum)
+rm(s.afd.sum)
+af.loc <- do.call(rbind, strsplit(afd.sum$exp,"_"))
+afd.sum$exp.site <- af.loc[,1]
+afd.sum$year <- af.loc[,2]
+
+## also need borders of fixed for vertical lines
+afd.fixed <- aggregate(index~exp, data=afd.sum[afd.sum$ha.afd>=0.85,], FUN=min)
+af.loc <- do.call(rbind, strsplit(afd.fixed$exp,"_"))
+afd.fixed$exp.site <- af.loc[,1]
+afd.fixed$year <- af.loc[,2]
+
+```
+
+```{r cumul beta plot}
+
+### plot weighed cumulative beta
+panel.a <- ggplot(data=afd.sum, aes(x=index,y=csum.wb.norm)) +
+  geom_point(aes(color=ha.afd)) +
+  scale_color_viridis(direction=-1,name="allele\nfrequency\ndifference") +
+  facet_nested(exp.site + year~.)  +
+  #facet_wrap(~exp, ncol=2) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative weighted beta (normalized)") + 
+  geom_vline(data=afd.fixed, aes(xintercept=index), linetype="dashed", color="purple") +
+  theme(plot.margin=unit(c(1,0.5,0.5,0.5), "lines"))
+
+```
+
+## 03. make barplots (panels B and C)
+```{r AF comp by beta North}
+
+afd.beta.abs.n <- as.list(1:4)
+afd.beta.prop.n <- as.list(1:4)
+up.exp <- levels(nbeta.sum.afd$exp)
+
+for(up in 1:4){
+  up.dat <- nbeta.sum.afd[nbeta.sum.afd$exp==up.exp[up],]
+  up.dat$beta.bin <- cut(up.dat$home.beta,10)
+  up.dat$nb.bin <- as.numeric(up.dat$beta.bin)
+  #get counts
+  up.tab <- with(up.dat, table(ha.bins, nb.bin))
+  up.df <- as.data.frame(up.tab)
+  up.df$exp <- up.exp[up]
+  afd.beta.abs.n[[up]] <- up.df
+  #get as proportions
+  up.ptab <- prop.table(up.tab, margin=2)
+  up.pdf <- as.data.frame(up.ptab)
+  up.pdf$exp <- up.exp[up]
+  afd.beta.prop.n[[up]] <- up.pdf
+}
+afd.beta.abs.n <- do.call(rbind, afd.beta.abs.n)
+afd.beta.prop.n <- do.call(rbind, afd.beta.prop.n)
+```
+
+```{r afd comp by beta South}
+
+afd.beta.abs.s <- as.list(1:4)
+afd.beta.prop.s <- as.list(1:4)
+up.exp <- levels(sbeta.sum.afd$exp)
+
+for(up in 1:4){
+  up.dat <- sbeta.sum.afd[sbeta.sum.afd$exp==up.exp[up],]
+  up.dat$beta.bin <- cut(up.dat$home.beta,10)
+  up.dat$nb.bin <- as.numeric(up.dat$beta.bin)
+  #get counts
+  up.tab <- with(up.dat, table(ha.bins, nb.bin))
+  up.df <- as.data.frame(up.tab)
+  up.df$exp <- up.exp[up]
+  afd.beta.abs.s[[up]] <- up.df
+  #get as proportions
+  up.ptab <- prop.table(up.tab, margin=2)
+  up.pdf <- as.data.frame(up.ptab)
+  up.pdf$exp <- up.exp[up]
+  afd.beta.prop.s[[up]] <- up.pdf
+}
+afd.beta.abs.s <- do.call(rbind, afd.beta.abs.s)
+afd.beta.prop.s <- do.call(rbind, afd.beta.prop.s)
+```
+
+```{r combine n and s data}
+afd.beta.abs <- rbind(afd.beta.abs.n, afd.beta.abs.s)
+afd.beta.prop <- rbind(afd.beta.prop.n, afd.beta.prop.s)
+afd.loc <- do.call(rbind, strsplit(afd.beta.abs$exp,"_"))
+afd.beta.abs$exp.site <- afd.loc[,1]
+afd.beta.abs$year <- afd.loc[,2]
+afd.beta.prop$exp.site <- afd.loc[,1]
+afd.beta.prop$year <- afd.loc[,2]
+
+afd.beta.abs$ha.bins <- factor(afd.beta.abs$ha.bins, levels=rev(levels(afd.beta.abs$ha.bins)))
+afd.beta.prop$ha.bins <- factor(afd.beta.prop$ha.bins, levels=rev(levels(afd.beta.prop$ha.bins)))
+```
+
+```{r make absolute numbers bin plot}
+
+panel.b <- ggplot(data=afd.beta.abs, aes(x=nb.bin,y=Freq,fill=ha.bins)) +
+  geom_bar(position="stack",stat="identity") + 
+  coord_flip()+
+  ylab("number of SNPs") +
+  xlab("home beta bin") +
+  scale_fill_brewer(palette = "Paired", name="allele\nfrequency\ndifference\nbin") +
+  #facet_grid(exp.site + year~.)
+  #facet_nested(exp.site + year~.)+
+  facet_grid(exp ~.) +
+  theme(strip.background=element_blank(), strip.text=element_blank(), plot.margin=unit(c(1,0.5,0.5,1), "lines"), legend.position = "none")
+```
+
+```{r make proportions bin plot}
+
+panel.c <- ggplot(data=afd.beta.prop, aes(x=nb.bin,y=Freq,fill=ha.bins)) +
+  geom_bar(position="stack",stat="identity") + 
+  coord_flip()+
+  ylab("proportion of SNPs") +
+  xlab("home beta bin") +
+  scale_fill_brewer(palette = "Paired", name="allele\nfrequency\ndifference\nbin", guide=guide_legend(reverse=T)) +
+  facet_nested(exp.site + year~.)  +
+  theme(axis.text.y=element_blank(), plot.margin=unit(c(1,1,0.5,0), "lines"))
+ 
+```
+
+
+## 04. combine panels to final figure
+
+```{r generate final figure}
+
+fig4 <- ggarrange(panel.a, panel.b, panel.c + rremove("ylab"),
+                    ncol = 3,
+                    labels=c("A","B","C"),
+                    font.label = list(size = 10, color = "black", face = "bold", family = NULL, position = "top"),
+                    widths=c(2,1,1.5))
+
+ggsave(fig4, file="./manuscript.figures/Figure4.jpg", width=10, height=9)
+
+```
+

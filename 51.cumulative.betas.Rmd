@@ -112,6 +112,12 @@ n.afd.fixed <- aggregate(index~exp, data=n.afd.sum[n.afd.sum$ha.afd>=0.9,], FUN=
 
 ```
 
+```{r save north variables}
+save(n.af.sum, file="./data/51.data/n.af.sum.Rdat")
+save(n.afd.sum, file="./data/51.data/n.afd.sum.Rdat")
+```
+
+
 ```{r plot beta cumsum north}
 
 af.plot <- ggplot(data=n.af.sum, aes(x=index,y=csum.norm)) +
@@ -229,6 +235,10 @@ s.af.fixed <- aggregate(index~exp, data=s.af.sum[s.af.sum$ahome==1,], FUN=min)
 s.afd.sum <- do.call(rbind, s.afd.sum)  
 s.afd.fixed <- aggregate(index~exp, data=s.afd.sum[s.afd.sum$ha.afd>=0.9,], FUN=min)
 
+```
+```{r save south variables}
+save(s.af.sum, file="./data/51.data/s.af.sum.Rdat")
+save(s.afd.sum, file="./data/51.data/s.afd.sum.Rdat")
 ```
 
 ```{r plot beta cumsum south}
@@ -1744,6 +1754,7 @@ nbeta.sum <- do.call(rbind, nbeta.sum)
 nbeta.sum$chrom <- as.factor(nbeta.sum$chrom)
 nbeta.sum$exp <- factor(nbeta.sum$exp, levels=c("NA_2011","NM_2011","NA_2012","NM_2012"))
 
+save(nbeta.sum, file="./data/51.data/nbeta.sum.Rdat")
 ```
 
 ```{r plot beta cumsum north beta order}
@@ -1810,7 +1821,7 @@ sbeta.sum <- do.call(rbind, sbeta.sum)
 sbeta.sum$chrom <- as.factor(sbeta.sum$chrom)
 sbeta.sum$exp <- factor(sbeta.sum$exp, levels=c("SR_2011","SU_2011","SR_2012","SU_2012"))
 
-
+save(sbeta.sum, file="./data/51.data/sbeta.sum.Rdat")
 ```
 
 ```{r plot beta cumsum south beta order}
@@ -1959,6 +1970,7 @@ nbeta.sum.afd <- do.call(rbind, nbeta.sum.afd)
 nbeta.sum.afd$chrom <- as.factor(nbeta.sum.afd$chrom)
 nbeta.sum.afd$exp <- factor(nbeta.sum.afd$exp, levels=c("NA_2011","NM_2011","NA_2012","NM_2012"))
 
+save(nbeta.sum.afd, file="./data/51.data/nbeta.sum.afd")
 ```
 
 ```{r plot beta cumsum north beta order}
@@ -2007,6 +2019,7 @@ sbeta.sum.afd <- do.call(rbind, sbeta.sum.afd)
 sbeta.sum.afd$chrom <- as.factor(sbeta.sum.afd$chrom)
 sbeta.sum.afd$exp <- factor(sbeta.sum.afd$exp, levels=c("SR_2011","SU_2011","SR_2012","SU_2012"))
 
+save(sbeta.sum.afd, file="./data/51.data/sbeta.sum.afd")
 ```
 
 ```{r plot beta cumsum south beta order}
