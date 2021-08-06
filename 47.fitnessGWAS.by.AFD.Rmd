@@ -178,6 +178,7 @@ home.beta.plot <- ggplot(data = home.beta.l, mapping = aes(x=exp,y=beta,fill=reg
  plot.name <- "./figures/47.figures/beta.home.allele.violin.plots.jpg"
  ggsave(plot.name, plot=home.beta.plot, width=8, height=6, units="in")
 
+save(home.beta.l, file="./data/47.data/home.beta.l.Rdat")
 ```
 
 ## 4. Relationship between home allele frequency and beta
@@ -402,7 +403,7 @@ polarize.afb <- function(home.allele, away.allele){
   # get AFD bins
   breaks <- seq(-0.5,1,0.15)
   # specify interval/bin labels
-  tags <- c("-[.5-.35)","-[.35-.2)", "-[.2-.05)", "-[.05-.1)", "[.1-.25)","[.25-.4)", "[.4-.55)","[.55-.7)", "[.7-85)","[.85-1)")
+  tags <- c("-[.5-.35)","-[.35-.2)", "-[.2-.05)", "-[.05-.1)", "[.1-.25)","[.25-.4)", "[.4-.55)","[.55-.7)", "[.7-85)","[.85-1]")
   # bucketing values into bins north/south
   out.dat$ha.bins <- cut(out.dat$ha.afd, breaks=breaks, include.lowest=TRUE, right=FALSE, labels=tags)
   out.dat$ha.bins <- factor(out.dat$ha.bins, levels = tags,ordered = TRUE)
@@ -415,7 +416,7 @@ polarize.afb <- function(home.allele, away.allele){
   
   #do away allele frequency bins
   breaks <- seq(0,1,0.1)
-  tags <- c("[.0-.1)","[.1-.2)","[.2-.3)","[.3-.4)","[.4-5)","[.5-.6)","[.6-.7)","[.7-.8)","[.8-.9)","[.9-1)" )
+  tags <- c("[0-.1)","[.1-.2)","[.2-.3)","[.3-.4)","[.4-5)","[.5-.6)","[.6-.7)","[.7-.8)","[.8-.9)","[.9-1]" )
   out.dat$aaway.bins <- cut(out.dat$aaway, breaks=breaks, include.lowest=TRUE, right=FALSE, labels=tags)
   out.dat$aaway.bins <- factor(out.dat$aaway.bins, levels = tags,ordered = TRUE)
 
@@ -449,14 +450,19 @@ afb.s <- polarize.afb(home.allele="ASOUTH", away.allele="ANORTH")
 afb.n <- polarize.afb(home.allele="ANORTH", away.allele="ASOUTH")
 ## will need to change these as appropriate
 ## change colnames to easy experiment names
-colnames(afb.s) <- gsub("RAM","NM", colnames(afb.n))
-colnames(afb.s) <- gsub("ADA","NA", colnames(afb.n))
-colnames(afb.s) <- gsub("RAT","SR", colnames(afb.n))
-colnames(afb.s) <- gsub("ULL","SU", colnames(afb.n))
+colnames(afb.s) <- gsub("RAM","NM", colnames(afb.s))
+colnames(afb.s) <- gsub("ADA","NA", colnames(afb.s))
+colnames(afb.s) <- gsub("RAT","SR", colnames(afb.s))
+colnames(afb.s) <- gsub("ULL","SU", colnames(afb.s))
 colnames(afb.n) <- gsub("RAM","NM", colnames(afb.n))
 colnames(afb.n) <- gsub("ADA","NA", colnames(afb.n))
 colnames(afb.n) <- gsub("RAT","SR", colnames(afb.n))
 colnames(afb.n) <- gsub("ULL","SU", colnames(afb.n))
+
+## save these variables for figure plots
+save(afb.n, file="./data/47.data/afb.n.Rdat")
+save(afb.s, file="./data/47.data/afb.s.Rdat")
+# this is the effect of the home allele (n or s) and the allele frequency infor for each SNP
 
 ### need a variable that gives 2 experiments to compare
 n.exps <- c("NA_2011", "NA_2012", "NM_2011", "NM_2012")
