@@ -251,7 +251,11 @@ panel.e <- ggplot(pd) +
 ## 09. assemble and annotate panels d and e
 ```{r lower panels}
 
-lower.panel <- annotate_figure(panel.d, right = text_grob("Southern (home) allele frequency", rot=-90), top = text_grob("frequency of Southern (home) allele in Northern population"))
+#lower.panel <- annotate_figure(panel.d, right = text_grob("Southern (home) allele frequency", rot=-90), top = text_grob("frequency of Southern (home) allele in Northern population"))
+
+panel.d <- annotate_figure(panel.d, right = text_grob("Southern (home) allele frequency", rot=-90), top = text_grob("frequency of Southern (home) allele in Northern population"))
+
+panel.e <- annotate_figure(panel.e, right = text_grob("Southern (home) allele frequency", rot=-90), top = text_grob("frequency of Southern (home) allele in Northern population"))
 
 ```
 
@@ -271,7 +275,20 @@ ggsave(fig5, file="./manuscript.figures/Figure5.jpg", width=9.5, height=8.8)
 
 ```
 
+```{r assemble figure extended}
 
+fig5e <- ggdraw() +
+  draw_plot(panel.a, x = 0, y = .78, width = .33, height = .22) +
+  draw_plot(panel.b, x = .33, y = .78, width = .33, height = .22) +
+  draw_plot(panel.c, x = .66, y = .78, width = .33, height = .22) +
+  draw_plot(panel.d , x = 0, y = 0.39, width = 1, height = 0.38) +
+  draw_plot(panel.e , x = 0, y = 0, width = 1, height = 0.38) +
+  draw_plot_label(label = c("A", "B", "C", "D", "E"), size = 15,
+                  x = c(0, 0.33, 0.66, 0, 0), y = c(1, 1, 1, 0.77, 0.38))
+
+ggsave(fig5e, file="./manuscript.figures/Figuree5.jpg", width=9.0, height=13)
+
+```
 
 
 
