@@ -68,7 +68,7 @@ hist(d$fitness)
 hist(sqrt(d$fitness))
 with(d, boxplot(fitness~exp+year))
 
-pdf(file="./figures/raw.fitness.boxplot.by.year.site.pdf", width=10, height=6)
+pdf(file="./figures/27.figures/raw.fitness.boxplot.by.year.site.pdf", width=10, height=6)
 with(d, boxplot(fitness~year+exp, col=c(rep(brewer.pal(9, "Paired")[4],4), rep(brewer.pal(9, "Paired")[3],4))))
 dev.off()
 
@@ -83,7 +83,7 @@ dev.off()
 lm1 <- lm(fitness~id*year*exp, data=d)
 lm3 <- lm(fitness~id*year*exp + exp:year/block, data=d)
 plot(lm3)
-anova(lm1,lm3) ### yes, lm3 is much better.  The block helps. If it is specified correctly???
+anova(lm1,lm3) ### yes, lm3 is much better.  The block helps.
 anova(lm3)
 
 ### test model fits by removing some components
@@ -99,6 +99,12 @@ ssq <- anova(lm3)[[2]]
 pve <-ssq/sum(ssq)
 names(pve) <- rownames(anova(lm3))
 print(pve)
+
+ssq1 <- anova(lm1)[[2]]
+pve1 <-ssq1/sum(ssq1)
+names(pve1) <- rownames(anova(lm1))
+print(pve1)
+
 
 #(summary(lm3))
 pander(anova(lm3))

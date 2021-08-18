@@ -21,13 +21,13 @@ library(ggpubr)
 Parsing rotations done in script(s) 53 to do genome rotation to get empirical distributions of Kologorov-Smirnov test values obtained in script 52
 
 ```{r load data}
-scans <- c("n.scan.rot", "s.scan.rot", "n.gea.rot", "s.gea.rot","n.fit.rot", "s.fit.rot")
-vars <- c("n.sweep.rot", "s.sweep.rot", "n.gea.rot", "s.gea.rot","n.fit.rot", "s.fit.rot")
+scans <- c("n.scan.rot", "s.scan.rot", "n.gea.rot", "s.gea.rot","n.fit.rot", "s.fit.rot", "n.fit2.rot", "s.fit2.rot")
+vars <- c("n.sweep.rot", "s.sweep.rot", "n.gea.rot", "s.gea.rot","n.fit.rot", "s.fit.rot", "n.fit.rot", "s.fit.rot")
 all.dat <- as.list(1:length(scans))
 for(up in 1:length(scans)){
-  #print(up)
+  print(up)
   up.scan <- scans[up]
-  #print(up.scan)
+  print(up.scan)
   up.var <- vars[up]
   #print(up.var)
   up.files <- glue('./data/53.data/{up.scan}.{1:25}.Rdat')
@@ -44,13 +44,10 @@ for(up in 1:length(scans)){
 }
 all.dat <- do.call(rbind, all.dat)
 
-### at the moment, missing 1 fitness scans.  Need to rerun north fitness.
-#all.dat <- all.dat[all.dat$exp!=4,]
-all.dat <- all.dat[all.dat$exp!=5,]
 all.dat$scan.type <-  substring(all.dat$scan.type,3)
 all.dat$exp.site <- do.call(rbind,strsplit(all.dat$exp, "_"))[,1]
 all.dat$year <- do.call(rbind,strsplit(all.dat$exp, "_"))[,2]
-
+all.dat$scan.type <- gsub("fit2.rot", "fit.rot", all.dat$scan.type) ### combine 2 rounds of fitness scans
 
 ```
 

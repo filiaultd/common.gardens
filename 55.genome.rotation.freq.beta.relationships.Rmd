@@ -1,0 +1,341 @@
+---
+title: "55.genome.rotation.freq.beta.relationships"
+author: "Daniele Filiault"
+date: "8/16/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(ggpubr)
+library(cowplot)
+```
+
+## Introduction
+
+In script 47, we observed relationships between home beta and allele frequency and allele frequency difference.  
+Here, will do genome rotation to assess significance of these relationships.
+
+## 01. Load data
+```{r load data}
+# this is the effect of the home allele (n or s) and the allele frequency infor for each SNP from script 47
+load(file="./data/47.data/afb.n.Rdat")
+load(file="./data/47.data/afb.s.Rdat")
+
+### need a variable that gives experiment names
+n.exps <- c("NA_2011", "NA_2012", "NM_2011", "NM_2012")
+s.exps <- c("SU_2011", "SU_2012", "SR_2011", "SR_2012")
+```
+
+## 02. Develop functions
+```{r mean and max per genome rotation}
+#up.exp <- "NM_2011"
+#up.dat <- afb.n
+#nrots <- 10
+#rots <- sample(1:nrow(up.dat), nrots, replace=FALSE)
+#up.rot <- rots[1]
+
+#ugh <- rot.means(up.exp="NA_2011", up.dat=afb.n, up.rot=rots[3])
+
+rot.means <- function(up.exp, up.dat, up.rot){
+  #rotate home betas
+  up.dat <- up.dat[order(up.dat$chrom, up.dat$pos),]
+  up.col <- which(colnames(up.dat)==up.exp)
+  up.dat <- up.dat[is.na(up.dat[,up.exp])==FALSE,]
+  up.beta <- up.dat[,up.exp]
+  rot.beta <- up.beta[c(up.rot:length(up.beta), 1:(up.rot-1))]
+  rot.dat <- cbind(up.dat, rot.beta)
+
+  #rot beta means by AF bin
+  af.table <- aggregate(rot.dat$rot.beta, list(rot.dat$ahome.bins), mean)
+  af.table <- as.data.frame.matrix(af.table)
+  colnames(af.table) <- c("ahome.bins","mean.beta")
+
+  #rot beta means by AFD bin
+  afd.table <- aggregate(rot.dat$rot.beta, list(rot.dat$ha.bins), mean)
+  afd.table <- as.data.frame.matrix(afd.table)
+  colnames(afd.table) <- c("ha.bins","mean.beta")
+
+#calculate cumulative betas
+#overall weighted cumulative beta of genome by af bin
+  rot.dat <- rot.dat[order(rot.dat$ahome, rot.dat$rot.beta),]
+  rot.dat$af.csum <- cumsum(rot.dat$rot.beta)
+  rot.dat$rot.beta.w <- rot.dat$rot.beta*rot.dat$ahome
+  rot.dat$af.csum.w <- cumsum(rot.dat$rot.beta.w)
+  af.csum.table <- aggregate(rot.dat$af.csum.w, list(rot.dat$ahome.bins), function(x){max(x, na.rm=TRUE)})
+  af.csum.table <- as.data.frame.matrix(af.csum.table)
+  colnames(af.csum.table) <- c("ahome.bins","max.csum.w")
+  
+#overall weighted cumulative beta of genome by afd bin
+  rot.dat <- rot.dat[order(rot.dat$ha.afd, rot.dat$rot.beta),]
+  rot.dat$afd.csum <- cumsum(rot.dat$rot.beta)
+  rot.dat$afd.csum.w <- cumsum(rot.dat$rot.beta.w)
+  afd.csum.table <- aggregate(rot.dat$afd.csum.w, list(rot.dat$ha.bins), function(x){max(x, na.rm=TRUE)})
+  colnames(afd.csum.table) <- c("ha.bins","max.csum.w")
+  
+  out.dat <- list(af.table, afd.table, af.csum.table, afd.csum.table)
+  return(out.dat)
+}
+  
+```
+
+```{r function for all rotations of one experiment}
+exp.rot <- function(up.exp, up.dat, nrots){
+  up.dat <- up.dat[is.na(up.dat[, up.exp])==FALSE,]
+  rots <- sample(1:nrow(up.dat), nrots, replace=FALSE)
+  rot.lists <- sapply(rots, function(x){rot.means(up.exp=up.exp, up.dat=up.dat, up.rot=x)})
+  r.mean.af <- do.call(rbind, rot.lists[1,])
+  r.mean.afd <- do.call(rbind, rot.lists[2,])
+  af.csum <- do.call(rbind, rot.lists[3,])
+  afd.csum <- do.call(rbind, rot.lists[4,])
+  out.dat <- list(r.mean.af, r.mean.afd, af.csum, afd.csum)
+  return(out.dat)
+}
+
+#test.rot <- exp.rot(up.exp="NA_2011", up.dat=afb.n, nrots=20)
+
+```
+
+```{r function to get observed values}
+#up.exp <- "NA_2011"
+#up.dat <- afb.n
+#ugh <- obs.means(up.exp="SR_2012", afb.s)
+
+obs.means <- function(up.exp, up.dat){
+  up.dat <- up.dat[order(up.dat$chrom, up.dat$pos),]
+  up.col <- which(colnames(up.dat)==up.exp)
+  up.dat <- up.dat[is.na(up.dat[,up.exp])==FALSE,]
+  
+  # beta means by AF bin
+  af.table <- aggregate(up.dat[,up.col], list(up.dat$ahome.bins), function(x){mean(x, na.rm=TRUE)})
+  af.table <- as.data.frame.matrix(af.table)
+  colnames(af.table) <- c("ahome.bins","mean.beta")
+
+  # beta means by AFD bin
+  afd.table <- aggregate(up.dat[,up.col], list(up.dat$ha.bins), function(x){mean(x, na.rm=TRUE)})
+  afd.table <- as.data.frame.matrix(afd.table)
+  colnames(afd.table) <- c("ha.bins","mean.beta")
+
+#calculate cumulative betas
+#overall weighted cumulative beta of genome by af bin
+  up.dat <- up.dat[order(up.dat$ahome, up.dat[,up.col]),]
+  up.dat$af.csum <- cumsum(up.dat[,up.col])
+  up.dat$rot.beta.w <-up.dat[,up.col]*up.dat$ahome
+  up.dat$af.csum.w <- cumsum(up.dat$rot.beta.w)
+  af.csum.table <- aggregate(up.dat$af.csum.w, list(up.dat$ahome.bins), function(x){max(x, na.rm=TRUE)})
+  af.csum.table <- as.data.frame.matrix(af.csum.table)
+  colnames(af.csum.table) <- c("ahome.bins","max.csum.w")
+  
+#overall weighted cumulative beta of genome by afd bin
+  up.dat <- up.dat[order(up.dat$ha.afd, up.dat[,up.col]),]
+  up.dat$afd.csum <- cumsum(up.dat[,up.col])
+  up.dat$afd.csum.w <- cumsum(up.dat$rot.beta.w)
+  afd.csum.table <- aggregate(up.dat$afd.csum.w, list(up.dat$ha.bins), function(x){max(x, na.rm=TRUE)})
+  colnames(afd.csum.table) <- c("ha.bins","max.csum.w")
+  
+  out.dat <- list(af.table, afd.table, af.csum.table, afd.csum.table)
+  return(out.dat)
+}
+
+```
+
+## 03. Run rotations
+```{r run rotations}
+
+#north rotations
+for(up.exp in n.exps){
+  print(up.exp)
+  up.rot <- exp.rot(up.exp=up.exp, up.dat=afb.n, nrots=1000)
+  save(up.rot, file=paste("./data/55.data/",up.exp,".rotations.Rdat", sep=""))
+}
+
+#south rotations
+for(up.exp in s.exps){
+  print(up.exp)
+  up.rot <- exp.rot(up.exp=up.exp, up.dat=afb.s, nrots=1000)
+  save(up.rot, file=paste("./data/55.data/",up.exp,".rotations.Rdat", sep=""))
+}
+
+```
+
+
+
+### 04. Get observed distributions for each of these, as well
+```{r get observed distributions}
+#north observed
+n.obs <- sapply(n.exps, function(x){obs.means(up.exp=x, afb.n)})
+s.obs <- sapply(s.exps, function(x){obs.means(up.exp=x, afb.s)})
+
+all.obs <- cbind(n.obs, s.obs)
+```
+
+
+
+
+### 05. Parse rotations to make plots and get pvals
+```{r parse rotations plots}
+all.exps <- c(n.exps, s.exps)
+
+for(up.exp in all.exps){
+  print(up.exp)
+  load(paste("./data/55.data/",up.exp,".rotations.Rdat", sep="")) #up.rot
+  exp.rots <- up.rot
+  obs.dat <- all.obs[,up.exp]
+
+  #mean.af plot
+  af.min <- min(c(exp.rots[[1]][,2], obs.dat[[1]][,2]))
+  af.max <- max(c(exp.rots[[1]][,2], obs.dat[[1]][,2]))
+  af.box <- ggplot(exp.rots[[1]], aes(x=ahome.bins, y=mean.beta))+
+    geom_jitter(shape=16, position=position_jitter(0.2), alpha=0.2) +
+    geom_boxplot() +
+    ylim(af.min, af.max) +
+    geom_point(data=obs.dat[[1]], aes(x=ahome.bins, y=mean.beta), color="red", size=3)
+
+  #mean.afd plot
+  afd.min <- min(c(exp.rots[[2]][,2], obs.dat[[2]][,2]))
+  afd.max <- max(c(exp.rots[[2]][,2], obs.dat[[2]][,2]))
+  p.dat <- exp.rots[[2]]
+  p.dat$ha.bins <- factor(p.dat$ha.bins, levels=levels(afb.n$ha.bins))
+  afd.box <- ggplot(p.dat, aes(x=ha.bins, y=mean.beta))+
+    geom_jitter(shape=16, position=position_jitter(0.2), alpha=0.2) +
+    geom_boxplot() +
+    ylim(afd.min, afd.max) +
+    geom_point(data=obs.dat[[2]], aes(x=ha.bins, y=mean.beta), color="red", size=3)
+
+  #cumsum by af plot
+  saf.min <- min(c(exp.rots[[3]][,2], obs.dat[[3]][,2]))
+  saf.max <- max(c(exp.rots[[3]][,2], obs.dat[[3]][,2]))
+  saf.box <- ggplot(exp.rots[[3]], aes(x=ahome.bins, y=max.csum.w))+
+    geom_jitter(shape=16, position=position_jitter(0.2), alpha=0.2) +
+    geom_boxplot() +
+    ylim(saf.min, saf.max) +
+    geom_point(data=obs.dat[[3]], aes(x=ahome.bins, y=max.csum.w), color="red", size=3)
+
+  #cumsum by afd plot
+  safd.min <- min(c(exp.rots[[4]][,2], obs.dat[[4]][,2]))
+  safd.max <- max(c(exp.rots[[4]][,2], obs.dat[[4]][,2]))
+  safd.box <- ggplot(exp.rots[[4]], aes(x=ha.bins, y=max.csum.w))+
+    geom_jitter(shape=16, position=position_jitter(0.2), alpha=0.2) +
+    geom_boxplot() +
+    ylim(safd.min, safd.max) +
+    geom_point(data=obs.dat[[4]], aes(x=ha.bins, y=max.csum.w), color="red", size=3)
+
+  # make composite plot
+  out.plot <- ggarrange(af.box, afd.box, saf.box, safd.box, ncol=2, nrow=2, widths=c(1, 1.6))
+  out.plot <- annotate_figure(out.plot, fig.lab = up.exp)
+  ggsave(out.plot, file=paste("./figures/55.figures/", up.exp,".boxplots.jpg", sep=""), width=8.5, height=5)
+}
+```
+
+```{r parse rotations pvalues - af}
+
+get.af.pvals <- function(up.exp){
+  load(paste("./data/55.data/",up.exp,".rotations.Rdat", sep="")) #up.rot
+  exp.rots <- up.rot
+  obs.dat <- all.obs[,up.exp]
+ #mean.af pvals
+  rd <- exp.rots[[1]]
+  od <- obs.dat[[1]]
+  colnames(od)[2] <- "obs.mean.beta"
+  rd <- merge(rd, od, all=TRUE)
+  rd$obs.less <- rd$obs.mean.beta<rd$mean.beta
+  rd$obs.more <- rd$obs.mean.beta>rd$mean.beta
+  n.less <- aggregate(rd$obs.less, list(rd$ahome.bins), sum)
+  n.more <- aggregate(rd$obs.more, list(rd$ahome.bins), sum)
+  colnames(n.less)[2] <- "n.obs.less"
+  colnames(n.more)[2] <- "n.obs.more"
+  af.out <- merge(n.less, n.more)
+  af.out$exp <- up.exp
+  return(af.out)
+}
+
+af.pvals <- as.list(1:length(all.exps))
+for(up in 1:length(all.exps)){af.pvals[[up]] <- get.af.pvals(up.exp = all.exps[up])}
+af.pvals <- as.data.frame(do.call(rbind, af.pvals))
+colnames(af.pvals)[1] <- "ahome.bins"
+```
+
+```{r parse rotations pvalues - afd}
+
+get.afd.pvals <- function(up.exp){
+  load(paste("./data/55.data/",up.exp,".rotations.Rdat", sep="")) #up.rot
+  exp.rots <- up.rot
+  obs.dat <- all.obs[,up.exp]
+ #mean.af pvals
+  rd <- exp.rots[[2]]
+  od <- obs.dat[[2]]
+  colnames(od)[2] <- "obs.mean.beta"
+  rd <- merge(rd, od, all=TRUE)
+  rd$obs.less <- rd$obs.mean.beta<rd$mean.beta
+  rd$obs.more <- rd$obs.mean.beta>rd$mean.beta
+  n.less <- aggregate(rd$obs.less, list(rd$ha.bins), sum)
+  n.more <- aggregate(rd$obs.more, list(rd$ha.bins), sum)
+  colnames(n.less)[2] <- "n.obs.less"
+  colnames(n.more)[2] <- "n.obs.more"
+  afd.out <- merge(n.less, n.more)
+  afd.out$exp <- up.exp
+  return(afd.out)
+}
+
+afd.pvals <- as.list(1:length(all.exps))
+for(up in 1:length(all.exps)){afd.pvals[[up]] <- get.afd.pvals(up.exp = all.exps[up])}
+afd.pvals <- as.data.frame(do.call(rbind, afd.pvals))
+colnames(afd.pvals)[1] <- "ha.bins"
+```
+
+```{r parse rotations pvalues - af cumsum}
+
+get.afsum.pvals <- function(up.exp){
+  load(paste("./data/55.data/",up.exp,".rotations.Rdat", sep="")) #up.rot
+  exp.rots <- up.rot
+  obs.dat <- all.obs[,up.exp]
+ #mean.af pvals
+  rd <- exp.rots[[3]]
+  od <- obs.dat[[3]]
+  colnames(od)[2] <- "obs.max.csum.w"
+  rd <- merge(rd, od, all=TRUE)
+  rd$obs.less <- rd$obs.max.csum.w<rd$max.csum.w
+  rd$obs.more <- rd$obs.max.csum.w>rd$max.csum.w
+  n.less <- aggregate(rd$obs.less, list(rd$ahome.bins), sum)
+  n.more <- aggregate(rd$obs.more, list(rd$ahome.bins), sum)
+  colnames(n.less)[2] <- "n.obs.less"
+  colnames(n.more)[2] <- "n.obs.more"
+  afsum.out <- merge(n.less, n.more)
+  afsum.out$exp <- up.exp
+  return(afsum.out)
+}
+
+afsum.pvals <- as.list(1:length(all.exps))
+for(up in 1:length(all.exps)){afsum.pvals[[up]] <- get.afsum.pvals(up.exp = all.exps[up])}
+afsum.pvals <- as.data.frame(do.call(rbind, afsum.pvals))
+colnames(afsum.pvals)[1] <- "ha.bins"
+```
+
+```{r parse rotations pvalues - afd cumsum}
+
+get.afdsum.pvals <- function(up.exp){
+  load(paste("./data/55.data/",up.exp,".rotations.Rdat", sep="")) #up.rot
+  exp.rots <- up.rot
+  obs.dat <- all.obs[,up.exp]
+ #mean.af pvals
+  rd <- exp.rots[[4]]
+  od <- obs.dat[[4]]
+  colnames(od)[2] <- "obs.max.csum.w"
+  rd <- merge(rd, od, all=TRUE)
+  rd$obs.less <- rd$obs.max.csum.w<rd$max.csum.w
+  rd$obs.more <- rd$obs.max.csum.w>rd$max.csum.w
+  n.less <- aggregate(rd$obs.less, list(rd$ha.bins), sum)
+  n.more <- aggregate(rd$obs.more, list(rd$ha.bins), sum)
+  colnames(n.less)[2] <- "n.obs.less"
+  colnames(n.more)[2] <- "n.obs.more"
+  afdsum.out <- merge(n.less, n.more)
+  afdsum.out$exp <- up.exp
+  return(afdsum.out)
+}
+
+afdsum.pvals <- as.list(1:length(all.exps))
+for(up in 1:length(all.exps)){afdsum.pvals[[up]] <- get.afdsum.pvals(up.exp = all.exps[up])}
+afdsum.pvals <- as.data.frame(do.call(rbind, afdsum.pvals))
+colnames(afdsum.pvals)[1] <- "ha.bins"
+```
