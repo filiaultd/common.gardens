@@ -16,6 +16,7 @@ library(merTools)
 library(MuMIn) # for calculating R2 of mixed models
 library(RColorBrewer)
 library(pander)
+library(xtable)
 library(dplyr)
 library(tidyr)
 library(ggplot2)
@@ -24,6 +25,7 @@ library(heatmaply)
 library(gridExtra)
 library(superheat) #extended heatmap functions
 library(pheatmap)
+library(gplots)
 ##for maps
 library(maps)
 library(mapdata)
@@ -34,9 +36,6 @@ library("rgeos")
 library("egg")
 library("gplots")
 
-### for admixture group plots
-ag.names <- c("N.Sweden","Germany","S.Sweden","Iberia","Italy/E.Europe","Russia/Asia","C.Europe","USA","W.Europe")  ### these are my admixture group names based on the table
-group.colors <- brewer.pal(9, "Paired")[c(4,7,3,2,6,5,8,1,9)]
 
 ```
 
@@ -72,16 +71,20 @@ pdf(file="./figures/27.figures/raw.fitness.boxplot.by.year.site.pdf", width=10, 
 with(d, boxplot(fitness~year+exp, col=c(rep(brewer.pal(9, "Paired")[4],4), rep(brewer.pal(9, "Paired")[3],4))))
 dev.off()
 
+## will also look at background effects captured as genetic or K groups in subsection 4
+
+kg <- read.table("./data/29.data/all.clusters.and normalized.BLUPs.txt", fill=TRUE, header=TRUE)
 ```
 
 
 
-### 2. function to get predicted fitness per block/line/exp
-```{r test normal linear models}
+### 2. fixed effect linear models
+```{r fixed effect linear models}
 
 ### do as normal lm first to understand specification, then move to glm so can use tweedie
 lm1 <- lm(fitness~id*year*exp, data=d)
 lm3 <- lm(fitness~id*year*exp + exp:year/block, data=d)
+
 plot(lm3)
 anova(lm1,lm3) ### yes, lm3 is much better.  The block helps.
 anova(lm3)
@@ -105,14 +108,50 @@ pve1 <-ssq1/sum(ssq1)
 names(pve1) <- rownames(anova(lm1))
 print(pve1)
 
-
 #(summary(lm3))
 pander(anova(lm3))
+
+# make anova table with PVE
+lm3.tab <- as.data.frame(anova(lm3))
+lm3.tab$PVE <- pve * 100
+rownames(lm3.tab)[8] <- "year:exp/block"
+xtab.lm3 <- xtable(lm3.tab)
+print(xtab.lm3, file="./figures/27.figures/fixed.effects.anova.table.txt")
+```
+
+```{r heritability per site/year}
+combos <- expand.grid(unique(d$year), unique(d$exp))
+
+check.pvals <- function(d,y,e){
+  up.d <- d[d$year==y & d$exp==e,]
+  up.lm <- lm(fitness~id+block, data=up.d)
+  return(anova(up.lm))
+  }
+exp.anovas <- apply(combos, 1, function(x){check.pvals(d=d, y=x[1], e=x[2])}) # all genotypes significant, block sig in all but RAM_2012
+
+get.pve <- function(d, y, e){
+  up.d <- d[d$year==y & d$exp==e,]
+  up.lm <- lm(fitness~id+block, data=up.d)
+  ssq <- anova(up.lm)[[2]]
+  pve <-(ssq/sum(ssq))*100
+  names(pve) <- rownames(anova(up.lm))
+  return(pve)
+}
+
+exp.pves <- apply(combos, 1, function(x){get.pve(d=d, y=x[1], e=x[2])})
+
+exp.pves <- as.data.frame(t(exp.pves))
+exp.pves <- cbind(combos, exp.pves)
+colnames(exp.pves) <- c("year", "site", "genotype", "block", "residuals")
+xtab.pve <- xtable(exp.pves)
+print(xtab.pve, file="./figures/27.figures/pve.table.txt")
+
 
 ```
 
 So the full model with triple interaction plus block is the best one (lm3). Plots aren't the best - you can clearly see the effect of the truncated 0 distribution. Can try this as a tweedie model?
 
+### 3. fixed effect linear models - tweedie
 ```{r test tweedie models, eval=FALSE}
 
 #profile.all.dat <- tweedie.profile(fitness~id*year*exp + exp:year/block, data = d, p.vec = seq(1.1, 1.9, 0.1),do.plot=TRUE, fit.glm = TRUE)
@@ -144,9 +183,39 @@ So the full model with triple interaction plus block is the best one (lm3). Plot
 
 Plots for tweedie model aren't much better.  Also, estimates of effect sizes are really similar.  Just stick with the regular linear model despite its shortcomings.
 
-I'm not 100% sure that I'm specifying block correctly in model.  Make unique block names and compare?
-Probably better choice is to specify block as a random effect in a mixed effect model.  I'm going that direction to estimate BLUPs anyway...
+Probably more natural choice is to specify block as a random effect in a mixed effect model.  I'm going that direction to estimate BLUPs anyway...
 
+### 4. fixed effect linear models incorporating genetic groups
+Genetic groups determined in script 29
+```{r linear models with Kgroups}
+dk <-merge(d, kg, all.x=TRUE)
+
+## model with k.2 instead of genotype ()
+dk$k.2 <- as.factor(dk$k.2)
+lm.k2 <- lm(fitness~k.2*year*exp + exp:year/block, data=dk)
+anova(lm.k2)
+
+## model with k.6 instead of genotype
+dk$k.6 <- as.factor(dk$k.6)
+lm.k6 <- lm(fitness~k.6*year*exp + exp:year/block, data=dk)
+anova(lm.k6)
+## k.6 is much more significant than k.2!
+
+ssq2 <- anova(lm.k2)[[2]]
+pve2 <-(ssq2/sum(ssq2))*100
+names(pve2) <- rownames(anova(lm.k2))
+
+ssq6 <- anova(lm.k6)[[2]]
+pve6 <-(ssq6/sum(ssq6))*100
+names(pve6) <- rownames(anova(lm.k6))
+  
+ 
+```
+
+
+
+
+### 5.  Mixed effect model to get BLUPS
 ```{r mixed model specifications}
 mm1 <- lmer(fitness ~ 1 + (1 | block), data=d)
 mm2 <- lmer(fitness ~ 1 + (1 | id), data=d)
@@ -194,6 +263,8 @@ So now let's think about these BLUPs per accession per experiment.
 Can we use them to demonstrate local adaptation?
 Can they be used for GWAS?
 
+## 5. explore BLUP relationships
+
 ```{r explore blups}
 blups <- ranef(mm7)[[1]]
 blups <- as.data.frame(blups)
@@ -203,18 +274,21 @@ blups <- cbind(blups, desc)
 colnames(blups)[1] <- "fb"
 
 hist(blups$fb)
-pdf(file="./figures/blup.fitness.boxplot.by.year.site.pdf", width=10, height=6)
+pdf(file="./figures/27.figures/blup.fitness.boxplot.by.year.site.pdf", width=10, height=6)
 with(blups, boxplot(fb~year+exp, col=c(rep(brewer.pal(9, "Paired")[4],4), rep(brewer.pal(9, "Paired")[3],4))))
 dev.off()
 
 ## write BLUPS to file
-write.csv(blups, file="./data/marginal.blups.csv", quote=FALSE,row.names=FALSE)
+write.csv(blups, file="./data/27.data/marginal.blups.csv", quote=FALSE,row.names=FALSE)
 
+## save model to file
+save(mm7, file="./data/27.data/mm7.final.mixed.model.Rdat")
 ```
 
 
-```{r load admixture results}
+```{r load admixture results, eval=FALSE}
 # parsed in 26.parse.redone.admixture.Rmd
+# depreciated
 a.group <- read.csv("./data/complete.admixture.groups.csv", stringsAsFactors = FALSE)
 ```
 
@@ -227,7 +301,7 @@ acc.fit.rxn$site.complex <- paste(acc.fit.rxn$exp, acc.fit.rxn$year, sep="_")
 acc.fit.rxn$group.names <- as.factor(acc.fit.rxn$group.names)
 acc.fit.rxn$group.names = factor(acc.fit.rxn$group.names,levels(acc.fit.rxn$group.names)[c(5,3,6,4,2,7,1)])
 
-pdf(file="./figures/reaction.norms.blups.pdf", width=8, height=5)
+pdf(file="./figures/27.figures/reaction.norms.blups.pdf", width=8, height=5)
 rxn.norms <- ggplot(acc.fit.rxn, aes(site.complex,fb, group=id)) + 
   geom_line(aes(colour=group.names)) + 
   scale_color_manual(values=group.colors[c(1,2,3,4,7,9,8)],name = "admixture group") +
@@ -238,19 +312,19 @@ print(rxn.norms)
 dev.off()
 ```
 
-```{r pairwise correlations between blups}
+```{r pairwise correlations between blups, eval=FALSE}
 ## need to reformat blups to long format
-blups <- read.csv(file="./data/marginal.blups.csv", stringsAsFactors=FALSE)
+blups <- read.csv(file="./data/27.data/marginal.blups.csv", stringsAsFactors=FALSE)
 blups.l <- blups %>% pivot_wider(id_cols=id,names_from=c(exp,year),values_from=fb)%>%as.data.frame()
 colnames(blups.l) <- c("id","NA_2011","NA_2012","NM_2011", "NM_2012","SR_2011", "SR_2012","SU_2011","SU_2012")
 
-pdf("./figures/correlation.fitness.blups.pdf", width=8, height=8)
+pdf("./figures/27.figures/correlation.fitness.blups.pdf", width=8, height=8)
 corrplot(cor(blups.l[,2:9], use="na.or.complete"), method="ellipse", type="upper", diag=FALSE)
 dev.off()
 
 my_cor <- cor(blups.l[,2:9], use="na.or.complete")
 colfunc<-colorRampPalette(c("red","white","royalblue"))
-heatmaply_cor(my_cor, colors= colfunc(100),cellnote=my_cor,cellnote_textposition="middle center")
+#heatmaply_cor(my_cor, colors= colfunc(100),cellnote=my_cor,cellnote_textposition="middle center")
 ### since these are interactive plots in plotly, they are hard to save statically, so I saved this one manually from the window
 #file="./figures/correlation.dendrogram.fitness.blups.jpeg")
 
@@ -264,20 +338,27 @@ heatmaply_cor(my_cor, colors= colfunc(100),cellnote=my_cor,cellnote_textposition
 ns.site <- as.data.frame(c(rep("North",4),rep("South",4)))
 ns.palette = c("North" = "green2", "South" = "dodgerblue2")
 colnames(ns.site) <- "location"
-cor.hm <- ggheatmap(my_cor,row_side_colors = ns.site, row_side_palette=ns.palette,show_dendrogram = c(TRUE, FALSE),margins = c(40, 130))
-print(cor.hm)
-pdf(file="./figures/blup.correlation.heatmap.pdf", width=8, height=5)
-print(cor.hm)
+ns.cols <- c(rep("green2",4), rep("dodgerblue2", 4))
+
+mycolors <- colorRampPalette(c("blue", "lightyellow1", "red"))
+heatmap.2(my_cor, trace = "none", col = mycolors)
+
+my_cor_na <- my_cor
+rna <- which(my_cor==1)
+my_cor_na[rna] <- NA
+
+pdf(file="./figures/27.figures/blup.correlation.heatmap.pdf", width=10, height=9)
+heatmap.2(my_cor, trace = "none", col = mycolors, margins=c(6.5,6.5), colsep=c(3,5), rowsep=c(3,5),ColSideColors=ns.cols, RowSideColors=ns.cols)
 dev.off()
-### so this isn't exactly right - missing a bar in the dendrogram, but I can't fix right now
+
 ```
 
 ```{r blup values by experiment and admixture group}
 ga.long.short <- acc.fit.rxn
-ga.long.short$exp <- gsub("ADA","N2", ga.long.short$exp)
-ga.long.short$exp <- gsub("RAM","N1", ga.long.short$exp)
-ga.long.short$exp <- gsub("RAT","S2", ga.long.short$exp)
-ga.long.short$exp <- gsub("ULL","S1", ga.long.short$exp)
+ga.long.short$exp <- gsub("ADA","NA", ga.long.short$exp)
+ga.long.short$exp <- gsub("RAM","NM", ga.long.short$exp)
+ga.long.short$exp <- gsub("RAT","SR", ga.long.short$exp)
+ga.long.short$exp <- gsub("ULL","SU", ga.long.short$exp)
 ### remove admixture groups with only one accession
 acc.tab <- table(ga.long.short$group.names)
 ga.long.short <- ga.long.short[ga.long.short$group.names%in%names(acc.tab[acc.tab>8]),]
@@ -293,7 +374,7 @@ ad.group.short.boxplot <- ggplot(ga.long.short, aes(x=group.names, y=fb, fill=as
   scale_fill_manual(name = "admixture group", values=brewer.pal(9, "Paired")[c(8,4,3,1)]) +
   ylab("fitness BLUPS")
 
-pdf(file="./figures/fitness.blups.by.admix.group.short.names.pdf", width=10, height=6)
+pdf(file="./figures/27.figures/fitness.blups.by.admix.group.short.names.pdf", width=10, height=6)
 print(ad.group.short.boxplot)
 dev.off()
 
@@ -321,7 +402,7 @@ rat.rn <- ggplot(rat.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour
 
 grid.arrange(ada.rn, ram.rn, ull.rn, rat.rn, nrow = 2)
 
-pdf(file="./figures/site.rxn.norms.pdf", width=11, height=7)
+pdf(file="./figures/27.figures/site.rxn.norms.pdf", width=11, height=7)
 grid.arrange(ada.rn, ram.rn, ull.rn, rat.rn, nrow = 2)
 dev.off()
 ```
@@ -352,7 +433,7 @@ ut.rn <- ggplot(ut.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour=g
 
 grid.arrange(au.rn, at.rn, ru.rn, rt.rn, ar.rn, ut.rn, nrow = 3)
 
-pdf(file="./figures/2011.rxn.norms.pdf", width=9, height=11)
+pdf(file="./figures/27.figures/2011.rxn.norms.pdf", width=9, height=11)
 grid.arrange(au.rn, at.rn, ru.rn, rt.rn, ar.rn, ut.rn, nrow = 3)
 dev.off()
 
@@ -383,7 +464,7 @@ ut.rn <- ggplot(ut.sub, aes(site.complex,fb, group=id)) + geom_line(aes(colour=g
 
 grid.arrange(au.rn, at.rn, ru.rn, rt.rn, ar.rn, ut.rn, nrow = 3)
 
-pdf(file="./figures/2012.rxn.norms.pdf", width=9, height=11)
+pdf(file="./figures/27.figures/2012.rxn.norms.pdf", width=9, height=11)
 grid.arrange(au.rn, at.rn, ru.rn, rt.rn, ar.rn, ut.rn, nrow = 3)
 dev.off()
 
@@ -410,6 +491,6 @@ line.est$exp <- paste(line.est$site, line.est$year, sep="_")
 test <- line.est[,c(10,13,14)]
 test <- spread(test, exp, mean.sig)
 
-write.table(line.est, file="./data/line.fitness.estimate.significance.txt")
+write.table(line.est, file="./data/27.data/line.fitness.estimate.significance.txt")
 ```
 

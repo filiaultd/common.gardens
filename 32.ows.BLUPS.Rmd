@@ -949,7 +949,7 @@ dev.off()
 comp2 <- merge(blups12, ows.m[ows.m$year==2012,], by=c("exp", "id","s.name", "region"), all.x=TRUE)
 
 ## write BLUPS and means to file
-write.csv(comp2, file="./data/marginal.ows.2012.blups.csv", quote=FALSE,row.names=FALSE)
+write.csv(comp2, file="./data/32.data/marginal.ows.2012.blups.csv", quote=FALSE,row.names=FALSE)
 
 pdf("./figures/32.figures/blup.vs.mean.ows.2012.pdf", width=6, height=5)
 comp.plot <- ggplot(data=comp2, aes(x=ows, y=ows.p, color=s.name)) +

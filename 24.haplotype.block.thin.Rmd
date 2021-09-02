@@ -27,14 +27,14 @@ field_experiments/adaptation_sweden/common.gardens/scripts/plink.haplotype.block
 
 ```{r load haploblock data}
 ##specifications ben used for microbiome paper
-ben.b <- read.table(file="/groups/nordborg/projects/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben.blocks.det", header=TRUE, stringsAsFactors=FALSE)
+ben.b <- read.table(file="../../001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben.blocks.det", header=TRUE, stringsAsFactors=FALSE)
 colnames(ben.b)[1:2] <- c("Chromosome", "Position")
 hist(ben.b$NSNPS)
 hist(ben.b$KB)
 genome.plot(ben.b,"KB")
 
 ##increasing windows considered to 400kb
-ben.b400 <- read.table(file="/groups/nordborg/projects/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben.400kb.blocks.det", header=TRUE, stringsAsFactors=FALSE)
+ben.b400 <- read.table(file="../../001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben.400kb.blocks.det", header=TRUE, stringsAsFactors=FALSE)
 colnames(ben.b400)[1:2] <- c("Chromosome", "Position")
 hist(ben.b400$NSNPS)
 hist(ben.b400$KB)
@@ -43,7 +43,7 @@ genome.plot(ben.b400,"KB")
 ## almost the same.
 
 ## reduce "recombination" detection point
-ben.br8 <- read.table(file="/groups/nordborg/projects/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben.400kb.recomb8.blocks.det", header=TRUE, stringsAsFactors=FALSE)
+ben.br8 <- read.table(file="../../001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben.400kb.recomb8.blocks.det", header=TRUE, stringsAsFactors=FALSE)
 colnames(ben.br8)[1:2] <- c("Chromosome", "Position")
 hist(ben.br8$NSNPS)
 hist(ben.br8$KB)
@@ -52,32 +52,32 @@ genome.plot(ben.br8,"KB")
 ## this is assembling some larger blocks, espcially around centromeres.
 
 ## 3 different settings of proportion of SNPs within a block that must be in strong LD
-ben.bi9 <- read.table(file="/groups/nordborg/projects/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben.inform9.blocks.det", header=TRUE, stringsAsFactors=FALSE)
+ben.bi9 <- read.table(file="../../001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben.inform9.blocks.det", header=TRUE, stringsAsFactors=FALSE)
 colnames(ben.bi9)[1:2] <- c("Chromosome", "Position")
 hist(ben.bi9$NSNPS)
 hist(ben.bi9$KB)
 genome.plot(ben.bi9,"KB")
 
-ben.bi8 <- read.table(file="/groups/nordborg/projects/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben.inform8.blocks.det", header=TRUE, stringsAsFactors=FALSE)
+ben.bi8 <- read.table(file="../../001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben.inform8.blocks.det", header=TRUE, stringsAsFactors=FALSE)
 colnames(ben.bi8)[1:2] <- c("Chromosome", "Position")
 hist(ben.bi8$NSNPS)
 hist(ben.bi8$KB)
 genome.plot(ben.bi8,"KB")
 
-ben.bi5 <- read.table(file="/groups/nordborg/projects//field_experiments/001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben.inform5.blocks.det", header=TRUE, stringsAsFactors=FALSE)
+ben.bi5 <- read.table(file="../../001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben.inform5.blocks.det", header=TRUE, stringsAsFactors=FALSE)
 colnames(ben.bi5)[1:2] <- c("Chromosome", "Position")
 hist(ben.bi5$NSNPS)
 hist(ben.bi5$KB)
 genome.plot(ben.bi5,"KB")
 
 ### so, 0.5 is too low.  0.8 might be reasonable??  But also increase window possibilities to 400 and 600kb
-ben.b400.i9 <- read.table(file="/groups/nordborg/projects/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben400.inform9.blocks.det", header=TRUE, stringsAsFactors=FALSE)
+ben.b400.i9 <- read.table(file="../../001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben400.inform9.blocks.det", header=TRUE, stringsAsFactors=FALSE)
 colnames(ben.b400.i9)[1:2] <- c("Chromosome", "Position")
 hist(ben.b400.i9$NSNPS)
 hist(ben.b400.i9$KB)
 genome.plot(ben.b400.i9,"KB")
 
-ben.b400.i8 <- read.table(file="/groups/nordborg/projects/field_experiments/001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben400.inform8.blocks.det", header=TRUE, stringsAsFactors=FALSE)
+ben.b400.i8 <- read.table(file="../../001.common.reference.files/006.field.SNPs.Fernando/haplotype.blocks/plink.ben400.inform8.blocks.det", header=TRUE, stringsAsFactors=FALSE)
 colnames(ben.b400.i8)[1:2] <- c("Chromosome", "Position")
 hist(ben.b400.i8$NSNPS)
 hist(ben.b400.i8$KB)
@@ -149,6 +149,7 @@ afb.dat$pos <- as.numeric(as.character(afb.dat$pos))
 afb.dat <- afb.dat[order(afb.dat$chrom, afb.dat$pos),]
 afb.dat$chrom <- as.numeric(as.character(afb.dat$chrom))
 ```
+
 ```{r tom candidate subset}
 c.snp <- 5929184
 c.chr <- 2

@@ -1,0 +1,44 @@
+---
+title: "30.robustness.Kmatrix.clusters"
+author: "Daniele Filiault"
+date: "8/30/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+```{r}
+
+
+mydata <- K
+wss <- (nrow(mydata)-1)*sum(apply(mydata,2,var))
+  for (i in 2:15) wss[i] <- sum(kmeans(mydata,centers=i,nstart = 500)$withinss)
+plot(1:15, wss, type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares")
+## looks like 6 groups would be appropriate
+## by eye, we also picked out 6, so let's go with that for the time being.
+
+# also with NbClust()
+selected <- c( "kl", "ch", "hartigan",  "cindex", "db", "silhouette", "duda", "pseudot2", "beale", "ratkowsky", "ball", "ptbiserial", "gap", "frey", "mcclain", "gamma", "gplus", "tau", "dunn", "hubert", "sdindex", "dindex", "sdbw") # the specific indices i can use-total number=23
+
+results <- vector("list",23)
+
+for (i in 1:length(selected)) {
+results[[i]] <- try(NbClust(mydata, min.nc=2, max.nc=15, method="kmeans", index=selected[i]))
+}
+nc <- table(unlist(lapply(results, function(x){x$Best.nc[1]})))
+
+
+### 6 K means groups
+k6clust <- kmeans(mydata,centers=4,nstart = 100)
+kmcl <- k6clust$cluster
+kmcl.order <- kmcl[match(k.order.acc,names(kmcl))]
+
+
+
+
+```
