@@ -21,8 +21,8 @@ library(viridis)
 
 Generates figure 4 of manuscript. 
 panel A is cumulative beta distribution by allele frequency difference
-panel B is  allele frequency difference by beta bin - numbers
-panel C is  allele frequency difference by beta bin - proportions
+panel B is  allele frequency difference by beta bin - proportions
+panel C is  allele frequency difference by beta bin - numbers
 
 ## 01.  Get data
 Data and analysis is from script 51
@@ -47,6 +47,13 @@ rm(s.afd.sum)
 af.loc <- do.call(rbind, strsplit(afd.sum$exp,"_"))
 afd.sum$exp.site <- af.loc[,1]
 afd.sum$year <- af.loc[,2]
+breaks <- seq(-0.5,1,0.15)
+tags <- c("-[.5-.35)","-[.35-.2)", "-[.2-.05)", "-[.05-.1)", "[-.1-.25)","[.25-.4)", "[.4-.55)","[.55-.7)", "[.7-85)","[.85-1)")
+  # bucketing values into bins north/south
+afd.sum$ha.bins <- cut(afd.sum$ha.afd, breaks=breaks, include.lowest=TRUE, right=FALSE, labels=tags)
+afd.sum$ha.bins <- factor(afd.sum$ha.bins, levels = tags,ordered = TRUE)
+afd.sum$ha.bins <- factor(afd.sum$ha.bins, levels=rev(levels(afd.sum$ha.bins)))
+
 
 ## also need borders of fixed for vertical lines
 afd.fixed <- aggregate(index~exp, data=afd.sum[afd.sum$ha.afd>=0.85,], FUN=min)
@@ -60,15 +67,16 @@ afd.fixed$year <- af.loc[,2]
 
 ### plot weighed cumulative beta
 panel.a <- ggplot(data=afd.sum, aes(x=index,y=csum.wb.norm)) +
-  geom_point(aes(color=ha.afd)) +
-  scale_color_viridis(direction=-1,name="allele\nfrequency\ndifference") +
+  geom_point(aes(color=ha.bins)) +
+  scale_color_brewer(palette = "Paired", name="allele\nfrequency\nbin") +
+  #scale_color_viridis(direction=-1,name="allele\nfrequency\ndifference") +
   facet_nested(exp.site + year~.)  +
   #facet_wrap(~exp, ncol=2) +
   geom_hline(yintercept=0,linetype="dashed", color = "red") +
   xlab("number of SNPs") +
   ylab("cumulative weighted beta (normalized)") + 
   geom_vline(data=afd.fixed, aes(xintercept=index), linetype="dashed", color="purple") +
-  theme(plot.margin=unit(c(1,0.5,0.5,0.5), "lines"))
+  theme(plot.margin=unit(c(1,0.5,0.5,0.5), "lines"), legend.position="None")
 
 ```
 
@@ -136,33 +144,35 @@ afd.beta.abs$ha.bins <- factor(afd.beta.abs$ha.bins, levels=rev(levels(afd.beta.
 afd.beta.prop$ha.bins <- factor(afd.beta.prop$ha.bins, levels=rev(levels(afd.beta.prop$ha.bins)))
 ```
 
-```{r make absolute numbers bin plot}
-
-panel.b <- ggplot(data=afd.beta.abs, aes(x=nb.bin,y=Freq,fill=ha.bins)) +
-  geom_bar(position="stack",stat="identity") + 
-  coord_flip()+
-  ylab("number of SNPs") +
-  xlab("home beta bin") +
-  scale_fill_brewer(palette = "Paired", name="allele\nfrequency\ndifference\nbin") +
-  #facet_grid(exp.site + year~.)
-  #facet_nested(exp.site + year~.)+
-  facet_grid(exp ~.) +
-  theme(strip.background=element_blank(), strip.text=element_blank(), plot.margin=unit(c(1,0.5,0.5,1), "lines"), legend.position = "none")
-```
 
 ```{r make proportions bin plot}
 
-panel.c <- ggplot(data=afd.beta.prop, aes(x=nb.bin,y=Freq,fill=ha.bins)) +
+panel.b <- ggplot(data=afd.beta.prop, aes(x=nb.bin,y=Freq,fill=ha.bins)) +
   geom_bar(position="stack",stat="identity") + 
   coord_flip()+
   ylab("proportion of SNPs") +
   xlab("home beta bin") +
   scale_fill_brewer(palette = "Paired", name="allele\nfrequency\ndifference\nbin", guide=guide_legend(reverse=T)) +
-  facet_nested(exp.site + year~.)  +
-  theme(axis.text.y=element_blank(), plot.margin=unit(c(1,1,0.5,0), "lines"))
+  facet_grid(exp ~.) +
+  theme(strip.background=element_blank(), strip.text=element_blank(), plot.margin=unit(c(1,0.5,0.5,1), "lines"), legend.position = "none")
+  
  
 ```
 
+```{r make absolute numbers bin plot}
+
+panel.c <- ggplot(data=afd.beta.abs, aes(x=nb.bin,y=Freq,fill=ha.bins)) +
+  geom_bar(position="stack",stat="identity") + 
+  coord_flip()+
+  ylab("number of SNPs") +
+  xlab("home beta bin") +
+  scale_fill_brewer(palette = "Paired", name="allele\nfrequency\ndifference\nbin",guide=guide_legend(reverse=T)) +
+  #facet_grid(exp.site + year~.)
+  #facet_nested(exp.site + year~.)+
+  facet_nested(exp.site + year~.)  +
+  theme(axis.text.y=element_blank(), plot.margin=unit(c(1,1,0.5,0), "lines"))
+  
+```
 
 ## 04. combine panels to final figure
 
@@ -172,9 +182,55 @@ fig4 <- ggarrange(panel.a, panel.b, panel.c + rremove("ylab"),
                     ncol = 3,
                     labels=c("A","B","C"),
                     font.label = list(size = 10, color = "black", face = "bold", family = NULL, position = "top"),
-                    widths=c(2,1,1.5))
+                    widths=c(1.5,1.2,1.5))
 
 ggsave(fig4, file="./manuscript.figures/Figure4.jpg", width=10, height=9)
 
 ```
 
+## 05.  subsets of figure for talks
+
+```{r subsets for talks}
+#cumulative betas for NM_2011 and SU_2011
+afd.subset <- afd.sum[afd.sum$exp%in%c("NM_2011", "SU_2011"),]
+
+csum.subset.plot <- ggplot(data=afd.subset, aes(x=index,y=csum.wb.norm)) +
+  geom_point(aes(color=ha.bins)) +
+  scale_color_brewer(palette = "Paired", name="allele\nfrequency\ndifference\nbin", guide=guide_legend(reverse=T)) +
+  facet_wrap(~exp, ncol=1) +
+  geom_hline(yintercept=0,linetype="dashed", color = "red") +
+  xlab("number of SNPs") +
+  ylab("cumulative weighted beta (normalized)") + 
+  geom_vline(data=afd.fixed[afd.fixed$exp%in%c("NM_2011", "SU_2011"),], aes(xintercept=index), linetype="dashed", color="purple") +
+  theme(plot.margin=unit(c(1,0.5,0.5,0.5), "lines"))
+ggsave(csum.subset.plot, file="./figures/99.talk.figures/subset.AFD.cumsum.jpg", width=6, height=5)
+
+
+#proportions for NM_2011 and SU_2011
+prop.subset.plot <- ggplot(data=afd.beta.prop[afd.beta.prop$exp%in%c("NM_2011", "SU_2011"),], aes(x=nb.bin,y=Freq,fill=ha.bins)) +
+  geom_bar(position="stack",stat="identity") + 
+  coord_flip()+
+  ylab("proportion of SNPs") +
+  xlab("home beta bin") +
+  scale_fill_brewer(palette = "Paired", name="allele\nfrequency\ndifference\nbin", guide=guide_legend(reverse=T)) +
+  #facet_nested(exp.site + year~.)  +
+  facet_wrap(~exp, ncol=1) +
+  theme(plot.margin=unit(c(1,0.5,0.5,1), "lines"))
+ggsave(prop.subset.plot, file="./figures/99.talk.figures/subset.AFD.prop.jpg", width=4, height=5)
+
+#absolute numbers for NM_2011 and SU_2011
+absolute.subset.plot <- ggplot(data=afd.beta.abs[afd.beta.abs$exp%in%c("NM_2011", "SU_2011"), ], aes(x=nb.bin,y=Freq,fill=ha.bins)) +
+  geom_bar(position="stack",stat="identity") + 
+  coord_flip()+
+  ylab("number of SNPs") +
+  xlab("home beta bin") +
+  scale_fill_brewer(palette = "Paired", name="allele\nfrequency\ndifference\nbin", guide=guide_legend(reverse=T)) +
+  facet_wrap(~exp, ncol=1) +
+  theme(plot.margin=unit(c(1,0.5,0.5,1), "lines")) 
+ggsave(absolute.subset.plot, file="./figures/99.talk.figures/subset.AFD.absolute.jpg", width=4, height=5)
+
+
+subset.homeAFD.plot <- ggarrange(csum.subset.plot, prop.subset.plot, absolute.subset.plot+ rremove("ylab"), ncol=3, common.legend = TRUE, legend="right", widths=c(2,1,0.85))
+ggsave(subset.homeAFD.plot, file="./figures/99.talk.figures/subset.homeAFD.plot.jpg", width=9, height=5)
+
+```

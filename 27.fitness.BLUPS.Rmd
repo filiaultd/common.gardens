@@ -98,22 +98,23 @@ anova(lm3, lm4)
 anova(lm3, lm5)
 anova(lm3, lm6)
 
-ssq <- anova(lm3)[[2]]
-pve <-ssq/sum(ssq)
-names(pve) <- rownames(anova(lm3))
-print(pve)
 
-ssq1 <- anova(lm1)[[2]]
-pve1 <-ssq1/sum(ssq1)
-names(pve1) <- rownames(anova(lm1))
-print(pve1)
+lm.pve <- function(up.lm){
+  ssq <- anova(up.lm)[[2]]
+  pve <- ssq/sum(ssq) *100
+  names(pve) <- rownames(anova(up.lm))
+  return(pve)
+}
+
+pve3 <- lm.pve(lm3)  
+pve1 <- lm.pve(lm1)  
 
 #(summary(lm3))
 pander(anova(lm3))
 
 # make anova table with PVE
 lm3.tab <- as.data.frame(anova(lm3))
-lm3.tab$PVE <- pve * 100
+lm3.tab$PVE <- pve3
 rownames(lm3.tab)[8] <- "year:exp/block"
 xtab.lm3 <- xtable(lm3.tab)
 print(xtab.lm3, file="./figures/27.figures/fixed.effects.anova.table.txt")
@@ -132,9 +133,7 @@ exp.anovas <- apply(combos, 1, function(x){check.pvals(d=d, y=x[1], e=x[2])}) # 
 get.pve <- function(d, y, e){
   up.d <- d[d$year==y & d$exp==e,]
   up.lm <- lm(fitness~id+block, data=up.d)
-  ssq <- anova(up.lm)[[2]]
-  pve <-(ssq/sum(ssq))*100
-  names(pve) <- rownames(anova(up.lm))
+  pve <- lm.pve(up.lm)
   return(pve)
 }
 
@@ -187,33 +186,74 @@ Probably more natural choice is to specify block as a random effect in a mixed e
 
 ### 4. fixed effect linear models incorporating genetic groups
 Genetic groups determined in script 29
-```{r linear models with Kgroups}
+```{r full linear models with Kgroups}
 dk <-merge(d, kg, all.x=TRUE)
 
-## model with k.2 instead of genotype ()
-dk$k.2 <- as.factor(dk$k.2)
-lm.k2 <- lm(fitness~k.2*year*exp + exp:year/block, data=dk)
-anova(lm.k2)
+#check models and get pve for all 7 ks
+ks <- colnames(dk)[grep("k.", colnames(dk))]
+ks <- ks[order(ks)]
 
-## model with k.6 instead of genotype
-dk$k.6 <- as.factor(dk$k.6)
-lm.k6 <- lm(fitness~k.6*year*exp + exp:year/block, data=dk)
-anova(lm.k6)
-## k.6 is much more significant than k.2!
+k.anovas <- lapply(as.list(ks), function(up.k){
+  up.lm <- lm(fitness~as.factor(get(up.k))*year*exp + exp:year/block, data=dk)
+  return(anova(up.lm))
+})
 
-ssq2 <- anova(lm.k2)[[2]]
-pve2 <-(ssq2/sum(ssq2))*100
-names(pve2) <- rownames(anova(lm.k2))
+k.pve <- sapply(ks, function(up.k){
+  up.lm <- lm(fitness~as.factor(get(up.k))*year*exp + exp:year/block, data=dk)
+  return(lm.pve(up.lm))
+})
+k.pve <- as.data.frame(k.pve)
+k.pve$terms <- gsub("as.factor(get(up.k))", "k.group", rownames(k.pve), fixed=TRUE)
 
-ssq6 <- anova(lm.k6)[[2]]
-pve6 <-(ssq6/sum(ssq6))*100
-names(pve6) <- rownames(anova(lm.k6))
-  
- 
+k.pve.l <- gather(k.pve, kgroup, pve, k.2:k.8)
+
+kterms <- k.pve[grep("k.group", k.pve$terms),"terms"]
+ggplot(k.pve.l[k.pve.l$terms%in%kterms,], aes(x=kgroup, y=pve, group=terms, color=terms)) + geom_line()
+
+
+## output model with k=6
+lm.k6 <-  lm(fitness~k.6*year*exp + exp:year/block, data=dk)
+
+lm.k6.tab <- as.data.frame(anova(lm.k6))
+lm.k6.tab$PVE <- lm.pve(lm.k6)
+rownames(lm.k6.tab)[8] <- "year:exp/block"
+xtab.lm.k6 <- xtable(lm.k6.tab)
+print(xtab.lm.k6, file="./figures/27.figures/fixed.effects.k6.anova.table.txt")
 ```
+There is a big jump in pve for kgroup between k=5 and k=6.  This reinforces the idea that k=6 is appropriate
 
+```{r by experiment linear models with 6 kgroups}
+combos <- expand.grid(unique(d$year), unique(d$exp))
 
+up.kn <- "k.6"
 
+check.pvals.k <- function(d,y,e, up.kn){
+  up.d <- d[d$year==y & d$exp==e,]
+  up.lm <- lm(fitness~as.factor(get(up.kn))+block, data=up.d)
+  return(anova(up.lm)$"Pr(>F)")
+}
+
+k6.ps <- apply(combos, 1, function(x){check.pvals.k(d=dk, y=x[1], e=x[2], up.kn=up.kn)}) # all genotypes significant, block sig in all but RAM_2012
+k6.ps <-k6.ps[-3,]
+k6.ps <- t(k6.ps)
+colnames(k6.ps) <- c("p.kgroup", "p.block")
+
+get.pve.k <- function(d, y, e, up.kn){
+  up.d <- d[d$year==y & d$exp==e,]
+  up.lm <- lm(fitness~as.factor(get(up.kn))+block, data=up.d)
+  pve <- lm.pve(up.lm)
+  return(pve)
+}
+
+k6.pve <- apply(combos, 1, function(x){get.pve.k(d=dk, y=x[1], e=x[2], up.kn="k.6")}) 
+k6.pve <- as.data.frame(t(k6.pve))
+k6.pve <- cbind(combos, k6.pve)
+colnames(k6.pve) <- c("year", "site", "kgroup", "block", "residuals")
+xtab.k6.pve <- xtable(k6.pve)
+print(xtab.k6.pve, file="./figures/27.figures/pve.table.kgroup.txt")
+
+```
+Experiments with the highest kgroup PVEs are the ones that show locally-adaptive kgroup patterns (see script 29).  Expected, but still good to confirm.
 
 ### 5.  Mixed effect model to get BLUPS
 ```{r mixed model specifications}

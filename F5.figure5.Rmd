@@ -14,6 +14,7 @@ library(ggpubr)
 library(cowplot)
 library(ggh4x)
 library(viridis)
+library(tidyr)
 ```
 
 
@@ -22,9 +23,7 @@ library(viridis)
 Generates figure 5 of manuscript. 
 panel A -> a cartoon of the four beta vs beta quadrants
 panel B -> beta vs beta for SU2011 vs NM2011
-panel C -> beta vs beta for SU2011 vs SU2012
-panel D -> beta by beta by AF for SU2011 vs NM2011
-panel E -> beta by beta by AF for SU2011 vs SU2012
+panel C -> beta by beta by AF for SU2011 vs NM2011
 
 
 ## 01.  Get data
@@ -34,7 +33,6 @@ Home betas of all SNPS and experiments with AF bins.
 ```{r load home beta and afd data}
 load(file="./data/47.data/afb.n.Rdat")
 load(file="./data/47.data/afb.s.Rdat")
-
 ```
 
 ```{r functions to extract data}
@@ -115,7 +113,6 @@ panel.a <- ggplot(gd) +
 
 ## 03. format data for other panels
 
-
 ```{r generate SU_2011 vs NM_2011 datasets}
 sn.g.dat <- g.quad.counts(up.exp="SU_2011", "NM_2011", pol.dat=afb.s)
 sn.bin.dat <- bin.quad.counts(up.exp="SU_2011", "NM_2011", pol.dat=afb.s)
@@ -127,7 +124,8 @@ ss.g.dat <- g.quad.counts(up.exp="SU_2011", "SU_2012", pol.dat=afb.s)
 ss.bin.dat <- bin.quad.counts(up.exp="SU_2011", "SU_2012", pol.dat=afb.s)
 
 ```
-
+ 
+ 
 ## 04. panel B
 ```{r panel B}
 gd <- sn.g.dat %>% 
@@ -153,9 +151,105 @@ panel.b <- ggplot(gd) +
         legend.position = "none")
 ```
 
-## 06. panel c - 
 
-```{r panel c plot}
+## 05. panel c 
+```{r panel c}
+pd <- sn.bin.dat %>% 
+    mutate(xmin = if_else(quadrant %in% c("NN","NP"), -sqrt(snp.p), 0),
+         xmax = if_else(quadrant %in% c("PP", "PN"), sqrt(snp.p), 0),
+         ymin = if_else(quadrant %in% c("NN","PN"), -sqrt(snp.p), 0),
+         ymax = if_else(quadrant %in% c("PP","NP"), sqrt(snp.p), 0))
+
+pd$quadrant <- factor(pd$quadrant, levels=c("NP","NN","PN","PP"))
+pd <-  cbind(pd, text.col = ifelse(pd$quadrant%in%c("NN","PP"), "white", "black"))
+pd$aaway.bins <- factor(pd$aaway.bins, levels=rev(levels(pd$aaway.bins)))
+
+text.color=c("black", "white")
+
+panel.d <- ggplot(pd) + 
+    geom_rect(aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax, fill=quadrant)) +
+    geom_text(aes(x = xmin + 0.5*sqrt(snp.p), y = ymin +0.5*sqrt(snp.p), color=text.col, label = formatC(round(snp.p*100,2), digits=0,format="f")), size=2.5, fontface ="bold") +
+    facet_grid(aaway.bins ~ ahome.bins) +
+    coord_equal() +
+    scale_fill_brewer(palette="Paired") +
+    scale_color_manual(values=text.color) +
+    geom_hline(yintercept = 0) +
+    geom_vline(xintercept = 0) +
+    labs(x="effect of Southern allele in SU 2011", y="effect of Southern allele in NM 2011") +
+    theme_minimal() +
+    theme(axis.text = element_blank(),
+        panel.grid = element_blank(),
+        legend.position = "none",
+        strip.background = element_rect(fill="grey80"),
+        strip.placement = "outside")
+
+lower.panel <- annotate_figure(panel.d, right = text_grob("frequency of Southern (home) allele in Northern population", rot=-90), top = text_grob("Southern (home) allele frequency"))
+```
+
+## 06. assemble final figure
+```{r assemble figure}
+
+fig5 <- ggdraw() +
+  draw_plot(panel.a, x = 0, y = .5, width = .4, height = .5) +
+  draw_plot(panel.b, x = 0, y = .0, width = .4, height = .5) +
+  draw_plot(lower.panel , x = .4, y = 0, width = .6, height = 1) +
+  draw_plot_label(label = c("A", "B", "C"), size = 15,
+                  x = c(0, 0, 0.4), y = c(1, 0.5, 1))
+
+ggsave(fig5, file="./manuscript.figures/Figure5.jpg", width=6.6, height=7)
+
+```
+
+
+## Depreciated below.  Remove once figure finalized.
+
+
+
+## 09. assemble and annotate panels d and e
+```{r lower panels, eval=FALSE}
+
+lower.panel <- annotate_figure(panel.d, right = text_grob("Southern (home) allele frequency", rot=-90), top = text_grob("frequency of Southern (home) allele in Northern population"))
+
+panel.d <- annotate_figure(panel.d, right = text_grob("Southern (home) allele frequency", rot=-90), top = text_grob("frequency of Southern (home) allele in Northern population"))
+
+panel.e <- annotate_figure(panel.e, right = text_grob("Southern (home) allele frequency", rot=-90), top = text_grob("frequency of Southern (home) allele in Northern population"))
+
+```
+
+
+## 10. assemble figure
+```{r assemble figure, eval=FALSE}
+
+fig5 <- ggdraw() +
+  draw_plot(panel.a, x = 0, y = .65, width = .33, height = .33) +
+  draw_plot(panel.b, x = .33, y = .65, width = .33, height = .33) +
+  draw_plot(panel.c, x = .66, y = .65, width = .33, height = .33) +
+  draw_plot(lower.panel , x = 0, y = 0, width = 1, height = 0.6) +
+  draw_plot_label(label = c("A", "B", "C", "D"), size = 15,
+                  x = c(0, 0.33, 0.66, 0), y = c(1, 1, 1, 0.65))
+
+ggsave(fig5, file="./manuscript.figures/Figure5.jpg", width=9.5, height=8.8)
+
+```
+
+```{r assemble figure extended, eval=FALSE}
+
+fig5e <- ggdraw() +
+  draw_plot(panel.a, x = 0, y = .78, width = .33, height = .22) +
+  draw_plot(panel.b, x = .33, y = .78, width = .33, height = .22) +
+  draw_plot(panel.c, x = .66, y = .78, width = .33, height = .22) +
+  draw_plot(panel.d , x = 0, y = 0.39, width = 1, height = 0.38) +
+  draw_plot(panel.e , x = 0, y = 0, width = 1, height = 0.38) +
+  draw_plot_label(label = c("A", "B", "C", "D", "E"), size = 15,
+                  x = c(0, 0.33, 0.66, 0, 0), y = c(1, 1, 1, 0.77, 0.38))
+
+ggsave(fig5e, file="./manuscript.figures/Figuree5.jpg", width=9.0, height=13)
+
+```
+
+## 06. panel c - old version
+
+```{r panel c plot, eval=FALSE}
 
 gd <- ss.g.dat %>% 
     mutate(xmin = if_else(quadrant %in% c("NN","NP"), -sqrt(snp.p), 0),
@@ -180,42 +274,8 @@ panel.c <- ggplot(gd) +
         legend.position = "none")
 ```
 
-## 07. panel d 
-```{r panel d}
-pd <- sn.bin.dat %>% 
-    mutate(xmin = if_else(quadrant %in% c("NN","NP"), -sqrt(snp.p), 0),
-         xmax = if_else(quadrant %in% c("PP", "PN"), sqrt(snp.p), 0),
-         ymin = if_else(quadrant %in% c("NN","PN"), -sqrt(snp.p), 0),
-         ymax = if_else(quadrant %in% c("PP","NP"), sqrt(snp.p), 0))
-
-pd$quadrant <- factor(pd$quadrant, levels=c("NP","NN","PN","PP"))
-pd <-  cbind(pd, text.col = ifelse(pd$quadrant%in%c("NN","PP"), "white", "black"))
-pd$ahome.bins <- factor(pd$ahome.bins, levels=rev(levels(pd$ahome.bins)))
-
-text.color=c("black", "white")
-
-panel.d <- ggplot(pd) + 
-    geom_rect(aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax, fill=quadrant)) +
-    geom_text(aes(x = xmin + 0.5*sqrt(snp.p), y = ymin +0.5*sqrt(snp.p), color=text.col, label = formatC(round(snp.p*100,2), digits=0,format="f")), size=2.5, fontface ="bold") +
-    facet_grid(ahome.bins ~ aaway.bins) +
-    coord_equal() +
-    scale_fill_brewer(palette="Paired") +
-    scale_color_manual(values=text.color) +
-    geom_hline(yintercept = 0) +
-    geom_vline(xintercept = 0) +
-    labs(x="effect of Southern allele in SU 2011", y="effect of Southern allele in NM 2011") +
-    theme_minimal() +
-    theme(axis.text = element_blank(),
-        panel.grid = element_blank(),
-        legend.position = "none",
-        strip.background = element_rect(fill="grey80"),
-        strip.placement = "outside")
-
-
-```
-
 ## 08. panel e 
-```{r panel e}
+```{r panel e, eval=FALSE}
 pd <- ss.bin.dat %>% 
     mutate(xmin = if_else(quadrant %in% c("NN","NP"), -sqrt(snp.p), 0),
          xmax = if_else(quadrant %in% c("PP", "PN"), sqrt(snp.p), 0),
@@ -247,48 +307,3 @@ panel.e <- ggplot(pd) +
 
 
 ```
-
-## 09. assemble and annotate panels d and e
-```{r lower panels}
-
-#lower.panel <- annotate_figure(panel.d, right = text_grob("Southern (home) allele frequency", rot=-90), top = text_grob("frequency of Southern (home) allele in Northern population"))
-
-panel.d <- annotate_figure(panel.d, right = text_grob("Southern (home) allele frequency", rot=-90), top = text_grob("frequency of Southern (home) allele in Northern population"))
-
-panel.e <- annotate_figure(panel.e, right = text_grob("Southern (home) allele frequency", rot=-90), top = text_grob("frequency of Southern (home) allele in Northern population"))
-
-```
-
-
-## 10. assemble figure
-```{r assemble figure}
-
-fig5 <- ggdraw() +
-  draw_plot(panel.a, x = 0, y = .65, width = .33, height = .33) +
-  draw_plot(panel.b, x = .33, y = .65, width = .33, height = .33) +
-  draw_plot(panel.c, x = .66, y = .65, width = .33, height = .33) +
-  draw_plot(lower.panel , x = 0, y = 0, width = 1, height = 0.6) +
-  draw_plot_label(label = c("A", "B", "C", "D"), size = 15,
-                  x = c(0, 0.33, 0.66, 0), y = c(1, 1, 1, 0.65))
-
-ggsave(fig5, file="./manuscript.figures/Figure5.jpg", width=9.5, height=8.8)
-
-```
-
-```{r assemble figure extended}
-
-fig5e <- ggdraw() +
-  draw_plot(panel.a, x = 0, y = .78, width = .33, height = .22) +
-  draw_plot(panel.b, x = .33, y = .78, width = .33, height = .22) +
-  draw_plot(panel.c, x = .66, y = .78, width = .33, height = .22) +
-  draw_plot(panel.d , x = 0, y = 0.39, width = 1, height = 0.38) +
-  draw_plot(panel.e , x = 0, y = 0, width = 1, height = 0.38) +
-  draw_plot_label(label = c("A", "B", "C", "D", "E"), size = 15,
-                  x = c(0, 0.33, 0.66, 0, 0), y = c(1, 1, 1, 0.77, 0.38))
-
-ggsave(fig5e, file="./manuscript.figures/Figuree5.jpg", width=9.0, height=13)
-
-```
-
-
-

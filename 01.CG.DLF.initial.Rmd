@@ -105,6 +105,13 @@ save(slug.phenos, file="./data/slug.phenos.fitted.Rdat")
 
 ```
 
+```{r slug heritability}
+
+
+
+
+```
+
 ### 1b. Combine with BLUPs for all other phenotypes, too
 These are by year and by site, so the most "marginal" possible.  
 Think about sense of combining years, combining N/S for phenos?  Ben only did for fitness.  Should explore year-to-year differences more?  Or do N/S

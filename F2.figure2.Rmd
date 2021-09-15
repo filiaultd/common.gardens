@@ -31,14 +31,26 @@ Panel C - Relationship between slug damage and fitness BLUPs (original analysis 
 ## 01. load data
 
 ```{r load fitness BLUP data}
+# BLUPs for fitness 2011
+blups <- read.csv(file="./data/27.data/marginal.blups.csv", stringsAsFactors=FALSE, header=TRUE)
+blups$exp <- gsub("ADA","NA", blups$exp)
+blups$exp <- gsub("RAM","NM", blups$exp)
+blups$exp <- gsub("ULL","SU", blups$exp)
+blups$exp <- gsub("RAT","SR", blups$exp)
+
 #zscore normalized fitness BLUPs
-fit.blups <- read.table(file="./data/normalized.BLUPs.txt")
+#fit.blups <- read.table(file="./data/normalized.BLUPs.txt")
 
 ## background group ID data
 kcl <- read.table(file="./data/K.groups.txt", stringsAsFactors=FALSE)
+colnames(kcl)[2] <- "id"
 
-fit.blups <- merge(fit.blups, kcl, by="row.names")
+fit.blups <- merge(blups, kcl, all.x=TRUE)
 fit.blups <- fit.blups[,colnames(fit.blups)%in%c("Row.names","K.group")==FALSE]
+fit.blups$exp <- paste(fit.blups$exp, fit.blups$year, sep="_")
+fit.blups <- fit.blups[,-grep("year", colnames(fit.blups))]
+fit.blups <- fit.blups %>% spread(exp,fb)
+fit.blups <- fit.blups[,c(3:10,1:2)]
 ```
 
 ```{r load slug BLUP data}
@@ -129,11 +141,11 @@ kcol <- brewer.pal(6, "Paired")[c(6,1,2,5,3,4)]
 #ann$K.name <- "B"  ## dummy value so this works with ggplot
 
 fit.byk.plot <- ggplot(data=fb.l, aes(x=K.name, y=blup, fill=K.name)) +
-  geom_boxplot() +
+  geom_boxplot(outlier.shape = NA) +
   geom_jitter(width=0.1, size=0.5) +
   scale_fill_manual(values=kcol) +
   theme_bw() +
-  labs(y="normalized fitness") +
+  labs(y="fitness BLUPs") +
   theme(legend.position = "none") +
   xlab("genetic group") +
   geom_text(data=tukey.normfit, aes(label=Tukey_labels), size=3) +
@@ -171,7 +183,7 @@ slug.byk.plot <- ggplot(data=slug.phenos, aes(x=K.name, y=X2011_RAT_severeslug,f
 ```
 
 ## 05. Plot slug damage vs fitness - panel C
-``` {r plot slug vs fitness}
+```{r plot slug vs fitness}
 
 slug.fit <- ggplot(slug.phenos, aes(x=X2011_RAT_severeslug, y=fb, colour=K.name)) + 
   geom_point() + 
