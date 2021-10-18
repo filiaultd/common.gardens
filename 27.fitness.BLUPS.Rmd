@@ -142,6 +142,12 @@ exp.pves <- apply(combos, 1, function(x){get.pve(d=d, y=x[1], e=x[2])})
 exp.pves <- as.data.frame(t(exp.pves))
 exp.pves <- cbind(combos, exp.pves)
 colnames(exp.pves) <- c("year", "site", "genotype", "block", "residuals")
+exp.pves$site <- gsub("ULL", "SU", exp.pves$site)
+exp.pves$site <- gsub("RAT", "SR", exp.pves$site)
+exp.pves$site <- gsub("RAM", "NM", exp.pves$site)
+exp.pves$site <- gsub("ADA", "NA", exp.pves$site)
+exp.pves <- exp.pves[order(exp.pves$site),]
+
 xtab.pve <- xtable(exp.pves)
 print(xtab.pve, file="./figures/27.figures/pve.table.txt")
 
@@ -208,11 +214,11 @@ k.pve$terms <- gsub("as.factor(get(up.k))", "k.group", rownames(k.pve), fixed=TR
 k.pve.l <- gather(k.pve, kgroup, pve, k.2:k.8)
 
 kterms <- k.pve[grep("k.group", k.pve$terms),"terms"]
-ggplot(k.pve.l[k.pve.l$terms%in%kterms,], aes(x=kgroup, y=pve, group=terms, color=terms)) + geom_line()
-
+k.pve.plot <- ggplot(k.pve.l[k.pve.l$terms%in%kterms,], aes(x=kgroup, y=pve, group=terms, color=terms)) + geom_line()
+ggsave(k.pve.plot, file="./figures/27.figures/pve.by.kgroup.number.pdf", width=6, height=4)
 
 ## output model with k=6
-lm.k6 <-  lm(fitness~k.6*year*exp + exp:year/block, data=dk)
+lm.k6 <-  lm(fitness~as.factor(k.6)*year*exp + exp:year/block, data=dk)
 
 lm.k6.tab <- as.data.frame(anova(lm.k6))
 lm.k6.tab$PVE <- lm.pve(lm.k6)
@@ -249,6 +255,12 @@ k6.pve <- apply(combos, 1, function(x){get.pve.k(d=dk, y=x[1], e=x[2], up.kn="k.
 k6.pve <- as.data.frame(t(k6.pve))
 k6.pve <- cbind(combos, k6.pve)
 colnames(k6.pve) <- c("year", "site", "kgroup", "block", "residuals")
+k6.pve$site <- gsub("ULL", "SU", k6.pve$site)
+k6.pve$site <- gsub("RAT", "SR", k6.pve$site)
+k6.pve$site <- gsub("RAM", "NM", k6.pve$site)
+k6.pve$site <- gsub("ADA", "NA", k6.pve$site)
+k6.pve <- k6.pve[order(k6.pve$site),]
+
 xtab.k6.pve <- xtable(k6.pve)
 print(xtab.k6.pve, file="./figures/27.figures/pve.table.kgroup.txt")
 
